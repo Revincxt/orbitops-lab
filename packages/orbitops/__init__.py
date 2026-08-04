@@ -19,6 +19,8 @@ from orbitops.domain.models import (
 from orbitops.simulation import ConstraintValidator, DiscreteEventSimulator, validate_schedule
 from orbitops.solvers import (
     BaseSolver,
+    BranchAndBoundSolver,
+    BruteForceSolver,
     GreedyDeadlineSolver,
     GreedyDensitySolver,
     GreedyInsertionSolver,
@@ -27,11 +29,15 @@ from orbitops.solvers import (
     Solver,
     SolverConfig,
     available_solvers,
+    baseline_solvers,
+    exact_solvers,
     get_solver,
 )
 
 __all__ = [
     "BaseSolver",
+    "BranchAndBoundSolver",
+    "BruteForceSolver",
     "ConstraintValidator",
     "DiscreteEventSimulator",
     "GreedyDeadlineSolver",
@@ -56,6 +62,8 @@ __all__ = [
     "ValidationIssue",
     "ValidationReport",
     "available_solvers",
+    "baseline_solvers",
+    "exact_solvers",
     "get_solver",
     "validate_schedule",
 ]

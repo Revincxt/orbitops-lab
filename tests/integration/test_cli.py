@@ -42,6 +42,8 @@ def test_solvers_command_lists_stable_names() -> None:
 
     assert result.exit_code == 0
     assert result.stdout.splitlines() == [
+        "branch-and-bound",
+        "brute-force",
         "greedy-deadline",
         "greedy-density",
         "greedy-insertion",
@@ -61,6 +63,16 @@ def test_solve_command_returns_validated_result() -> None:
     assert payload["schedule"]["solver_name"] == "greedy-insertion"
     assert payload["validation"]["is_feasible"] is True
     assert payload["metrics"]["total_value"] == 226.0
+
+
+def test_solve_command_runs_exact_solver() -> None:
+    scenario_path = PROJECT_ROOT / "scenarios" / "tiny" / "tiny-conflict.json"
+    result = runner.invoke(app, ["solve", str(scenario_path), "--solver", "branch-and-bound"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["metrics"]["total_value"] == 18.0
+    assert payload["schedule"]["metadata"]["optimality_proven"] is True
 
 
 def test_solve_command_can_write_result(tmp_path: Path) -> None:

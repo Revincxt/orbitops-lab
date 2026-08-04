@@ -1,0 +1,12 @@
+{
+  "tiny-conflict": {
+    "total_value": 18.0,
+    "completed_tasks": 2,
+    "task_ids": ["task-a", "task-c"]
+  },
+  "tiny-resource": {
+    "total_value": 14.0,
+    "completed_tasks": 2,
+    "task_ids": ["task-a", "task-c"]
+  }
+}

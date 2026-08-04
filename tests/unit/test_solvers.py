@@ -2,24 +2,27 @@ from pathlib import Path
 
 import pytest
 from orbitops import Scenario
-from orbitops.solvers import available_solvers, get_solver
+from orbitops.solvers import available_solvers, baseline_solvers, exact_solvers, get_solver
 
 PROJECT_ROOT = Path(__file__).parents[2]
 SCENARIO_PATH = PROJECT_ROOT / "scenarios" / "examples" / "demo.json"
-EXPECTED_SOLVERS = (
+EXPECTED_BASELINES = (
     "greedy-deadline",
     "greedy-density",
     "greedy-insertion",
     "greedy-value",
     "random-feasible",
 )
+EXPECTED_EXACT = ("branch-and-bound", "brute-force")
 
 
 def test_registry_has_stable_solver_names() -> None:
-    assert available_solvers() == EXPECTED_SOLVERS
+    assert baseline_solvers() == EXPECTED_BASELINES
+    assert exact_solvers() == EXPECTED_EXACT
+    assert available_solvers() == (*EXPECTED_EXACT, *EXPECTED_BASELINES)
 
 
-@pytest.mark.parametrize("solver_name", EXPECTED_SOLVERS)
+@pytest.mark.parametrize("solver_name", EXPECTED_BASELINES)
 def test_all_baselines_solve_demo_feasibly(solver_name: str) -> None:
     scenario = Scenario.from_json(SCENARIO_PATH)
 
@@ -31,7 +34,7 @@ def test_all_baselines_solve_demo_feasibly(solver_name: str) -> None:
     assert result.metrics.completed_tasks == 3
 
 
-@pytest.mark.parametrize("solver_name", EXPECTED_SOLVERS)
+@pytest.mark.parametrize("solver_name", EXPECTED_BASELINES)
 def test_fixed_seed_reproduces_schedule_and_metrics(solver_name: str) -> None:
     scenario = Scenario.from_json(SCENARIO_PATH)
     solver = get_solver(solver_name, seed=73)

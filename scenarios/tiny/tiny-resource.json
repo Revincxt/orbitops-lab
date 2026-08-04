@@ -1,0 +1,72 @@
+{
+  "schema_version": "0.1",
+  "scenario_id": "tiny-resource",
+  "name": "Tiny storage selection",
+  "horizon_start_s": 0.0,
+  "horizon_end_s": 100.0,
+  "satellite": {
+    "satellite_id": "tiny-sat",
+    "energy_capacity_wh": 100.0,
+    "initial_energy_wh": 100.0,
+    "recharge_rate_w": 0.0,
+    "storage_capacity_gb": 5.0,
+    "initial_storage_gb": 0.0,
+    "initial_attitude_deg": 0.0,
+    "slew_rate_deg_s": 10.0,
+    "settling_time_s": 0.0
+  },
+  "tasks": [
+    {
+      "task_id": "task-a",
+      "target": {
+        "target_id": "target-a",
+        "name": "Target A",
+        "latitude_deg": 0.0,
+        "longitude_deg": 0.0
+      },
+      "priority_value": 9.0,
+      "duration_s": 20.0,
+      "visibility_windows": [
+        {"window_id": "window-a", "start_s": 0.0, "end_s": 25.0}
+      ],
+      "required_attitude_deg": 0.0,
+      "energy_cost_wh": 0.0,
+      "storage_cost_gb": 3.0
+    },
+    {
+      "task_id": "task-b",
+      "target": {
+        "target_id": "target-b",
+        "name": "Target B",
+        "latitude_deg": 1.0,
+        "longitude_deg": 1.0
+      },
+      "priority_value": 8.0,
+      "duration_s": 20.0,
+      "visibility_windows": [
+        {"window_id": "window-b", "start_s": 30.0, "end_s": 55.0}
+      ],
+      "required_attitude_deg": 0.0,
+      "energy_cost_wh": 0.0,
+      "storage_cost_gb": 3.0
+    },
+    {
+      "task_id": "task-c",
+      "target": {
+        "target_id": "target-c",
+        "name": "Target C",
+        "latitude_deg": 2.0,
+        "longitude_deg": 2.0
+      },
+      "priority_value": 5.0,
+      "duration_s": 20.0,
+      "visibility_windows": [
+        {"window_id": "window-c", "start_s": 60.0, "end_s": 85.0}
+      ],
+      "required_attitude_deg": 0.0,
+      "energy_cost_wh": 0.0,
+      "storage_cost_gb": 2.0
+    }
+  ],
+  "metadata": {"purpose": "exact solver golden case"}
+}

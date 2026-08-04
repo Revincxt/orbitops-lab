@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from orbitops.solvers.base import BaseSolver, SolverConfig
+from orbitops.solvers.branch_and_bound import BranchAndBoundSolver
+from orbitops.solvers.brute_force import BruteForceSolver
 from orbitops.solvers.greedy import (
     GreedyDeadlineSolver,
     GreedyDensitySolver,
@@ -16,6 +18,8 @@ from orbitops.solvers.random_feasible import RandomFeasibleSolver
 SolverFactory = Callable[[SolverConfig | None], BaseSolver]
 
 _SOLVERS: dict[str, SolverFactory] = {
+    BranchAndBoundSolver.name: BranchAndBoundSolver,
+    BruteForceSolver.name: BruteForceSolver,
     RandomFeasibleSolver.name: RandomFeasibleSolver,
     GreedyValueSolver.name: GreedyValueSolver,
     GreedyDensitySolver.name: GreedyDensitySolver,
@@ -23,9 +27,30 @@ _SOLVERS: dict[str, SolverFactory] = {
     GreedyInsertionSolver.name: GreedyInsertionSolver,
 }
 
+_BASELINE_SOLVERS = (
+    GreedyDeadlineSolver.name,
+    GreedyDensitySolver.name,
+    GreedyInsertionSolver.name,
+    GreedyValueSolver.name,
+    RandomFeasibleSolver.name,
+)
+
+_EXACT_SOLVERS = (
+    BranchAndBoundSolver.name,
+    BruteForceSolver.name,
+)
+
 
 def available_solvers() -> tuple[str, ...]:
     return tuple(sorted(_SOLVERS))
+
+
+def baseline_solvers() -> tuple[str, ...]:
+    return _BASELINE_SOLVERS
+
+
+def exact_solvers() -> tuple[str, ...]:
+    return _EXACT_SOLVERS
 
 
 def get_solver(
