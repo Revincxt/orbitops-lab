@@ -66,7 +66,7 @@ def test_github_pages_build_is_reproducible_and_uses_official_actions() -> None:
     assert "DEFAULT_SEED = 42" in builder
     assert "DEFAULT_EVALUATION_BUDGET = 250" in builder
     assert '"mode": "precomputed-reproducibility-artifact"' in builder
-    assert "astral-sh/setup-uv@v9" in workflow
+    assert "astral-sh/setup-uv@v9.0.0" in workflow
     assert "actions/configure-pages@v5" in workflow
     assert "actions/upload-pages-artifact@v4" in workflow
     assert "actions/deploy-pages@v4" in workflow
