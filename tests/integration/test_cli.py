@@ -44,10 +44,12 @@ def test_solvers_command_lists_stable_names() -> None:
     assert result.stdout.splitlines() == [
         "branch-and-bound",
         "brute-force",
+        "genetic",
         "greedy-deadline",
         "greedy-density",
         "greedy-insertion",
         "greedy-value",
+        "local-search",
         "random-feasible",
     ]
 
@@ -73,6 +75,28 @@ def test_solve_command_runs_exact_solver() -> None:
     payload = json.loads(result.stdout)
     assert payload["metrics"]["total_value"] == 18.0
     assert payload["schedule"]["metadata"]["optimality_proven"] is True
+
+
+def test_solve_command_applies_search_evaluation_budget() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "solve",
+            str(SCENARIO_PATH),
+            "--solver",
+            "genetic",
+            "--seed",
+            "42",
+            "--evaluation-budget",
+            "25",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["validation"]["is_feasible"] is True
+    assert payload["schedule"]["metadata"]["evaluation_budget"] == 25
+    assert payload["schedule"]["metadata"]["evaluations"] <= 25
 
 
 def test_solve_command_can_write_result(tmp_path: Path) -> None:

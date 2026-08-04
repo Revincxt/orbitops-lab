@@ -2,7 +2,13 @@ from pathlib import Path
 
 import pytest
 from orbitops import Scenario
-from orbitops.solvers import available_solvers, baseline_solvers, exact_solvers, get_solver
+from orbitops.solvers import (
+    advanced_solvers,
+    available_solvers,
+    baseline_solvers,
+    exact_solvers,
+    get_solver,
+)
 
 PROJECT_ROOT = Path(__file__).parents[2]
 SCENARIO_PATH = PROJECT_ROOT / "scenarios" / "examples" / "demo.json"
@@ -14,12 +20,32 @@ EXPECTED_BASELINES = (
     "random-feasible",
 )
 EXPECTED_EXACT = ("branch-and-bound", "brute-force")
+EXPECTED_ADVANCED = ("genetic", "local-search")
+EXPECTED_ALL = (
+    "branch-and-bound",
+    "brute-force",
+    "genetic",
+    "greedy-deadline",
+    "greedy-density",
+    "greedy-insertion",
+    "greedy-value",
+    "local-search",
+    "random-feasible",
+)
 
 
 def test_registry_has_stable_solver_names() -> None:
     assert baseline_solvers() == EXPECTED_BASELINES
     assert exact_solvers() == EXPECTED_EXACT
-    assert available_solvers() == (*EXPECTED_EXACT, *EXPECTED_BASELINES)
+    assert advanced_solvers() == EXPECTED_ADVANCED
+    assert available_solvers() == EXPECTED_ALL
+
+
+def test_registry_passes_search_evaluation_budget() -> None:
+    solver = get_solver("local-search", seed=9, evaluation_budget=73)
+
+    assert solver.config.seed == 9
+    assert solver.config.evaluation_budget == 73
 
 
 @pytest.mark.parametrize("solver_name", EXPECTED_BASELINES)

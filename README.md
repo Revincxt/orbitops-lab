@@ -5,15 +5,17 @@ satellites. It is being built in small, independently verifiable stages: a typed
 domain model first, then a discrete-event simulator, constraint validation,
 hand-written scheduling algorithms, benchmarks, and an interactive web lab.
 
-> Status: Stage 4 — versioned contracts, deterministic simulation, explainable
-> validation, five baselines, and two exact tiny-instance solvers are in place.
+> Status: Stage 5 — versioned contracts, deterministic simulation, explainable
+> validation, five baselines, two exact tiny-instance solvers, local search, and
+> a genetic algorithm are in place.
 
 ## What is implemented from scratch?
 
-The project will implement its scheduling model, simulator, constraint validator,
-heuristics, local search, genetic algorithm, branch-and-bound solver, benchmark
-harness, and reinforcement-learning training loop. Third-party libraries provide
-general infrastructure, not the scheduling answers used in the main results.
+The project implements its scheduling model, simulator, constraint validator,
+heuristics, local search, genetic algorithm, and branch-and-bound solver from
+scratch. The benchmark harness and reinforcement-learning training loop remain
+on the roadmap. Third-party libraries provide general infrastructure, not the
+scheduling answers used in the main results.
 
 ## Quick start
 
@@ -24,6 +26,8 @@ python -m pip install -e '.[dev]'
 orbitops validate scenarios/examples/demo.json
 orbitops check scenarios/examples/demo.json scenarios/examples/feasible-schedule.json
 orbitops solve scenarios/examples/demo.json --solver greedy-insertion --seed 42
+orbitops solve scenarios/examples/demo.json --solver local-search --seed 42 --evaluation-budget 500
+orbitops solve scenarios/examples/demo.json --solver genetic --seed 42 --evaluation-budget 500
 orbitops solve scenarios/tiny/tiny-conflict.json --solver branch-and-bound
 pytest
 ```
@@ -45,6 +49,8 @@ coordination are deliberately deferred.
 - `packages/orbitops/solvers/`: common solver contract and later implementations.
 - Built-in baselines: random feasible, value, value density, deadline, and global insertion.
 - Exact solvers: exhaustive search up to 10 tasks and branch-and-bound up to 16 tasks.
+- Advanced solvers: multi-start local search and a genetic algorithm, both with
+  seeded randomness, feasible decoding, evaluation budgets, and convergence traces.
 - `scenarios/`: versioned input fixtures.
 - `schemas/`: committed JSON Schema contracts.
 - `tests/`: unit, property, integration, and golden tests.
@@ -52,3 +58,5 @@ coordination are deliberately deferred.
 
 See [the v0.1 problem formulation](docs/problem-formulation.md) and
 [simulation model](docs/simulation-model.md) for the executable assumptions.
+[Algorithm documentation](docs/algorithms.md) describes every built-in solver
+and the comparison boundary for stochastic search.

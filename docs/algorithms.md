@@ -44,3 +44,62 @@ grid. [ADR-0002](adr/0002-exact-search-dominance.md) records the proof boundary.
 Search metadata reports expanded nodes, feasible extensions, pruned branches,
 timeout state, and whether optimality was proven. A time-limited result remains
 feasible but is not labeled optimal.
+
+## Shared stochastic-search representation
+
+Local search and the genetic algorithm represent a candidate as:
+
+- a permutation containing every scenario task exactly once; and
+- an active set describing which tasks the decoder may schedule.
+
+The deterministic decoder visits active tasks in permutation order and applies
+the same feasible-insertion primitive as the baselines. Every decoded schedule
+is checked by the shared validator before it can be ranked. This intentionally
+trades some representational freedom for a strong invariant: stochastic search
+never returns a schedule that bypassed the production constraints.
+
+`--evaluation-budget` counts unique decoded genomes. Re-evaluating a cached
+genome does not consume the budget. The deterministic greedy initializer is
+constructed first, then its genome is decoded as evaluation one. A soft time
+limit can stop either algorithm between candidate evaluations.
+
+## Multi-start local search
+
+`local-search` begins from the global greedy-insertion schedule and performs
+strict-improvement hill climbing. Its neighborhood contains four moves:
+
+- activate one excluded task;
+- deactivate one included task;
+- swap two positions in the priority order; and
+- relocate one task to another position.
+
+After a stagnation threshold, the solver starts another seeded random genome,
+up to four starts in total. Metadata includes attempted, evaluated, accepted,
+and globally improving move counts per operator, plus the incumbent convergence
+trace. The algorithm is reproducible for fixed scenario, seed, budget, and code
+version, but it does not prove optimality.
+
+## Genetic algorithm
+
+`genetic` seeds its population with greedy insertion, value order, and random
+genomes. Each generation uses tournament selection, one-cut order-preserving
+crossover, active-set inheritance, swap/relocate/toggle mutations, and two-elite
+survival. Default constants are committed in the solver:
+
+- maximum population size: 24;
+- tournament size: 3;
+- crossover probability: 0.9; and
+- per-mutation probability: 0.2.
+
+Population size scales up to twice the task count within the cap. Metadata
+records the effective population, generations, parameters, stopping reason, and
+every incumbent improvement.
+
+## Comparing stochastic algorithms
+
+A single seed is a reproducibility check, not evidence that one algorithm is
+better. Comparative benchmarks should hold scenarios and evaluation budgets
+fixed, use multiple algorithm seeds, report the distribution of the complete
+lexicographic objective, and include runtime only as a separately measured
+quantity. The Stage 5 verification manifest is a smoke gate; the benchmark
+harness planned for the next stage will provide broader comparisons.

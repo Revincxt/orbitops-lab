@@ -107,7 +107,7 @@ def check_schedule(
 
 @app.command("solvers")
 def list_solvers() -> None:
-    """List stable names for built-in scheduling baselines."""
+    """List stable names for all built-in scheduling solvers."""
 
     typer.echo("\n".join(available_solvers()))
 
@@ -124,6 +124,14 @@ def solve_scenario(
         float | None,
         typer.Option("--time-limit", min=0.000001, help="Optional soft time limit in seconds."),
     ] = None,
+    evaluation_budget: Annotated[
+        int,
+        typer.Option(
+            "--evaluation-budget",
+            min=1,
+            help="Maximum unique decoded candidates for search-based solvers.",
+        ),
+    ] = 500,
     output: Annotated[
         Path | None,
         typer.Option("--output", "-o", dir_okay=False, help="Write the result JSON to a file."),
@@ -133,7 +141,12 @@ def solve_scenario(
 
     try:
         scenario = Scenario.from_json(scenario_path)
-        solver = get_solver(solver_name, seed=seed, time_limit_s=time_limit_s)
+        solver = get_solver(
+            solver_name,
+            seed=seed,
+            time_limit_s=time_limit_s,
+            evaluation_budget=evaluation_budget,
+        )
         result = solver.solve(scenario)
     except (OSError, ValidationError, ValueError, RuntimeError) as exc:
         typer.echo(str(exc), err=True)

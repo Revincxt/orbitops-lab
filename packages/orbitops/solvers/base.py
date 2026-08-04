@@ -14,6 +14,7 @@ from orbitops.domain.models import DomainModel, Scenario, SolveResult
 class SolverConfig(DomainModel):
     seed: int = 0
     time_limit_s: float | None = Field(default=None, gt=0)
+    evaluation_budget: int = Field(default=500, gt=0)
 
 
 @runtime_checkable
