@@ -53,6 +53,7 @@ from orbitops.solvers import (
     exact_solvers,
     get_solver,
 )
+from orbitops.web import LabApplication, SolveRequest, WebResponse, make_server, serve_lab
 
 __all__ = [
     "BaseSolver",
@@ -69,6 +70,7 @@ __all__ = [
     "GreedyDensitySolver",
     "GreedyInsertionSolver",
     "GreedyValueSolver",
+    "LabApplication",
     "LocalSearchSolver",
     "Metrics",
     "ObservationTask",
@@ -80,6 +82,7 @@ __all__ = [
     "Schedule",
     "ScheduledTask",
     "SimulationResult",
+    "SolveRequest",
     "SolveResult",
     "Solver",
     "SolverConfig",
@@ -89,6 +92,7 @@ __all__ = [
     "TimeWindow",
     "ValidationIssue",
     "ValidationReport",
+    "WebResponse",
     "advanced_solvers",
     "available_solvers",
     "baseline_solvers",
@@ -97,8 +101,10 @@ __all__ = [
     "generate_scenario",
     "generate_scenarios",
     "get_solver",
+    "make_server",
     "render_benchmark_html",
     "run_benchmark",
+    "serve_lab",
     "validate_schedule",
     "write_benchmark_html",
     "write_benchmark_html_from_json",

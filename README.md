@@ -5,9 +5,9 @@ satellites. It is being built in small, independently verifiable stages: a typed
 domain model first, then a discrete-event simulator, constraint validation,
 hand-written scheduling algorithms, benchmarks, and an interactive web lab.
 
-> Status: Stage 7 — versioned contracts, deterministic simulation, explainable
-> validation, nine solvers, reproducible benchmarks, and self-contained visual
-> reports are in place.
+> Status: Stage 8 — versioned contracts, deterministic simulation, explainable
+> validation, nine solvers, reproducible benchmarks, standalone reports, and an
+> interactive local Web Lab are in place.
 
 ## What is implemented from scratch?
 
@@ -32,8 +32,13 @@ orbitops solve scenarios/examples/demo.json --solver genetic --seed 42 --evaluat
 orbitops solve scenarios/tiny/tiny-conflict.json --solver branch-and-bound
 orbitops benchmark configs/benchmark-smoke.toml --output runs/benchmark-smoke
 orbitops report runs/benchmark-smoke/report.json --output runs/custom-report.html
+orbitops lab --scenarios scenarios
 pytest
 ```
+
+Open `http://127.0.0.1:8000` after launching the lab. Choose a scenario and
+solver to inspect the validated observation timeline, resource trace, and search
+convergence without uploading mission data or depending on a hosted service.
 
 ## v0.1 scope
 
@@ -54,6 +59,8 @@ coordination are deliberately deferred.
   runner, aggregation, reproducibility fingerprint, and artifact export.
 - `packages/orbitops/reporting/`: responsive standalone ranking, heatmap,
   convergence, and schedule visualizations.
+- `packages/orbitops/web/`: framework-free local API and responsive Web Lab for
+  running solvers and inspecting validated schedules interactively.
 - Built-in baselines: random feasible, value, value density, deadline, and global insertion.
 - Exact solvers: exhaustive search up to 10 tasks and branch-and-bound up to 16 tasks.
 - Advanced solvers: multi-start local search and a genetic algorithm, both with
@@ -69,4 +76,5 @@ See [the v0.1 problem formulation](docs/problem-formulation.md) and
 and the comparison boundary for stochastic search. See
 [benchmarking](docs/benchmarking.md) for campaign configuration, ranking rules,
 and artifact semantics. [Visual reports](docs/visual-reports.md) documents the
-HTML report and representative-schedule replay.
+HTML report and representative-schedule replay. [Web Lab](docs/web-lab.md)
+documents the local application, API, visual semantics, and safety boundary.

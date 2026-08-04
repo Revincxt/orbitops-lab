@@ -15,6 +15,7 @@ from orbitops.domain.models import Scenario, Schedule, SolveResult
 from orbitops.reporting import write_benchmark_html_from_json
 from orbitops.simulation.validator import validate_schedule
 from orbitops.solvers.registry import available_solvers, get_solver
+from orbitops.web import serve_lab
 
 app = typer.Typer(
     name="orbitops",
@@ -26,6 +27,39 @@ app = typer.Typer(
 class SchemaTarget(StrEnum):
     SCENARIO = "scenario"
     SCHEDULE = "schedule"
+
+
+@app.command("lab")
+def launch_lab(
+    scenario_dir: Annotated[
+        Path,
+        typer.Option(
+            "--scenarios",
+            file_okay=False,
+            exists=True,
+            readable=True,
+            help="Directory containing Scenario JSON files.",
+        ),
+    ] = Path("scenarios"),
+    host: Annotated[
+        str,
+        typer.Option(help="Interface for the local HTTP server."),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option(min=1, max=65535, help="Port for the local HTTP server."),
+    ] = 8000,
+) -> None:
+    """Launch the interactive local scheduling laboratory."""
+
+    typer.echo(f"OrbitOps Web Lab: http://{host}:{port}")
+    try:
+        serve_lab(scenario_dir, host=host, port=port)
+    except KeyboardInterrupt:
+        typer.echo("\nOrbitOps Web Lab stopped.")
+    except (OSError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
 
 def _result_payload(result: SolveResult) -> dict[str, Any]:

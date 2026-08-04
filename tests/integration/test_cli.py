@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
+from typing import Any
 
+import orbitops.cli as cli_module
 from orbitops.cli import app
 from typer.testing import CliRunner
 
@@ -8,6 +10,36 @@ PROJECT_ROOT = Path(__file__).parents[2]
 SCENARIO_PATH = PROJECT_ROOT / "scenarios" / "examples" / "demo.json"
 SCHEDULE_PATH = PROJECT_ROOT / "scenarios" / "examples" / "feasible-schedule.json"
 runner = CliRunner()
+
+
+def test_lab_command_launches_configured_local_server(monkeypatch: Any) -> None:
+    called: dict[str, object] = {}
+
+    def fake_serve(scenario_dir: Path, *, host: str, port: int) -> None:
+        called.update(scenario_dir=scenario_dir, host=host, port=port)
+
+    monkeypatch.setattr(cli_module, "serve_lab", fake_serve)
+
+    result = runner.invoke(
+        app,
+        [
+            "lab",
+            "--scenarios",
+            str(PROJECT_ROOT / "scenarios"),
+            "--host",
+            "127.0.0.2",
+            "--port",
+            "8123",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == "OrbitOps Web Lab: http://127.0.0.2:8123\n"
+    assert called == {
+        "scenario_dir": PROJECT_ROOT / "scenarios",
+        "host": "127.0.0.2",
+        "port": 8123,
+    }
 
 
 def test_check_command_accepts_golden_schedule() -> None:
