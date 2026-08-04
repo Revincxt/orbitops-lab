@@ -1,0 +1,11 @@
+{
+  "scenario_id": "demo-001",
+  "solver_name": "hand-authored-golden",
+  "tasks": [
+    {"task_id": "obs-shanghai", "start_s": 120.0, "window_id": "w-shanghai-1"},
+    {"task_id": "obs-hangzhou", "start_s": 280.0, "window_id": "w-hangzhou-1"},
+    {"task_id": "obs-wuhan", "start_s": 620.0, "window_id": "w-wuhan-1"}
+  ],
+  "seed": 42,
+  "metadata": {"purpose": "golden feasible schedule"}
+}

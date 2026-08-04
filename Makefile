@@ -19,6 +19,6 @@ test:
 
 validate-demo:
 	orbitops validate scenarios/examples/demo.json
+	orbitops check scenarios/examples/demo.json scenarios/examples/feasible-schedule.json
 
 check: lint typecheck test validate-demo
-

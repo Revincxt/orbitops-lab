@@ -5,7 +5,8 @@ satellites. It is being built in small, independently verifiable stages: a typed
 domain model first, then a discrete-event simulator, constraint validation,
 hand-written scheduling algorithms, benchmarks, and an interactive web lab.
 
-> Status: Stage 1 — the versioned scenario contract and solver interfaces are in place.
+> Status: Stage 2 — the versioned contracts, deterministic simulator, and
+> explainable constraint validator are in place.
 
 ## What is implemented from scratch?
 
@@ -21,6 +22,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
 orbitops validate scenarios/examples/demo.json
+orbitops check scenarios/examples/demo.json scenarios/examples/feasible-schedule.json
 pytest
 ```
 
@@ -37,6 +39,7 @@ coordination are deliberately deferred.
 ## Repository map
 
 - `packages/orbitops/domain/`: immutable domain models and objective definition.
+- `packages/orbitops/simulation/`: shared state transitions, event simulation, and validation.
 - `packages/orbitops/solvers/`: common solver contract and later implementations.
 - `scenarios/`: versioned input fixtures.
 - `schemas/`: committed JSON Schema contracts.
@@ -44,5 +47,4 @@ coordination are deliberately deferred.
 - `docs/`: formulation and architecture decisions.
 
 See [the v0.1 problem formulation](docs/problem-formulation.md) and
-[ADR-0001](docs/adr/0001-v01-model-boundary.md) for the design boundary.
-
+[simulation model](docs/simulation-model.md) for the executable assumptions.

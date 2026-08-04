@@ -32,3 +32,9 @@ All v0.1 timestamps are floating-point seconds relative to the scenario epoch.
 Visibility and scheduled intervals use half-open semantics: `[start_s, end_s)`.
 This permits one event to start exactly when another event ends.
 
+## Solver/simulator trust boundary
+
+A solver returns only task IDs, selected windows, and start times. It cannot
+provide trusted end times or resource values. The common simulator derives those
+fields and the validator reports stable machine-readable issue codes. See
+[`simulation-model.md`](simulation-model.md) for the state-transition rules.

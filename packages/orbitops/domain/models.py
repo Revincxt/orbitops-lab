@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class DomainModel(BaseModel):
     """Strict immutable base model used at every package boundary."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
 
 
 class TimeWindow(DomainModel):
@@ -124,15 +124,60 @@ class Scenario(DomainModel):
         )
 
 
+class TaskAssignment(DomainModel):
+    """A solver decision; all derived state is intentionally excluded."""
+
+    task_id: str = Field(min_length=1)
+    start_s: float = Field(ge=0)
+    window_id: str = Field(min_length=1)
+
+
+class Schedule(DomainModel):
+    scenario_id: str = Field(min_length=1)
+    solver_name: str = Field(min_length=1)
+    tasks: tuple[TaskAssignment, ...] = ()
+    seed: int | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_json(cls, path: str | Path) -> Self:
+        return cls.model_validate_json(Path(path).read_text(encoding="utf-8"))
+
+    def to_json(self, path: str | Path) -> None:
+        payload = self.model_dump(mode="json")
+        Path(path).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+
+class ResourceState(DomainModel):
+    """Simulator-owned resource state at one point in time.
+
+    Values may cross physical bounds so an invalid schedule can still produce
+    a complete diagnostic trace.
+    """
+
+    time_s: float = Field(ge=0)
+    energy_wh: float
+    storage_gb: float
+    attitude_deg: float = Field(ge=-180, le=180)
+
+
 class ScheduledTask(DomainModel):
+    """A simulated task with resource values derived by the shared engine."""
+
     task_id: str = Field(min_length=1)
     start_s: float = Field(ge=0)
     end_s: float = Field(gt=0)
     window_id: str = Field(min_length=1)
-    energy_before_wh: float = Field(ge=0)
-    energy_after_wh: float = Field(ge=0)
-    storage_before_gb: float = Field(ge=0)
-    storage_after_gb: float = Field(ge=0)
+    previous_task_id: str | None = None
+    slew_time_s: float = Field(ge=0)
+    available_transition_time_s: float = Field(ge=0)
+    energy_before_wh: float
+    energy_after_wh: float
+    storage_before_gb: float
+    storage_after_gb: float
 
     @model_validator(mode="after")
     def validate_interval(self) -> Self:
@@ -141,12 +186,12 @@ class ScheduledTask(DomainModel):
         return self
 
 
-class Schedule(DomainModel):
+class SimulationResult(DomainModel):
     scenario_id: str = Field(min_length=1)
-    solver_name: str = Field(min_length=1)
     tasks: tuple[ScheduledTask, ...] = ()
-    seed: int | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    initial_state: ResourceState
+    final_state: ResourceState
+    total_slew_time_s: float = Field(ge=0)
 
 
 class ValidationIssue(DomainModel):
@@ -154,10 +199,13 @@ class ValidationIssue(DomainModel):
     message: str = Field(min_length=1)
     severity: Literal["error", "warning"] = "error"
     task_id: str | None = None
+    related_task_id: str | None = None
+    time_s: float | None = Field(default=None, ge=0)
 
 
 class ValidationReport(DomainModel):
     issues: tuple[ValidationIssue, ...] = ()
+    simulation: SimulationResult | None = None
 
     @property
     def is_feasible(self) -> bool:

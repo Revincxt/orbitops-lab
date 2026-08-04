@@ -32,6 +32,12 @@ def score_schedule(
 ) -> Metrics:
     """Compute v0.1 metrics without making a feasibility claim."""
 
+    if schedule.scenario_id != scenario.scenario_id:
+        raise ValueError(
+            f"schedule scenario_id {schedule.scenario_id!r} does not match "
+            f"scenario {scenario.scenario_id!r}"
+        )
+
     task_values = {task.task_id: task.priority_value for task in scenario.tasks}
     scheduled_ids = [task.task_id for task in schedule.tasks]
     unknown_ids = sorted(set(scheduled_ids) - task_values.keys())

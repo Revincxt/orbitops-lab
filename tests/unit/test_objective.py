@@ -1,23 +1,18 @@
 from pathlib import Path
 
 import pytest
-from orbitops.domain.models import Scenario, Schedule, ScheduledTask
+from orbitops.domain.models import Scenario, Schedule, TaskAssignment
 from orbitops.domain.objective import ObjectiveScore, score_schedule
 
 PROJECT_ROOT = Path(__file__).parents[2]
 DEMO_PATH = PROJECT_ROOT / "scenarios" / "examples" / "demo.json"
 
 
-def _scheduled_task(task_id: str, start_s: float, end_s: float, window_id: str) -> ScheduledTask:
-    return ScheduledTask(
+def _assignment(task_id: str, start_s: float, window_id: str) -> TaskAssignment:
+    return TaskAssignment(
         task_id=task_id,
         start_s=start_s,
-        end_s=end_s,
         window_id=window_id,
-        energy_before_wh=900.0,
-        energy_after_wh=875.0,
-        storage_before_gb=2.0,
-        storage_after_gb=4.0,
     )
 
 
@@ -36,8 +31,8 @@ def test_score_schedule_uses_scenario_values() -> None:
         scenario_id=scenario.scenario_id,
         solver_name="test",
         tasks=(
-            _scheduled_task("obs-shanghai", 120.0, 165.0, "w-shanghai-1"),
-            _scheduled_task("obs-wuhan", 620.0, 690.0, "w-wuhan-1"),
+            _assignment("obs-shanghai", 120.0, "w-shanghai-1"),
+            _assignment("obs-wuhan", 620.0, "w-wuhan-1"),
         ),
     )
 
@@ -53,8 +48,16 @@ def test_unknown_scheduled_task_is_rejected() -> None:
     schedule = Schedule(
         scenario_id=scenario.scenario_id,
         solver_name="test",
-        tasks=(_scheduled_task("unknown", 10.0, 20.0, "missing"),),
+        tasks=(_assignment("unknown", 10.0, "missing"),),
     )
 
     with pytest.raises(ValueError, match="unknown task_id"):
+        score_schedule(scenario, schedule, total_slew_time_s=0.0)
+
+
+def test_schedule_for_another_scenario_is_rejected() -> None:
+    scenario = Scenario.from_json(DEMO_PATH)
+    schedule = Schedule(scenario_id="another-scenario", solver_name="test")
+
+    with pytest.raises(ValueError, match="does not match"):
         score_schedule(scenario, schedule, total_slew_time_s=0.0)

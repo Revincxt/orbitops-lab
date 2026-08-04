@@ -2,12 +2,14 @@ import json
 from pathlib import Path
 
 import pytest
-from orbitops import Scenario
+from orbitops import Scenario, Schedule
 from pydantic import ValidationError
 
 PROJECT_ROOT = Path(__file__).parents[2]
 DEMO_PATH = PROJECT_ROOT / "scenarios" / "examples" / "demo.json"
 SCHEMA_PATH = PROJECT_ROOT / "schemas" / "scenario-v0.1.schema.json"
+SCHEDULE_SCHEMA_PATH = PROJECT_ROOT / "schemas" / "schedule-v0.1.schema.json"
+SCHEDULE_PATH = PROJECT_ROOT / "scenarios" / "examples" / "feasible-schedule.json"
 
 
 def test_demo_scenario_loads() -> None:
@@ -23,6 +25,23 @@ def test_committed_json_schema_matches_runtime_model() -> None:
     committed_schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
     assert committed_schema == Scenario.model_json_schema()
+
+
+def test_committed_schedule_schema_matches_runtime_model() -> None:
+    committed_schema = json.loads(SCHEDULE_SCHEMA_PATH.read_text(encoding="utf-8"))
+
+    assert committed_schema == Schedule.model_json_schema()
+
+
+def test_demo_schedule_contains_only_solver_decisions() -> None:
+    schedule = Schedule.from_json(SCHEDULE_PATH)
+
+    assert len(schedule.tasks) == 3
+    assert schedule.tasks[0].model_dump() == {
+        "task_id": "obs-shanghai",
+        "start_s": 120.0,
+        "window_id": "w-shanghai-1",
+    }
 
 
 def test_unknown_fields_are_rejected() -> None:
