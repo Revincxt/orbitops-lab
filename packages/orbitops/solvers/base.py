@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from time import perf_counter
 from typing import Protocol, runtime_checkable
 
 from pydantic import Field
@@ -28,6 +29,11 @@ class BaseSolver(ABC):
 
     def __init__(self, config: SolverConfig | None = None) -> None:
         self.config = config or SolverConfig()
+
+    def _time_limit_reached(self, started_at: float) -> bool:
+        if self.config.time_limit_s is None:
+            return False
+        return perf_counter() - started_at >= self.config.time_limit_s
 
     @abstractmethod
     def solve(self, scenario: Scenario) -> SolveResult:

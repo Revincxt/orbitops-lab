@@ -5,8 +5,8 @@ satellites. It is being built in small, independently verifiable stages: a typed
 domain model first, then a discrete-event simulator, constraint validation,
 hand-written scheduling algorithms, benchmarks, and an interactive web lab.
 
-> Status: Stage 2 — the versioned contracts, deterministic simulator, and
-> explainable constraint validator are in place.
+> Status: Stage 3 — versioned contracts, deterministic simulation, explainable
+> validation, and five reproducible baseline solvers are in place.
 
 ## What is implemented from scratch?
 
@@ -23,6 +23,7 @@ source .venv/bin/activate
 python -m pip install -e '.[dev]'
 orbitops validate scenarios/examples/demo.json
 orbitops check scenarios/examples/demo.json scenarios/examples/feasible-schedule.json
+orbitops solve scenarios/examples/demo.json --solver greedy-insertion --seed 42
 pytest
 ```
 
@@ -41,6 +42,7 @@ coordination are deliberately deferred.
 - `packages/orbitops/domain/`: immutable domain models and objective definition.
 - `packages/orbitops/simulation/`: shared state transitions, event simulation, and validation.
 - `packages/orbitops/solvers/`: common solver contract and later implementations.
+- Built-in baselines: random feasible, value, value density, deadline, and global insertion.
 - `scenarios/`: versioned input fixtures.
 - `schemas/`: committed JSON Schema contracts.
 - `tests/`: unit, property, integration, and golden tests.

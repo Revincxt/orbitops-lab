@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from pydantic import ValidationError
 
-from orbitops.domain.models import Scenario, Schedule
+from orbitops.domain.models import Scenario, Schedule, SolveResult
 from orbitops.simulation.validator import validate_schedule
+from orbitops.solvers.registry import available_solvers, get_solver
 
 app = typer.Typer(
     name="orbitops",
@@ -23,6 +24,14 @@ app = typer.Typer(
 class SchemaTarget(StrEnum):
     SCENARIO = "scenario"
     SCHEDULE = "schedule"
+
+
+def _result_payload(result: SolveResult) -> dict[str, Any]:
+    payload = result.model_dump(mode="json", exclude_none=True)
+    validation = payload.get("validation")
+    if isinstance(validation, dict):
+        validation["is_feasible"] = result.validation.is_feasible
+    return payload
 
 
 @app.command("validate")
@@ -94,3 +103,46 @@ def check_schedule(
     typer.echo(json.dumps(payload, indent=2))
     if not report.is_feasible:
         raise typer.Exit(code=1)
+
+
+@app.command("solvers")
+def list_solvers() -> None:
+    """List stable names for built-in scheduling baselines."""
+
+    typer.echo("\n".join(available_solvers()))
+
+
+@app.command("solve")
+def solve_scenario(
+    scenario_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    solver_name: Annotated[
+        str,
+        typer.Option("--solver", "-s", help="Built-in solver name."),
+    ] = "greedy-insertion",
+    seed: Annotated[int, typer.Option(help="Deterministic random seed.")] = 0,
+    time_limit_s: Annotated[
+        float | None,
+        typer.Option("--time-limit", min=0.000001, help="Optional soft time limit in seconds."),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", dir_okay=False, help="Write the result JSON to a file."),
+    ] = None,
+) -> None:
+    """Solve a scenario, then validate and score the resulting schedule."""
+
+    try:
+        scenario = Scenario.from_json(scenario_path)
+        solver = get_solver(solver_name, seed=seed, time_limit_s=time_limit_s)
+        result = solver.solve(scenario)
+    except (OSError, ValidationError, ValueError, RuntimeError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    rendered = json.dumps(_result_payload(result), indent=2) + "\n"
+    if output is None:
+        typer.echo(rendered, nl=False)
+    else:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered, encoding="utf-8")
+        typer.echo(f"Wrote {output}")

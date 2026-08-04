@@ -1,0 +1,42 @@
+"""Stable names and construction for built-in solvers."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from orbitops.solvers.base import BaseSolver, SolverConfig
+from orbitops.solvers.greedy import (
+    GreedyDeadlineSolver,
+    GreedyDensitySolver,
+    GreedyInsertionSolver,
+    GreedyValueSolver,
+)
+from orbitops.solvers.random_feasible import RandomFeasibleSolver
+
+SolverFactory = Callable[[SolverConfig | None], BaseSolver]
+
+_SOLVERS: dict[str, SolverFactory] = {
+    RandomFeasibleSolver.name: RandomFeasibleSolver,
+    GreedyValueSolver.name: GreedyValueSolver,
+    GreedyDensitySolver.name: GreedyDensitySolver,
+    GreedyDeadlineSolver.name: GreedyDeadlineSolver,
+    GreedyInsertionSolver.name: GreedyInsertionSolver,
+}
+
+
+def available_solvers() -> tuple[str, ...]:
+    return tuple(sorted(_SOLVERS))
+
+
+def get_solver(
+    name: str,
+    *,
+    seed: int = 0,
+    time_limit_s: float | None = None,
+) -> BaseSolver:
+    try:
+        factory = _SOLVERS[name]
+    except KeyError as exc:
+        choices = ", ".join(available_solvers())
+        raise ValueError(f"unknown solver {name!r}; choose one of: {choices}") from exc
+    return factory(SolverConfig(seed=seed, time_limit_s=time_limit_s))

@@ -35,3 +35,42 @@ def test_check_command_rejects_invalid_schedule(tmp_path: Path) -> None:
         "outside_window",
         "insufficient_slew_time",
     }
+
+
+def test_solvers_command_lists_stable_names() -> None:
+    result = runner.invoke(app, ["solvers"])
+
+    assert result.exit_code == 0
+    assert result.stdout.splitlines() == [
+        "greedy-deadline",
+        "greedy-density",
+        "greedy-insertion",
+        "greedy-value",
+        "random-feasible",
+    ]
+
+
+def test_solve_command_returns_validated_result() -> None:
+    result = runner.invoke(
+        app,
+        ["solve", str(SCENARIO_PATH), "--solver", "greedy-insertion", "--seed", "42"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["schedule"]["solver_name"] == "greedy-insertion"
+    assert payload["validation"]["is_feasible"] is True
+    assert payload["metrics"]["total_value"] == 226.0
+
+
+def test_solve_command_can_write_result(tmp_path: Path) -> None:
+    output_path = tmp_path / "runs" / "demo-result.json"
+    result = runner.invoke(
+        app,
+        ["solve", str(SCENARIO_PATH), "--solver", "greedy-value", "-o", str(output_path)],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == f"Wrote {output_path}\n"
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["validation"]["is_feasible"] is True
