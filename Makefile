@@ -1,4 +1,4 @@
-.PHONY: install check test lint format typecheck validate-demo search-demo
+.PHONY: install check test lint format typecheck validate-demo search-demo benchmark-smoke
 
 install:
 	python -m pip install -e '.[dev]'
@@ -27,4 +27,7 @@ search-demo:
 	orbitops solve scenarios/examples/demo.json --solver local-search --seed 42 --evaluation-budget 100
 	orbitops solve scenarios/examples/demo.json --solver genetic --seed 42 --evaluation-budget 100
 
-check: lint typecheck test validate-demo search-demo
+benchmark-smoke:
+	orbitops benchmark configs/benchmark-smoke.toml --output runs/benchmark-smoke
+
+check: lint typecheck test validate-demo search-demo benchmark-smoke

@@ -110,3 +110,37 @@ def test_solve_command_can_write_result(tmp_path: Path) -> None:
     assert result.stdout == f"Wrote {output_path}\n"
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["validation"]["is_feasible"] is True
+
+
+def test_benchmark_command_exports_reproducible_artifacts(tmp_path: Path) -> None:
+    config_path = tmp_path / "benchmark.toml"
+    config_path.write_text(
+        """
+benchmark_id = "cli-smoke"
+master_seed = 73
+sizes = ["tiny"]
+difficulties = ["easy"]
+instances_per_cell = 1
+solvers = ["greedy-insertion", "genetic"]
+algorithm_seeds = [0]
+evaluation_budget = 20
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "benchmark-output"
+
+    result = runner.invoke(
+        app,
+        ["benchmark", str(config_path), "--output", str(output_dir)],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["scenario_count"] == 1
+    assert payload["run_count"] == 2
+    assert payload["failed_runs"] == 0
+    assert len(payload["reproducibility_fingerprint"]) == 64
+    assert (output_dir / "report.json").is_file()
+    assert (output_dir / "summary.csv").is_file()
+    assert (output_dir / "manifest.json").is_file()

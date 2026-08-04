@@ -10,6 +10,7 @@ from typing import Annotated, Any
 import typer
 from pydantic import ValidationError
 
+from orbitops.benchmarking import BenchmarkSpec, export_benchmark, run_benchmark
 from orbitops.domain.models import Scenario, Schedule, SolveResult
 from orbitops.simulation.validator import validate_schedule
 from orbitops.solvers.registry import available_solvers, get_solver
@@ -110,6 +111,58 @@ def list_solvers() -> None:
     """List stable names for all built-in scheduling solvers."""
 
     typer.echo("\n".join(available_solvers()))
+
+
+@app.command("benchmark")
+def benchmark_campaign(
+    config_path: Annotated[
+        Path,
+        typer.Argument(exists=True, dir_okay=False, readable=True),
+    ],
+    output_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            file_okay=False,
+            help="Artifact directory; defaults to runs/<benchmark-id>.",
+        ),
+    ] = None,
+) -> None:
+    """Run a reproducible benchmark campaign and export its artifacts."""
+
+    try:
+        spec = BenchmarkSpec.from_toml(config_path)
+        destination = output_dir or Path("runs") / spec.benchmark_id
+        report = run_benchmark(spec)
+        files = export_benchmark(report, destination)
+    except (OSError, ValidationError, ValueError, RuntimeError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        json.dumps(
+            {
+                "benchmark_id": spec.benchmark_id,
+                "scenario_count": len(report.scenarios),
+                "run_count": len(report.runs),
+                "failed_runs": sum(not run.feasible for run in report.runs),
+                "reproducibility_fingerprint": report.reproducibility_fingerprint,
+                "output_dir": str(destination),
+                "artifact_count": len(files),
+                "ranking": [
+                    {
+                        "rank": summary.rank,
+                        "solver_name": summary.solver_name,
+                        "feasible_rate": summary.feasible_rate,
+                        "mean_value_ratio": summary.mean_value_ratio,
+                    }
+                    for summary in report.summaries
+                ],
+            },
+            indent=2,
+        )
+    )
 
 
 @app.command("solve")

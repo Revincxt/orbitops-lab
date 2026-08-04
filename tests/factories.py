@@ -5,6 +5,30 @@ from __future__ import annotations
 import random
 
 from orbitops import ObservationTask, Satellite, Scenario, Target, TimeWindow
+from orbitops.benchmarking import BenchmarkSpec
+
+
+def make_benchmark_spec(
+    *,
+    benchmark_id: str = "test-benchmark",
+    sizes: tuple[str, ...] = ("tiny",),
+    difficulties: tuple[str, ...] = ("medium",),
+    solvers: tuple[str, ...] = ("greedy-insertion", "genetic"),
+    algorithm_seeds: tuple[int, ...] = (0, 1),
+    evaluation_budget: int = 30,
+) -> BenchmarkSpec:
+    return BenchmarkSpec.model_validate(
+        {
+            "benchmark_id": benchmark_id,
+            "master_seed": 20260804,
+            "sizes": sizes,
+            "difficulties": difficulties,
+            "instances_per_cell": 1,
+            "solvers": solvers,
+            "algorithm_seeds": algorithm_seeds,
+            "evaluation_budget": evaluation_budget,
+        }
+    )
 
 
 def make_seeded_scenario(seed: int, *, task_count: int = 8) -> Scenario:

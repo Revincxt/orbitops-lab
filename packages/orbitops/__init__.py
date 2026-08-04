@@ -1,5 +1,16 @@
 """Public API for OrbitOps Lab."""
 
+from orbitops.benchmarking import (
+    BenchmarkEnvironment,
+    BenchmarkReport,
+    BenchmarkRunRecord,
+    BenchmarkSpec,
+    SolverSummary,
+    export_benchmark,
+    generate_scenario,
+    generate_scenarios,
+    run_benchmark,
+)
 from orbitops.domain.models import (
     Metrics,
     ObservationTask,
@@ -39,6 +50,10 @@ from orbitops.solvers import (
 
 __all__ = [
     "BaseSolver",
+    "BenchmarkEnvironment",
+    "BenchmarkReport",
+    "BenchmarkRunRecord",
+    "BenchmarkSpec",
     "BranchAndBoundSolver",
     "BruteForceSolver",
     "ConstraintValidator",
@@ -61,6 +76,7 @@ __all__ = [
     "SolveResult",
     "Solver",
     "SolverConfig",
+    "SolverSummary",
     "Target",
     "TaskAssignment",
     "TimeWindow",
@@ -70,7 +86,11 @@ __all__ = [
     "available_solvers",
     "baseline_solvers",
     "exact_solvers",
+    "export_benchmark",
+    "generate_scenario",
+    "generate_scenarios",
     "get_solver",
+    "run_benchmark",
     "validate_schedule",
 ]
 

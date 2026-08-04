@@ -1,0 +1,15 @@
+schema_version = "1"
+benchmark_id = "benchmark-smoke"
+scenario_schema_version = "0.1"
+master_seed = 20260804
+sizes = ["tiny", "medium"]
+difficulties = ["easy", "hard"]
+instances_per_cell = 1
+solvers = [
+  "random-feasible",
+  "greedy-insertion",
+  "local-search",
+  "genetic",
+]
+algorithm_seeds = [0, 1]
+evaluation_budget = 60

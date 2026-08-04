@@ -1,0 +1,18 @@
+schema_version = "1"
+benchmark_id = "benchmark-v1"
+scenario_schema_version = "0.1"
+master_seed = 20260804
+sizes = ["tiny", "small", "medium", "large"]
+difficulties = ["easy", "medium", "hard"]
+instances_per_cell = 30
+solvers = [
+  "random-feasible",
+  "greedy-value",
+  "greedy-density",
+  "greedy-deadline",
+  "greedy-insertion",
+  "local-search",
+  "genetic",
+]
+algorithm_seeds = [0, 1, 2, 3, 4]
+evaluation_budget = 500

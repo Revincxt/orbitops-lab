@@ -102,4 +102,5 @@ better. Comparative benchmarks should hold scenarios and evaluation budgets
 fixed, use multiple algorithm seeds, report the distribution of the complete
 lexicographic objective, and include runtime only as a separately measured
 quantity. The Stage 5 verification manifest is a smoke gate; the benchmark
-harness planned for the next stage will provide broader comparisons.
+harness documented in [benchmarking](benchmarking.md) provides the broader,
+multi-scenario comparison path.
