@@ -122,28 +122,44 @@ def _score(metrics: Metrics) -> ObjectiveScore:
     return ObjectiveScore.from_metrics(metrics)
 
 
-def summarize_runs(runs: tuple[BenchmarkRunRecord, ...]) -> tuple[SolverSummary, ...]:
-    """Rank solvers on feasibility, normalized value, and objective tie-breakers."""
+def normalized_value_ratios(runs: tuple[BenchmarkRunRecord, ...]) -> dict[str, float]:
+    """Return per-run value ratios within each scenario and algorithm seed."""
 
     by_comparison: dict[tuple[str, int], list[BenchmarkRunRecord]] = defaultdict(list)
-    by_solver: dict[str, list[BenchmarkRunRecord]] = defaultdict(list)
     for run in runs:
         by_comparison[(run.scenario_id, run.algorithm_seed)].append(run)
-        by_solver[run.solver_name].append(run)
 
-    value_ratio: dict[str, float] = {}
-    best_observed: dict[str, bool] = {}
+    ratios: dict[str, float] = {}
     for comparison_runs in by_comparison.values():
         feasible = [run for run in comparison_runs if run.feasible and run.metrics is not None]
         if not feasible:
             continue
         best_value = max(run.metrics.total_value for run in feasible if run.metrics is not None)
+        for run in feasible:
+            assert run.metrics is not None
+            ratios[run.run_id] = run.metrics.total_value / best_value if best_value > 0 else 1.0
+    return ratios
+
+
+def summarize_runs(runs: tuple[BenchmarkRunRecord, ...]) -> tuple[SolverSummary, ...]:
+    """Rank solvers on feasibility, normalized value, and objective tie-breakers."""
+
+    by_solver: dict[str, list[BenchmarkRunRecord]] = defaultdict(list)
+    for run in runs:
+        by_solver[run.solver_name].append(run)
+
+    value_ratio = normalized_value_ratios(runs)
+    best_observed: dict[str, bool] = {}
+    by_comparison: dict[tuple[str, int], list[BenchmarkRunRecord]] = defaultdict(list)
+    for run in runs:
+        by_comparison[(run.scenario_id, run.algorithm_seed)].append(run)
+    for comparison_runs in by_comparison.values():
+        feasible = [run for run in comparison_runs if run.feasible and run.metrics is not None]
+        if not feasible:
+            continue
         best_score = max(_score(run.metrics) for run in feasible if run.metrics is not None)
         for run in feasible:
             assert run.metrics is not None
-            value_ratio[run.run_id] = (
-                run.metrics.total_value / best_value if best_value > 0 else 1.0
-            )
             best_observed[run.run_id] = _score(run.metrics) == best_score
 
     unranked: list[SolverSummary] = []

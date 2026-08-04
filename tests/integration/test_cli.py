@@ -142,5 +142,28 @@ evaluation_budget = 20
     assert payload["failed_runs"] == 0
     assert len(payload["reproducibility_fingerprint"]) == 64
     assert (output_dir / "report.json").is_file()
+    assert (output_dir / "report.html").is_file()
     assert (output_dir / "summary.csv").is_file()
     assert (output_dir / "manifest.json").is_file()
+
+    custom_report = tmp_path / "custom-report.html"
+    report_result = runner.invoke(
+        app,
+        [
+            "report",
+            str(output_dir / "report.json"),
+            "--output",
+            str(custom_report),
+            "--scenario-id",
+            "cli-smoke-tiny-easy-000",
+            "--solver",
+            "genetic",
+            "--seed",
+            "0",
+        ],
+    )
+    assert report_result.exit_code == 0
+    report_payload = json.loads(report_result.stdout)
+    assert report_payload["metrics_verified"] is True
+    assert report_payload["scenario_id"] == "cli-smoke-tiny-easy-000"
+    assert custom_report.is_file()

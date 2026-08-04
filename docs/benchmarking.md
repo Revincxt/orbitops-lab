@@ -84,6 +84,8 @@ Each output directory contains:
 
 - `report.json`: complete typed specification, scenario descriptors, runs, and
   summaries, plus Python, platform, package, and generator provenance;
+- `report.html`: responsive visual summary with rankings, a difficulty heatmap,
+  search convergence, and one replay-verified schedule timeline;
 - `runs.csv`: one flat row per scenario, solver, and algorithm seed;
 - `summary.csv`: aggregate ranking and stability measures;
 - `convergence.csv`: incumbent points for search solvers and a final synthetic
@@ -95,6 +97,9 @@ The report's `reproducibility_fingerprint` covers the specification, scenario
 hashes, deterministic results, errors, evaluation counts, and convergence
 traces. Runtime is deliberately excluded: two correct reruns should retain the
 same fingerprint even when wall-clock measurements differ.
+
+See [visual reports](visual-reports.md) for report selection and rendering
+details.
 
 ## Interpretation boundary
 

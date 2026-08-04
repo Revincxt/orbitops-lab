@@ -40,6 +40,7 @@ def test_benchmark_rerun_has_same_scenarios_objectives_and_fingerprint(tmp_path:
         "runs.csv",
         "summary.csv",
         "convergence.csv",
+        "report.html",
         "manifest.json",
     }
     manifest_path = tmp_path / "artifacts" / "manifest.json"
@@ -47,6 +48,7 @@ def test_benchmark_rerun_has_same_scenarios_objectives_and_fingerprint(tmp_path:
     for relative_path, expected_hash in manifest["files"].items():
         artifact = tmp_path / "artifacts" / relative_path
         assert hashlib.sha256(artifact.read_bytes()).hexdigest() == expected_hash
+    assert "report.html" in manifest["files"]
 
 
 def test_unsupported_solver_size_is_recorded_without_aborting_campaign() -> None:

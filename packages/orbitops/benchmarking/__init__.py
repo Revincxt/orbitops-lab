@@ -11,7 +11,7 @@ from orbitops.benchmarking.models import (
     ScenarioDescriptor,
     SolverSummary,
 )
-from orbitops.benchmarking.runner import run_benchmark, summarize_runs
+from orbitops.benchmarking.runner import normalized_value_ratios, run_benchmark, summarize_runs
 
 __all__ = [
     "GENERATOR_VERSION",
@@ -25,6 +25,7 @@ __all__ = [
     "export_benchmark",
     "generate_scenario",
     "generate_scenarios",
+    "normalized_value_ratios",
     "run_benchmark",
     "summarize_runs",
 ]

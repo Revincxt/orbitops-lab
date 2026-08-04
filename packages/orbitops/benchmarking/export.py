@@ -11,6 +11,7 @@ from typing import Any
 
 from orbitops.benchmarking.generator import generate_scenarios
 from orbitops.benchmarking.models import BenchmarkReport, BenchmarkRunRecord, SolverSummary
+from orbitops.reporting.benchmark_html import write_benchmark_html
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -141,6 +142,10 @@ def export_benchmark(report: BenchmarkReport, output_dir: str | Path) -> tuple[P
         scenario_path = scenario_dir / f"{scenario.scenario_id}.json"
         scenario.to_json(scenario_path)
         written.append(scenario_path)
+
+    html_path = destination / "report.html"
+    write_benchmark_html(report, html_path)
+    written.append(html_path)
 
     manifest_path = destination / "manifest.json"
     manifest = {

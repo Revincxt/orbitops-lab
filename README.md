@@ -5,16 +5,17 @@ satellites. It is being built in small, independently verifiable stages: a typed
 domain model first, then a discrete-event simulator, constraint validation,
 hand-written scheduling algorithms, benchmarks, and an interactive web lab.
 
-> Status: Stage 6 — versioned contracts, deterministic simulation, explainable
-> validation, nine solvers, and a reproducible multi-scenario benchmark harness
-> are in place.
+> Status: Stage 7 — versioned contracts, deterministic simulation, explainable
+> validation, nine solvers, reproducible benchmarks, and self-contained visual
+> reports are in place.
 
 ## What is implemented from scratch?
 
 The project implements its scheduling model, simulator, constraint validator,
 heuristics, local search, genetic algorithm, branch-and-bound solver, synthetic
 scenario generator, and benchmark harness from scratch. The reinforcement-
-learning training loop remains on the roadmap. Third-party libraries provide
+learning training loop remains on the roadmap. Benchmark reports are rendered
+without a plotting framework or external assets. Third-party libraries provide
 general infrastructure, not the scheduling answers used in the main results.
 
 ## Quick start
@@ -30,6 +31,7 @@ orbitops solve scenarios/examples/demo.json --solver local-search --seed 42 --ev
 orbitops solve scenarios/examples/demo.json --solver genetic --seed 42 --evaluation-budget 500
 orbitops solve scenarios/tiny/tiny-conflict.json --solver branch-and-bound
 orbitops benchmark configs/benchmark-smoke.toml --output runs/benchmark-smoke
+orbitops report runs/benchmark-smoke/report.json --output runs/custom-report.html
 pytest
 ```
 
@@ -50,6 +52,8 @@ coordination are deliberately deferred.
 - `packages/orbitops/solvers/`: common solver contract and later implementations.
 - `packages/orbitops/benchmarking/`: deterministic scenario matrix, campaign
   runner, aggregation, reproducibility fingerprint, and artifact export.
+- `packages/orbitops/reporting/`: responsive standalone ranking, heatmap,
+  convergence, and schedule visualizations.
 - Built-in baselines: random feasible, value, value density, deadline, and global insertion.
 - Exact solvers: exhaustive search up to 10 tasks and branch-and-bound up to 16 tasks.
 - Advanced solvers: multi-start local search and a genetic algorithm, both with
@@ -64,4 +68,5 @@ See [the v0.1 problem formulation](docs/problem-formulation.md) and
 [Algorithm documentation](docs/algorithms.md) describes every built-in solver
 and the comparison boundary for stochastic search. See
 [benchmarking](docs/benchmarking.md) for campaign configuration, ranking rules,
-and artifact semantics.
+and artifact semantics. [Visual reports](docs/visual-reports.md) documents the
+HTML report and representative-schedule replay.

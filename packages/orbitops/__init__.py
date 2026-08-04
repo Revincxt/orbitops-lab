@@ -27,6 +27,12 @@ from orbitops.domain.models import (
     ValidationIssue,
     ValidationReport,
 )
+from orbitops.reporting import (
+    ReportSelection,
+    render_benchmark_html,
+    write_benchmark_html,
+    write_benchmark_html_from_json,
+)
 from orbitops.simulation import ConstraintValidator, DiscreteEventSimulator, validate_schedule
 from orbitops.solvers import (
     BaseSolver,
@@ -67,6 +73,7 @@ __all__ = [
     "Metrics",
     "ObservationTask",
     "RandomFeasibleSolver",
+    "ReportSelection",
     "ResourceState",
     "Satellite",
     "Scenario",
@@ -90,8 +97,11 @@ __all__ = [
     "generate_scenario",
     "generate_scenarios",
     "get_solver",
+    "render_benchmark_html",
     "run_benchmark",
     "validate_schedule",
+    "write_benchmark_html",
+    "write_benchmark_html_from_json",
 ]
 
 __version__ = "0.1.0.dev0"

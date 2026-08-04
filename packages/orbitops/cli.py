@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from orbitops.benchmarking import BenchmarkSpec, export_benchmark, run_benchmark
 from orbitops.domain.models import Scenario, Schedule, SolveResult
+from orbitops.reporting import write_benchmark_html_from_json
 from orbitops.simulation.validator import validate_schedule
 from orbitops.solvers.registry import available_solvers, get_solver
 
@@ -54,6 +55,58 @@ def validate_scenario(
                 "schema_version": scenario.schema_version,
                 "scenario_id": scenario.scenario_id,
                 "task_count": len(scenario.tasks),
+            },
+            indent=2,
+        )
+    )
+
+
+@app.command("report")
+def render_report(
+    report_path: Annotated[
+        Path,
+        typer.Argument(exists=True, dir_okay=False, readable=True),
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", dir_okay=False, help="Standalone HTML output path."),
+    ] = None,
+    scenario_id: Annotated[
+        str | None,
+        typer.Option(help="Representative scenario; defaults to the last matrix scenario."),
+    ] = None,
+    solver_name: Annotated[
+        str | None,
+        typer.Option("--solver", help="Representative solver; defaults to rank one."),
+    ] = None,
+    algorithm_seed: Annotated[
+        int | None,
+        typer.Option("--seed", help="Representative algorithm seed."),
+    ] = None,
+) -> None:
+    """Render a standalone visual report from an exported benchmark JSON report."""
+
+    destination = output or report_path.with_suffix(".html")
+    try:
+        selection = write_benchmark_html_from_json(
+            report_path,
+            destination,
+            scenario_id=scenario_id,
+            solver_name=solver_name,
+            algorithm_seed=algorithm_seed,
+        )
+    except (OSError, ValidationError, ValueError, RuntimeError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        json.dumps(
+            {
+                "output": str(selection.output_path),
+                "scenario_id": selection.scenario_id,
+                "solver_name": selection.solver_name,
+                "algorithm_seed": selection.algorithm_seed,
+                "metrics_verified": selection.metrics_verified,
             },
             indent=2,
         )
