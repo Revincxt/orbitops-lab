@@ -1,0 +1,78 @@
+{
+  "schema_version": "0.1",
+  "scenario_id": "demo-001",
+  "name": "Warm-up observation pass",
+  "horizon_start_s": 0.0,
+  "horizon_end_s": 1800.0,
+  "satellite": {
+    "satellite_id": "sat-alpha",
+    "energy_capacity_wh": 1200.0,
+    "initial_energy_wh": 900.0,
+    "recharge_rate_w": 80.0,
+    "storage_capacity_gb": 64.0,
+    "initial_storage_gb": 2.0,
+    "initial_attitude_deg": 0.0,
+    "slew_rate_deg_s": 2.5,
+    "settling_time_s": 4.0
+  },
+  "tasks": [
+    {
+      "task_id": "obs-shanghai",
+      "target": {
+        "target_id": "target-shanghai",
+        "name": "Shanghai",
+        "latitude_deg": 31.2304,
+        "longitude_deg": 121.4737
+      },
+      "priority_value": 90.0,
+      "duration_s": 45.0,
+      "visibility_windows": [
+        {"window_id": "w-shanghai-1", "start_s": 120.0, "end_s": 310.0}
+      ],
+      "required_attitude_deg": 12.0,
+      "energy_cost_wh": 24.0,
+      "storage_cost_gb": 1.8
+    },
+    {
+      "task_id": "obs-hangzhou",
+      "target": {
+        "target_id": "target-hangzhou",
+        "name": "Hangzhou",
+        "latitude_deg": 30.2741,
+        "longitude_deg": 120.1551
+      },
+      "priority_value": 72.0,
+      "duration_s": 55.0,
+      "visibility_windows": [
+        {"window_id": "w-hangzhou-1", "start_s": 280.0, "end_s": 470.0},
+        {"window_id": "w-hangzhou-2", "start_s": 980.0, "end_s": 1160.0}
+      ],
+      "required_attitude_deg": -18.0,
+      "energy_cost_wh": 28.0,
+      "storage_cost_gb": 2.2
+    },
+    {
+      "task_id": "obs-wuhan",
+      "target": {
+        "target_id": "target-wuhan",
+        "name": "Wuhan",
+        "latitude_deg": 30.5928,
+        "longitude_deg": 114.3055
+      },
+      "priority_value": 64.0,
+      "duration_s": 70.0,
+      "visibility_windows": [
+        {"window_id": "w-wuhan-1", "start_s": 620.0, "end_s": 900.0}
+      ],
+      "required_attitude_deg": 31.0,
+      "energy_cost_wh": 35.0,
+      "storage_cost_gb": 2.9
+    }
+  ],
+  "metadata": {
+    "difficulty": "tiny",
+    "seed": 42,
+    "purpose": "documentation and smoke testing"
+  }
+}
+

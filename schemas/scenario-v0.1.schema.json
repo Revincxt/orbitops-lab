@@ -1,0 +1,244 @@
+{
+  "$defs": {
+    "ObservationTask": {
+      "additionalProperties": false,
+      "properties": {
+        "duration_s": {
+          "exclusiveMinimum": 0,
+          "title": "Duration S",
+          "type": "number"
+        },
+        "energy_cost_wh": {
+          "minimum": 0,
+          "title": "Energy Cost Wh",
+          "type": "number"
+        },
+        "priority_value": {
+          "minimum": 0,
+          "title": "Priority Value",
+          "type": "number"
+        },
+        "required_attitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Required Attitude Deg",
+          "type": "number"
+        },
+        "storage_cost_gb": {
+          "minimum": 0,
+          "title": "Storage Cost Gb",
+          "type": "number"
+        },
+        "target": {
+          "$ref": "#/$defs/Target"
+        },
+        "task_id": {
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "visibility_windows": {
+          "items": {
+            "$ref": "#/$defs/TimeWindow"
+          },
+          "minItems": 1,
+          "title": "Visibility Windows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "target",
+        "priority_value",
+        "duration_s",
+        "visibility_windows",
+        "required_attitude_deg",
+        "energy_cost_wh",
+        "storage_cost_gb"
+      ],
+      "title": "ObservationTask",
+      "type": "object"
+    },
+    "Satellite": {
+      "additionalProperties": false,
+      "properties": {
+        "energy_capacity_wh": {
+          "exclusiveMinimum": 0,
+          "title": "Energy Capacity Wh",
+          "type": "number"
+        },
+        "initial_attitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Initial Attitude Deg",
+          "type": "number"
+        },
+        "initial_energy_wh": {
+          "minimum": 0,
+          "title": "Initial Energy Wh",
+          "type": "number"
+        },
+        "initial_storage_gb": {
+          "minimum": 0,
+          "title": "Initial Storage Gb",
+          "type": "number"
+        },
+        "recharge_rate_w": {
+          "minimum": 0,
+          "title": "Recharge Rate W",
+          "type": "number"
+        },
+        "satellite_id": {
+          "minLength": 1,
+          "title": "Satellite Id",
+          "type": "string"
+        },
+        "settling_time_s": {
+          "minimum": 0,
+          "title": "Settling Time S",
+          "type": "number"
+        },
+        "slew_rate_deg_s": {
+          "exclusiveMinimum": 0,
+          "title": "Slew Rate Deg S",
+          "type": "number"
+        },
+        "storage_capacity_gb": {
+          "exclusiveMinimum": 0,
+          "title": "Storage Capacity Gb",
+          "type": "number"
+        }
+      },
+      "required": [
+        "satellite_id",
+        "energy_capacity_wh",
+        "initial_energy_wh",
+        "recharge_rate_w",
+        "storage_capacity_gb",
+        "initial_storage_gb",
+        "initial_attitude_deg",
+        "slew_rate_deg_s",
+        "settling_time_s"
+      ],
+      "title": "Satellite",
+      "type": "object"
+    },
+    "Target": {
+      "additionalProperties": false,
+      "properties": {
+        "latitude_deg": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude Deg",
+          "type": "number"
+        },
+        "longitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude Deg",
+          "type": "number"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "target_id": {
+          "minLength": 1,
+          "title": "Target Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_id",
+        "name",
+        "latitude_deg",
+        "longitude_deg"
+      ],
+      "title": "Target",
+      "type": "object"
+    },
+    "TimeWindow": {
+      "additionalProperties": false,
+      "description": "Half-open interval `[start_s, end_s)` in scenario-relative seconds.",
+      "properties": {
+        "end_s": {
+          "exclusiveMinimum": 0,
+          "title": "End S",
+          "type": "number"
+        },
+        "start_s": {
+          "minimum": 0,
+          "title": "Start S",
+          "type": "number"
+        },
+        "window_id": {
+          "minLength": 1,
+          "title": "Window Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "window_id",
+        "start_s",
+        "end_s"
+      ],
+      "title": "TimeWindow",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "horizon_end_s": {
+      "exclusiveMinimum": 0,
+      "title": "Horizon End S",
+      "type": "number"
+    },
+    "horizon_start_s": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Horizon Start S",
+      "type": "number"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "satellite": {
+      "$ref": "#/$defs/Satellite"
+    },
+    "scenario_id": {
+      "minLength": 1,
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tasks": {
+      "items": {
+        "$ref": "#/$defs/ObservationTask"
+      },
+      "title": "Tasks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "scenario_id",
+    "name",
+    "horizon_end_s",
+    "satellite",
+    "tasks"
+  ],
+  "title": "Scenario",
+  "type": "object"
+}

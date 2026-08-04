@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use OrbitOps Lab, please cite this software."
+title: "OrbitOps Lab"
+type: software
+authors:
+  - name: Revincxt
+version: 0.1.0-dev
+date-released: 2026-08-04
+license: MIT
+repository-code: "https://github.com/Revincxt/orbitops-lab"
+
