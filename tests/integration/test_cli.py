@@ -82,8 +82,63 @@ def test_solvers_command_lists_stable_names() -> None:
         "greedy-insertion",
         "greedy-value",
         "local-search",
+        "q-learning",
         "random-feasible",
     ]
+
+
+def test_train_and_apply_policy_commands_round_trip_artifacts(tmp_path: Path) -> None:
+    model_path = tmp_path / "models" / "demo-policy.json"
+    training_result_path = tmp_path / "runs" / "training-result.json"
+    train_result = runner.invoke(
+        app,
+        [
+            "train",
+            str(SCENARIO_PATH),
+            "--model-output",
+            str(model_path),
+            "--result-output",
+            str(training_result_path),
+            "--seed",
+            "42",
+            "--episodes",
+            "12",
+        ],
+    )
+
+    assert train_result.exit_code == 0
+    summary = json.loads(train_result.stdout)
+    assert summary["scenario_id"] == "demo-001"
+    assert summary["episodes_completed"] == 12
+    assert summary["total_value"] == 226.0
+    assert model_path.is_file()
+    assert training_result_path.is_file()
+
+    replay_path = tmp_path / "runs" / "policy-replay.json"
+    replay_result = runner.invoke(
+        app,
+        [
+            "apply-policy",
+            str(SCENARIO_PATH),
+            str(model_path),
+            "--output",
+            str(replay_path),
+        ],
+    )
+
+    assert replay_result.exit_code == 0
+    replay = json.loads(replay_path.read_text(encoding="utf-8"))
+    assert replay["validation"]["is_feasible"] is True
+    assert replay["schedule"]["metadata"]["policy_replay"] is True
+
+
+def test_schema_command_exports_policy_contract() -> None:
+    result = runner.invoke(app, ["schema", "--target", "policy"])
+
+    assert result.exit_code == 0
+    schema = json.loads(result.stdout)
+    assert schema["title"] == "LinearQPolicy"
+    assert schema["properties"]["algorithm"]["const"] == "linear-q-learning"
 
 
 def test_solve_command_returns_validated_result() -> None:

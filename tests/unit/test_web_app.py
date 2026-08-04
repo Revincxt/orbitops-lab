@@ -46,6 +46,8 @@ def test_catalog_exposes_only_valid_scenarios_and_solver_capabilities() -> None:
     assert metadata["brute-force"]["max_tasks"] == 10
     assert metadata["branch-and-bound"]["max_tasks"] == 16
     assert metadata["genetic"]["stochastic"] is True
+    assert metadata["q-learning"]["category"] == "advanced"
+    assert metadata["q-learning"]["stochastic"] is True
 
 
 def test_solve_returns_validated_schedule_and_visualization_data() -> None:

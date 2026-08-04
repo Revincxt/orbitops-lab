@@ -11,6 +11,7 @@ from orbitops.solvers.greedy import (
     GreedyValueSolver,
 )
 from orbitops.solvers.local_search import LocalSearchSolver
+from orbitops.solvers.q_learning import QLearningSolver
 from orbitops.solvers.random_feasible import RandomFeasibleSolver
 from orbitops.solvers.registry import (
     advanced_solvers,
@@ -30,6 +31,7 @@ __all__ = [
     "GreedyInsertionSolver",
     "GreedyValueSolver",
     "LocalSearchSolver",
+    "QLearningSolver",
     "RandomFeasibleSolver",
     "Solver",
     "SolverConfig",

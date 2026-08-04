@@ -2,13 +2,14 @@ import json
 from pathlib import Path
 
 import pytest
-from orbitops import Scenario, Schedule
+from orbitops import LinearQPolicy, Scenario, Schedule
 from pydantic import ValidationError
 
 PROJECT_ROOT = Path(__file__).parents[2]
 DEMO_PATH = PROJECT_ROOT / "scenarios" / "examples" / "demo.json"
 SCHEMA_PATH = PROJECT_ROOT / "schemas" / "scenario-v0.1.schema.json"
 SCHEDULE_SCHEMA_PATH = PROJECT_ROOT / "schemas" / "schedule-v0.1.schema.json"
+POLICY_SCHEMA_PATH = PROJECT_ROOT / "schemas" / "linear-q-policy-v1.schema.json"
 SCHEDULE_PATH = PROJECT_ROOT / "scenarios" / "examples" / "feasible-schedule.json"
 
 
@@ -31,6 +32,12 @@ def test_committed_schedule_schema_matches_runtime_model() -> None:
     committed_schema = json.loads(SCHEDULE_SCHEMA_PATH.read_text(encoding="utf-8"))
 
     assert committed_schema == Schedule.model_json_schema()
+
+
+def test_committed_policy_schema_matches_runtime_model() -> None:
+    committed_schema = json.loads(POLICY_SCHEMA_PATH.read_text(encoding="utf-8"))
+
+    assert committed_schema == LinearQPolicy.model_json_schema()
 
 
 def test_demo_schedule_contains_only_solver_decisions() -> None:

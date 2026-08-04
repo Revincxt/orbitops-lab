@@ -1,0 +1,8 @@
+benchmark_id = "learning-smoke"
+master_seed = 20260804
+sizes = ["tiny", "small"]
+difficulties = ["medium"]
+instances_per_cell = 1
+solvers = ["greedy-insertion", "q-learning"]
+algorithm_seeds = [0, 1]
+evaluation_budget = 40

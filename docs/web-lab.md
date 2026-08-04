@@ -27,7 +27,7 @@ operator decision.
 ## Interaction model
 
 The configuration surface selects a committed Scenario JSON document, one of
-the nine built-in solvers, a deterministic seed, and an evaluation budget. The
+the ten built-in solvers, a deterministic seed, and an evaluation budget. The
 server solves the selected scenario synchronously, revalidates the schedule with
 the shared simulator, and returns one result payload for all views.
 

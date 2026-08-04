@@ -104,3 +104,19 @@ lexicographic objective, and include runtime only as a separately measured
 quantity. The Stage 5 verification manifest is a smoke gate; the benchmark
 harness documented in [benchmarking](benchmarking.md) provides the broader,
 multi-scenario comparison path.
+
+## Per-scenario Q-learning
+
+`q-learning` trains a linear action-value model from scratch for the requested
+scenario. Each action selects the next task; the common feasible-insertion
+primitive chooses its timing, and the shared simulator validates every state
+transition. Seeded epsilon-greedy exploration and one-step temporal-difference
+updates produce a portable, fingerprint-bound policy artifact.
+
+Training retains `greedy-insertion` as the initial incumbent. Reward shaping
+guides learning, while the authoritative lexicographic objective alone decides
+whether an episode can replace that incumbent. Consequently, an unconstrained
+training run cannot return an objective worse than its initializer, but it does
+not prove optimality or generalization. See
+[per-scenario reinforcement learning](reinforcement-learning.md) for the feature
+contract, update equation, artifact format, commands, and evidence boundary.

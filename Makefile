@@ -1,4 +1,4 @@
-.PHONY: install check test lint format typecheck validate-demo search-demo benchmark-smoke
+.PHONY: install check test lint format typecheck validate-demo search-demo benchmark-smoke learning-smoke
 
 install:
 	python -m pip install -e '.[dev]'
@@ -30,4 +30,7 @@ search-demo:
 benchmark-smoke:
 	orbitops benchmark configs/benchmark-smoke.toml --output runs/benchmark-smoke
 
-check: lint typecheck test validate-demo search-demo benchmark-smoke
+learning-smoke:
+	orbitops benchmark configs/learning-smoke.toml --output runs/learning-smoke
+
+check: lint typecheck test validate-demo search-demo benchmark-smoke learning-smoke
