@@ -36,6 +36,10 @@ def test_handler_writes_security_headers_and_body() -> None:
     assert headers["X-Content-Type-Options"] == "nosniff"
     assert headers["Referrer-Policy"] == "no-referrer"
     assert "default-src 'self'" in headers["Content-Security-Policy"]
+    assert (
+        "script-src 'self' 'unsafe-eval' https://cesium.com" in headers["Content-Security-Policy"]
+    )
+    assert "https://gibs.earthdata.nasa.gov" in headers["Content-Security-Policy"]
     assert handler.wfile.getvalue() == response.body
 
 

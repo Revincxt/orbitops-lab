@@ -6,6 +6,11 @@ interface does not contain a second scheduler, simulator, or scoring model.
 Every displayed result comes from the same Python domain core used by the CLI,
 benchmarks, and tests.
 
+The presentation layer combines an interactive CesiumJS mission-context globe
+with framework-free SVG evidence charts. Cesium is responsible only for WGS84
+geometry and interaction; it does not solve, simulate, score, or validate a
+schedule.
+
 ## Launch
 
 From the repository root, with the development environment installed:
@@ -24,6 +29,22 @@ The default loopback address keeps the lab on the current machine. Binding to a
 non-loopback interface exposes it to that network and should be an explicit
 operator decision.
 
+## GitHub Pages deployment
+
+The hosted interface is available at
+`https://revincxt.github.io/orbitops-lab/`. GitHub Pages cannot execute the
+Python API, so the deployment workflow builds a static reproducibility artifact
+instead of pretending that the browser is solving schedules. The artifact
+contains all 30 valid scenario-and-solver combinations for the three committed
+scenarios and ten solvers, generated at seed 42 with an evaluation budget of
+250. Scenario and solver controls select among those recorded results; seed and
+budget inputs are read-only in the hosted mode.
+
+Every push to `main` runs `scripts/build_pages.py`, packages the framework-free
+interface and its precomputed result dataset, and deploys the artifact through
+the repository's GitHub Pages workflow. Local API execution remains the correct
+path for arbitrary seeds, budgets, or additional scenarios.
+
 ## Interaction model
 
 The configuration surface selects a committed Scenario JSON document, one of
@@ -31,15 +52,27 @@ the ten built-in solvers, a deterministic seed, and an evaluation budget. The
 server solves the selected scenario synchronously, revalidates the schedule with
 the shared simulator, and returns one result payload for all views.
 
-The interface renders:
+The default view runs the committed demonstration scenario with the seeded
+Q-learning solver and a 250-episode budget. This makes the complete learning
+and validation story visible on first load. The interface renders:
 
 - **Primary metrics:** total value, completed observations, and total slew time.
-- **Observation schedule:** validated observation intervals plus the slew time
-  immediately preceding each observation.
+- **3D mission geometry:** all scenario targets on a WGS84 globe, selected-target
+  highlighting, scheduled observation sequence, an elevated satellite marker,
+  and an explicitly notional orbit-context track.
+- **Mission Gantt:** every target's visibility windows, validated observation
+  interval, and the slew immediately preceding a selected observation.
 - **Resource trace:** energy remaining and storage used, normalized against the
   satellite capacities after every simulated task.
-- **Convergence:** incumbent objective value by unique evaluation for stochastic
-  search; deterministic solvers receive a single terminal point.
+- **Training curves:** policy objective, epsilon, and normalized mean absolute
+  temporal-difference error for Q-learning runs.
+- **Search convergence:** incumbent objective value by unique evaluation for
+  stochastic-search solvers; deterministic solvers receive a terminal point.
+
+The globe is deliberately labeled as mission context rather than orbit
+propagation. v0.1 scenarios contain target coordinates and visibility windows,
+but no orbital elements, epoch, or propagator state. The interface therefore
+does not claim that the displayed context track predicts spacecraft position.
 
 Disabled exact-solver choices are informative guardrails. The API independently
 enforces the same ten-task brute-force and sixteen-task branch-and-bound limits,
@@ -71,24 +104,47 @@ The request contract rejects unknown fields, evaluation budgets outside
 Scenario files are discovered only at startup and must pass the authoritative
 Pydantic contract; other JSON artifacts are ignored.
 
+## Cesium integration
+
+The lab loads the official CesiumJS 1.143 browser build from `cesium.com` and
+renders NASA's Blue Marble shaded-relief and bathymetry layer through the public
+GIBS Web Mercator service (`GoogleMapsCompatible_Level8`). Cesium's bundled
+Natural Earth II tiles remain underneath as a token-free raster fallback.
+Scenario coordinates stay in the browser and are
+not uploaded to Cesium ion or NASA. If both remote imagery paths or the 3D engine
+are unavailable, a static mission-geometry fallback preserves target and
+selection context while the scheduling API and evidence charts continue to work.
+
+Cesium's official browser build uses workers, WebAssembly, and runtime code
+compilation. The Content Security Policy therefore permits `unsafe-eval` only
+inside a script policy whose executable sources remain restricted to the local
+application and `https://cesium.com`. Workers, images, fonts, and connections
+are similarly source-restricted; imagery and connection policies additionally
+allow only NASA GIBS. Deployments with stricter requirements can vendor and
+bundle the ESM build and raster tiles instead.
+
 ## Architecture and safety boundary
 
 `LabApplication` owns scenario discovery and fixed-route dispatch without any
 network dependency. A small standard-library threaded HTTP adapter adds response
-framing and security headers. Static assets are served only through the three
-declared routes; URL paths are never translated into filesystem paths.
+framing and security headers. Static assets are served only through explicitly
+declared local routes plus the page route; URL paths are never translated into
+filesystem paths.
 
-The server is stateless and has no uploads, accounts, cookies, remote calls, or
-persistence. Responses use `no-store`, `nosniff`, a same-origin Content Security
-Policy, and a no-referrer policy. These controls make the lab appropriate for
-local experimentation; they do not turn it into an authenticated production
-service.
+The server is stateless and has no uploads, accounts, cookies, or persistence.
+Scheduling and validation are local-only. Responses use `no-store`, `nosniff`,
+a source-restricted Content Security Policy, and a no-referrer policy. The sole
+browser-network dependencies are the official CesiumJS and NASA GIBS origins
+described above. These controls make the lab appropriate for local
+experimentation; they do not turn it into an authenticated production service.
 
 ## Verification
 
 Automated tests cover catalog filtering, solver capability metadata, baseline
 and stochastic solve responses, exact-solver limits, invalid inputs, fixed
-static routes, accessible interface structure, safe DOM construction, security
-headers, CLI wiring, and server cleanup. JavaScript is syntax-checked separately,
-and wheel inspection confirms that all three static assets ship with the Python
-package.
+static routes, accessible interface structure, Cesium/Gantt/training-view
+contracts, the GitHub Pages reproducibility build, safe DOM construction,
+security headers, CLI wiring, and server cleanup. JavaScript is syntax-checked
+separately, and wheel inspection confirms that the HTML, stylesheet, application
+script, deployment configuration, Cesium configuration, and social preview
+asset ship with the Python package.

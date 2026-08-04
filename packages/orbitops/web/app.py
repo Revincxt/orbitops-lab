@@ -189,6 +189,12 @@ class LabApplication:
             "/": ("index.html", "text/html; charset=utf-8"),
             "/app.css": ("app.css", "text/css; charset=utf-8"),
             "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+            "/cesium-config.js": ("cesium-config.js", "text/javascript; charset=utf-8"),
+            "/deployment-config.js": (
+                "deployment-config.js",
+                "text/javascript; charset=utf-8",
+            ),
+            "/orbitops-social-card.jpg": ("orbitops-social-card.jpg", "image/jpeg"),
         }
         if method == "GET" and route in static_routes:
             return self._static(*static_routes[route])

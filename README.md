@@ -1,22 +1,58 @@
+<div align="center">
+
 # OrbitOps Lab
 
-OrbitOps Lab is a reproducible scheduling laboratory for agile Earth-observation
-satellites. It is being built in small, independently verifiable stages: a typed
-domain model first, then a discrete-event simulator, constraint validation,
-hand-written scheduling algorithms, benchmarks, and an interactive web lab.
+**A reproducible experimental framework for constrained Earth-observation scheduling.**
 
-> Status: Stage 9 — versioned contracts, deterministic simulation, explainable
-> validation, ten solvers, reproducible benchmarks, standalone reports, an
-> interactive Web Lab, and a scenario-bound Q-learning pipeline are in place.
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-8d6bb8?style=flat-square)](https://www.python.org/)
+[![Typed](https://img.shields.io/badge/typing-strict-d99066?style=flat-square)](pyproject.toml)
+[![Tests](https://img.shields.io/badge/tests-125%20passing-59836e?style=flat-square)](tests/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-302738?style=flat-square)](LICENSE)
 
-## What is implemented from scratch?
+[Open the hosted research interface](https://revincxt.github.io/orbitops-lab/)
 
-The project implements its scheduling model, simulator, constraint validator,
-heuristics, local search, genetic algorithm, branch-and-bound solver, synthetic
-scenario generator, benchmark harness, and linear Q-learning loop from scratch.
-Benchmark reports are rendered without a plotting framework or external assets.
-Third-party libraries provide general infrastructure, not the scheduling
-answers used in the main results.
+From target geometry to a validated schedule, every decision remains reproducible,
+inspectable, and backed by the same simulation core.
+
+</div>
+
+![OrbitOps Mission Control showing a Cesium globe and Q-learning mission configuration](docs/assets/orbitops-mission-control.jpg)
+
+## Research objective
+
+Satellite scheduling demos often stop at a score. OrbitOps Lab keeps the whole
+evidence chain visible: a solver proposes task assignments, the discrete-event
+simulator reconstructs resource state, and the validator independently checks
+time windows, overlap, slew, energy, and storage constraints.
+
+The algorithms, simulator, constraint system, benchmark harness, and linear
+Q-learning loop are implemented from scratch. Third-party libraries provide
+general infrastructure and 3D rendering—not the scheduling answers reported by
+the project.
+
+| Explore | Optimize | Verify |
+| --- | --- | --- |
+| CesiumJS/WGS84 target geometry and observation sequence | 10 baseline, exact, stochastic-search, and learning solvers | One shared simulator, explainable violations, and reproducible artifacts |
+| Visibility-aware mission Gantt chart | Seeded budgets and convergence traces | Energy/storage envelopes and feasibility verdicts |
+| Q-learning objective, epsilon, and TD-error curves | Branch-and-bound optimality on small instances | Golden, property, unit, and integration tests |
+
+## Experimental evidence
+
+![OrbitOps scheduling evidence dashboard with Gantt, resource envelope, and Q-learning curves](docs/assets/orbitops-evidence-dashboard.jpg)
+
+- **3D mission geometry:** an interactive CesiumJS globe places every WGS84
+  target on NASA Blue Marble imagery, highlights selected observations, draws
+  the scheduled target sequence, and provides an explicitly notional
+  orbit-context track. It requires no Cesium ion token, retains a Natural Earth
+  fallback, and sends no scenario data to a hosted scheduler.
+- **Mission Gantt:** every target receives a row containing all committed
+  visibility windows, the selected observation interval, and its preceding slew.
+- **Resource envelope:** energy remaining and storage consumed are replayed from
+  the authoritative simulator after each observation.
+- **Learning diagnostics:** Q-learning runs expose policy objective, exploration
+  decay, and normalized mean absolute temporal-difference error by episode.
+- **Honest boundary:** the globe is a mission-context view. High-fidelity orbit
+  propagation is deliberately outside v0.1 and is never implied by the display.
 
 ## Quick start
 
@@ -24,66 +60,83 @@ answers used in the main results.
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
+
+orbitops lab --scenarios scenarios
+```
+
+Open `http://127.0.0.1:8000`. The Web Lab starts with the committed demonstration
+scenario and a seeded 250-episode Q-learning run, so the 3D mission view, Gantt,
+resource envelope, and training curves are visible immediately.
+
+The [GitHub Pages interface](https://revincxt.github.io/orbitops-lab/) provides a
+serverless reproducibility view. It contains 30 build-time results covering the
+three committed scenarios and ten solvers at seed 42 and evaluation budget 250.
+The hosted controls select these recorded artifacts; local execution remains the
+authoritative mode for arbitrary seeds, budgets, and new scenarios.
+
+The same domain core is available from the command line:
+
+```bash
 orbitops validate scenarios/examples/demo.json
-orbitops check scenarios/examples/demo.json scenarios/examples/feasible-schedule.json
-orbitops solve scenarios/examples/demo.json --solver greedy-insertion --seed 42
-orbitops solve scenarios/examples/demo.json --solver local-search --seed 42 --evaluation-budget 500
 orbitops solve scenarios/examples/demo.json --solver genetic --seed 42 --evaluation-budget 500
-orbitops solve scenarios/examples/demo.json --solver q-learning --seed 42 --evaluation-budget 250
 orbitops solve scenarios/tiny/tiny-conflict.json --solver branch-and-bound
 orbitops benchmark configs/benchmark-smoke.toml --output runs/benchmark-smoke
-orbitops report runs/benchmark-smoke/report.json --output runs/custom-report.html
 orbitops train scenarios/examples/demo.json --model-output runs/demo-policy.json --episodes 250
-orbitops apply-policy scenarios/examples/demo.json runs/demo-policy.json
-orbitops lab --scenarios scenarios
 pytest
 ```
 
-Open `http://127.0.0.1:8000` after launching the lab. Choose a scenario and
-solver to inspect the validated observation timeline, resource trace, and search
-convergence without uploading mission data or depending on a hosted service.
+## Solver portfolio
 
-## v0.1 scope
+| Family | Implementations | Evidence |
+| --- | --- | --- |
+| Baseline | random feasible, value, value density, deadline, global insertion | Deterministic contracts and feasibility replay |
+| Exact | exhaustive search, branch-and-bound | Optimality on bounded tiny scenarios |
+| Search | multi-start local search, genetic algorithm | Seeded evaluation budgets and convergence traces |
+| Learning | scenario-bound linear Q-learning | Versioned policy JSON, training trace, fingerprint-checked replay |
 
-- One agile satellite and multiple observation tasks.
-- Offline scheduling with precomputed visibility windows.
-- Time-window, non-overlap, slew, energy, and storage constraints.
-- Lexicographic objective: total value, completed task count, then slew time.
+The objective is lexicographic: maximize total priority value, then completed
+task count, then minimize total slew time. Every solver returns decisions through
+the same contract and is scored by the same independent simulation path.
 
-High-fidelity orbit propagation, downlink planning, and multi-satellite
-coordination are deliberately deferred.
+## Reproducibility contract
+
+- Immutable, versioned Pydantic models at package boundaries.
+- Canonical Scenario, Schedule, and learned-policy JSON Schemas.
+- Seeded stochastic solvers, benchmark campaigns, and learning experiments.
+- Reproducibility fingerprints for reports and scenario-bound policies.
+- Strict mypy, Ruff, unit, integration, property, and golden-test coverage.
+- Standalone benchmark reports that contain no plotting-framework dependency.
 
 ## Repository map
 
-- `packages/orbitops/domain/`: immutable domain models and objective definition.
-- `packages/orbitops/simulation/`: shared state transitions, event simulation, and validation.
-- `packages/orbitops/solvers/`: common solver contract and later implementations.
-- `packages/orbitops/benchmarking/`: deterministic scenario matrix, campaign
-  runner, aggregation, reproducibility fingerprint, and artifact export.
-- `packages/orbitops/reporting/`: responsive standalone ranking, heatmap,
-  convergence, and schedule visualizations.
-- `packages/orbitops/learning/`: feasibility-preserving environment, versioned
-  linear policy, seeded Q-learning trainer, and fingerprint-checked replay.
-- `packages/orbitops/web/`: framework-free local API and responsive Web Lab for
-  running solvers and inspecting validated schedules interactively.
-- Built-in baselines: random feasible, value, value density, deadline, and global insertion.
-- Exact solvers: exhaustive search up to 10 tasks and branch-and-bound up to 16 tasks.
-- Advanced solvers: multi-start local search and a genetic algorithm, both with
-  seeded randomness, feasible decoding, evaluation budgets, and convergence traces.
-- Learning solver: per-scenario linear Q-learning with seeded exploration,
-  training traces, portable model JSON, and a greedy-insertion lower bound.
-- `scenarios/`: versioned input fixtures.
-- `schemas/`: committed Scenario, Schedule, and learned-policy JSON Schema contracts.
-- `tests/`: unit, property, integration, and golden tests.
-- `docs/`: formulation and architecture decisions.
+```text
+packages/orbitops/
+├── domain/          # immutable contracts and lexicographic objective
+├── simulation/      # transitions, event replay, resources, validation
+├── solvers/         # baseline, exact, search, and Q-learning solvers
+├── learning/        # environment, trainer, policy artifact
+├── benchmarking/    # scenario generation, campaigns, aggregation
+├── reporting/       # standalone HTML benchmark evidence
+└── web/             # local API and interactive mission lab
 
-See [the v0.1 problem formulation](docs/problem-formulation.md) and
-[simulation model](docs/simulation-model.md) for the executable assumptions.
-[Algorithm documentation](docs/algorithms.md) describes every built-in solver
-and the comparison boundary for stochastic search. See
-[benchmarking](docs/benchmarking.md) for campaign configuration, ranking rules,
-and artifact semantics. [Visual reports](docs/visual-reports.md) documents the
-HTML report and representative-schedule replay. [Web Lab](docs/web-lab.md)
-documents the local application, API, visual semantics, and safety boundary.
-[Reinforcement learning](docs/reinforcement-learning.md) defines the learning
-environment, update rule, model artifact, and strict evidence boundary.
+scenarios/           # committed reproducible inputs
+schemas/             # versioned JSON contracts
+tests/               # unit, integration, property, and golden tests
+docs/                # formulation, algorithms, architecture, and evidence
+```
+
+## Scope and documentation
+
+v0.1 models one agile satellite, multiple observation targets, offline planning,
+precomputed visibility windows, attitude slew, energy, and storage. Downlink
+planning, multi-satellite coordination, high-resolution terrain, time-varying
+weather layers, and high-fidelity orbit propagation are deliberate future extensions.
+
+Start with the [problem formulation](docs/problem-formulation.md), then see the
+[simulation model](docs/simulation-model.md), [algorithms](docs/algorithms.md),
+[benchmarking](docs/benchmarking.md), [visual reports](docs/visual-reports.md),
+[Web Lab](docs/web-lab.md), and [reinforcement learning](docs/reinforcement-learning.md).
+
+> **Release scope:** v0.1 includes the reproducible mission core, 10 solvers,
+> benchmark reports, Cesium mission context, validated Gantt and resource views,
+> and scenario-bound Q-learning diagnostics.
