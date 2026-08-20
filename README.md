@@ -125,7 +125,7 @@ tests/               # unit, integration, property, and golden tests
 docs/                # formulation, algorithms, architecture, and evidence
 ```
 
-## Scope and documentation
+## Scopes and documentation
 
 v0.1 models one agile satellite, multiple observation targets, offline planning,
 precomputed visibility windows, attitude slew, energy, and storage. Downlink
