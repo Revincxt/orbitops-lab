@@ -120,16 +120,30 @@ def test_static_and_scenario_routes_are_fixed_and_safe(tmp_path: Path) -> None:
     homepage = application.dispatch("GET", "/")
     stylesheet = application.dispatch("GET", "/app.css")
     script = application.dispatch("GET", "/app.js")
+    cesium_config = application.dispatch("GET", "/cesium-config.js")
+    deployment_config = application.dispatch("GET", "/deployment-config.js")
+    social_card = application.dispatch("GET", "/orbitops-social-card.jpg")
     scenario = application.dispatch("GET", "/api/scenarios/demo-001")
     missing_scenario = application.dispatch("GET", "/api/scenarios/unknown")
     traversal = application.dispatch("GET", "/../pyproject.toml")
     wrong_method = application.dispatch("POST", "/")
     missing_asset = LabApplication(SCENARIO_DIR, static_dir=tmp_path).dispatch("GET", "/")
 
-    assert homepage.status == stylesheet.status == script.status == 200
+    assert (
+        homepage.status
+        == stylesheet.status
+        == script.status
+        == cesium_config.status
+        == deployment_config.status
+        == social_card.status
+        == 200
+    )
     assert homepage.content_type.startswith("text/html")
     assert stylesheet.content_type.startswith("text/css")
     assert script.content_type.startswith("text/javascript")
+    assert cesium_config.content_type.startswith("text/javascript")
+    assert deployment_config.content_type.startswith("text/javascript")
+    assert social_card.content_type == "image/jpeg"
     assert payload(scenario)["scenario_id"] == "demo-001"
     assert missing_scenario.status == traversal.status == wrong_method.status == 404
     assert missing_asset.status == 404

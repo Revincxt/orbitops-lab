@@ -1,7 +1,10 @@
 "use strict";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const state = { scenarios: [], solvers: [] };
+const state = { scenarios: [], solvers: [], globe: null, imageryFallbackActive: false };
+const deployment = window.ORBITOPS_DEPLOYMENT || { mode: "api" };
+const staticDeployment = deployment.mode === "static";
+let staticDatasetPromise = null;
 
 const elements = {
   form: document.getElementById("solve-form"),
@@ -18,9 +21,18 @@ const elements = {
   tasks: document.getElementById("metric-tasks"),
   taskContext: document.getElementById("metric-task-context"),
   slew: document.getElementById("metric-slew"),
+  feasible: document.getElementById("metric-feasible"),
   timeline: document.getElementById("timeline-chart"),
   resources: document.getElementById("resource-chart"),
-  convergence: document.getElementById("convergence-chart"),
+  learning: document.getElementById("learning-chart"),
+  learningTitle: document.getElementById("learning-title"),
+  learningKicker: document.getElementById("learning-kicker"),
+  learningLegend: document.getElementById("learning-legend"),
+  globe: document.getElementById("mission-globe"),
+  globeLoading: document.getElementById("globe-loading"),
+  globeTargets: document.getElementById("globe-targets"),
+  globeSequence: document.getElementById("globe-sequence"),
+  deploymentMode: document.getElementById("deployment-mode"),
 };
 
 function svgElement(name, attributes = {}, text = null) {
@@ -50,20 +62,55 @@ function emptyChart(host, message) {
   host.replaceChildren(empty);
 }
 
-function addGrid(root, dimensions, xTicks, yTicks, xFormat, yFormat) {
-  const { left, top, plotWidth, plotHeight, height } = dimensions;
-  for (const tick of yTicks) {
-    const y = top + (1 - tick.position) * plotHeight;
-    root.append(svgElement("line", { x1: left, y1: y, x2: left + plotWidth, y2: y, class: "chart-grid" }));
-    root.append(svgElement("text", { x: left - 10, y: y + 4, "text-anchor": "end", class: "chart-axis" }, yFormat(tick.value)));
+function seriesPoints(points, x, y) {
+  return points.map((point) => `${x(point.x).toFixed(2)},${y(point.y).toFixed(2)}`).join(" ");
+}
+
+function sampleSeries(points, limit = 100) {
+  if (points.length <= limit) return points;
+  const sampled = [];
+  for (let index = 0; index < limit; index += 1) {
+    sampled.push(points[Math.round((index / (limit - 1)) * (points.length - 1))]);
   }
-  for (const tick of xTicks) {
-    const x = left + tick.position * plotWidth;
-    root.append(svgElement("text", { x, y: height - 14, "text-anchor": "middle", class: "chart-axis" }, xFormat(tick.value)));
+  return sampled;
+}
+
+function legendItems(items) {
+  return items.map(([className, text]) => {
+    const item = document.createElement("span");
+    const swatch = document.createElement("i");
+    swatch.className = `swatch ${className}`;
+    item.append(swatch, document.createTextNode(text));
+    return item;
+  });
+}
+
+async function loadStaticDataset() {
+  if (!staticDatasetPromise) {
+    staticDatasetPromise = fetch("./pages-data.json").then(async (response) => {
+      if (!response.ok) throw new Error("Static experiment dataset is unavailable.");
+      return response.json();
+    });
   }
+  return staticDatasetPromise;
+}
+
+async function staticApi(path, options = {}) {
+  const dataset = await loadStaticDataset();
+  if (path === "/api/scenarios") return dataset.scenarios;
+  if (path === "/api/solvers") return dataset.solvers;
+  if (path === "/api/solve" && options.method === "POST") {
+    const request = JSON.parse(options.body);
+    const key = `${request.scenario_id}::${request.solver_name}`;
+    const result = dataset.runs[key];
+    if (!result) throw new Error("No precomputed result is available for this method and scenario.");
+    return result;
+  }
+  throw new Error(`Static deployment does not implement ${path}.`);
 }
 
 async function api(path, options = {}) {
+  if (staticDeployment) return staticApi(path, options);
   const response = await fetch(path, options);
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
@@ -71,19 +118,19 @@ async function api(path, options = {}) {
 }
 
 function populateSelect(select, items, valueKey, labelFactory) {
-  const options = items.map((item) => {
+  select.replaceChildren(...items.map((item) => {
     const option = document.createElement("option");
     option.value = item[valueKey];
     option.textContent = labelFactory(item);
     return option;
-  });
-  select.replaceChildren(...options);
+  }));
 }
 
 function updateScenarioContext() {
   const scenario = state.scenarios.find((item) => item.scenario_id === elements.scenario.value);
   if (!scenario) return;
-  elements.context.textContent = `${scenario.task_count} tasks · ${scenario.horizon_end_s - scenario.horizon_start_s}s horizon`;
+  const horizon = scenario.horizon_end_s - scenario.horizon_start_s;
+  elements.context.textContent = `${scenario.task_count} targets · ${(horizon / 60).toFixed(0)} min planning horizon`;
   for (const option of elements.solver.options) {
     const solver = state.solvers.find((item) => item.solver_name === option.value);
     option.disabled = Boolean(solver && solver.max_tasks !== null && scenario.task_count > solver.max_tasks);
@@ -93,57 +140,124 @@ function updateScenarioContext() {
 
 function setBusy(busy, message) {
   elements.button.disabled = busy;
-  elements.button.firstChild.textContent = busy ? "Running scheduler " : "Run scheduler ";
+  if (staticDeployment) {
+    elements.button.firstChild.textContent = busy ? "Loading reference run " : "Load reference run ";
+  } else {
+    elements.button.firstChild.textContent = busy ? "Evaluating solver " : "Evaluate solver ";
+  }
   elements.status.classList.remove("error");
   elements.status.textContent = message;
 }
 
-function linePoints(points, x, y) {
-  return points.map((point) => `${x(point.x).toFixed(2)},${y(point.y).toFixed(2)}`).join(" ");
-}
-
-function renderTimeline(scenario, result) {
+function renderGantt(scenario, result) {
   const simulation = result.validation.simulation;
-  if (!simulation || simulation.tasks.length === 0) {
-    emptyChart(elements.timeline, "No observations were scheduled for this run.");
-    return;
-  }
-  const width = 980;
-  const left = 150;
-  const right = 34;
-  const top = 28;
-  const rowHeight = 34;
-  const height = top + simulation.tasks.length * rowHeight + 52;
+  const scheduled = new Map((simulation?.tasks || []).map((task) => [task.task_id, task]));
+  const width = 1180;
+  const left = 212;
+  const right = 42;
+  const top = 36;
+  const rowHeight = 58;
+  const bottom = 40;
+  const height = top + scenario.tasks.length * rowHeight + bottom;
   const plotWidth = width - left - right;
   const horizon = scenario.horizon_end_s - scenario.horizon_start_s;
   const x = (value) => left + ((value - scenario.horizon_start_s) / horizon) * plotWidth;
-  const root = chart(width, height, "Observation schedule", `${simulation.tasks.length} scheduled tasks on a ${horizon} second horizon.`);
+  const root = chart(
+    width,
+    height,
+    "Mission Gantt chart",
+    `${scenario.tasks.length} targets with visibility windows, scheduled observations, and slew intervals.`,
+  );
 
-  for (let tick = 0; tick <= 4; tick += 1) {
-    const fraction = tick / 4;
+  for (let tick = 0; tick <= 6; tick += 1) {
+    const fraction = tick / 6;
     const value = scenario.horizon_start_s + horizon * fraction;
     const tickX = x(value);
-    root.append(svgElement("line", { x1: tickX, y1: top - 8, x2: tickX, y2: height - 42, class: "chart-grid" }));
-    root.append(svgElement("text", { x: tickX, y: height - 14, "text-anchor": "middle", class: "chart-axis" }, `${Math.round(value)}s`));
+    root.append(svgElement("line", {
+      x1: tickX,
+      y1: top - 12,
+      x2: tickX,
+      y2: height - bottom + 2,
+      class: tick === 0 || tick === 6 ? "chart-grid-strong" : "chart-grid",
+    }));
+    root.append(svgElement("text", {
+      x: tickX,
+      y: height - 12,
+      "text-anchor": "middle",
+      class: "chart-axis",
+    }, `${Math.round(value / 60)}m`));
   }
 
-  simulation.tasks.forEach((task, index) => {
-    const y = top + index * rowHeight;
-    root.append(svgElement("text", { x: left - 12, y: y + 20, "text-anchor": "end", class: "task-label" }, task.task_id));
-    if (task.slew_time_s > 0) {
-      const slewStart = Math.max(scenario.horizon_start_s, task.start_s - task.slew_time_s);
-      const slew = svgElement("rect", {
-        x: x(slewStart), y: y + 14, width: Math.max(1, x(task.start_s) - x(slewStart)), height: 6,
-        rx: 3, class: "slew-bar",
+  scenario.tasks.forEach((task, index) => {
+    const rowY = top + index * rowHeight;
+    if (index % 2 === 0) {
+      root.append(svgElement("rect", {
+        x: 0,
+        y: rowY,
+        width,
+        height: rowHeight,
+        rx: 9,
+        class: "row-band",
+      }));
+    }
+    root.append(svgElement("text", {
+      x: left - 16,
+      y: rowY + 23,
+      "text-anchor": "end",
+      class: "task-label",
+    }, task.target.name));
+    root.append(svgElement("text", {
+      x: left - 16,
+      y: rowY + 40,
+      "text-anchor": "end",
+      class: "task-sublabel",
+    }, `${task.task_id} · P${task.priority_value.toFixed(0)}`));
+
+    task.visibility_windows.forEach((window) => {
+      const bar = svgElement("rect", {
+        x: x(window.start_s),
+        y: rowY + 17,
+        width: Math.max(2, x(window.end_s) - x(window.start_s)),
+        height: 24,
+        rx: 7,
+        class: "window-bar",
       });
-      slew.append(svgElement("title", {}, `Slew ${task.slew_time_s.toFixed(1)} seconds`));
+      bar.append(svgElement("title", {}, `${window.window_id}: ${window.start_s.toFixed(0)}–${window.end_s.toFixed(0)}s visibility`));
+      root.append(bar);
+    });
+
+    const assignment = scheduled.get(task.task_id);
+    if (!assignment) {
+      root.append(svgElement("circle", {
+        cx: width - right + 15,
+        cy: rowY + 29,
+        r: 3,
+        class: "unscheduled-dot",
+      }));
+      return;
+    }
+    if (assignment.slew_time_s > 0) {
+      const slewStart = Math.max(scenario.horizon_start_s, assignment.start_s - assignment.slew_time_s);
+      const slew = svgElement("rect", {
+        x: x(slewStart),
+        y: rowY + 26,
+        width: Math.max(2, x(assignment.start_s) - x(slewStart)),
+        height: 7,
+        rx: 3.5,
+        class: "slew-bar",
+      });
+      slew.append(svgElement("title", {}, `Slew ${assignment.slew_time_s.toFixed(1)} seconds`));
       root.append(slew);
     }
     const observation = svgElement("rect", {
-      x: x(task.start_s), y: y + 8, width: Math.max(2, x(task.end_s) - x(task.start_s)), height: 18,
-      rx: 5, class: "task-bar",
+      x: x(assignment.start_s),
+      y: rowY + 20,
+      width: Math.max(3, x(assignment.end_s) - x(assignment.start_s)),
+      height: 18,
+      rx: 5,
+      class: "task-bar",
     });
-    observation.append(svgElement("title", {}, `${task.task_id}: ${task.start_s.toFixed(1)}-${task.end_s.toFixed(1)}s · ${task.window_id}`));
+    observation.append(svgElement("title", {}, `${task.target.name}: ${assignment.start_s.toFixed(1)}–${assignment.end_s.toFixed(1)}s · ${assignment.window_id}`));
     root.append(observation);
   });
   elements.timeline.replaceChildren(root);
@@ -164,73 +278,402 @@ function renderResources(scenario, result) {
   });
 
   const width = 650;
-  const height = 300;
-  const dimensions = { left: 54, top: 22, plotWidth: 540, plotHeight: 220, height };
+  const height = 320;
+  const dimensions = { left: 54, top: 28, plotWidth: 548, plotHeight: 225 };
   const horizon = scenario.horizon_end_s - scenario.horizon_start_s;
   const x = (value) => dimensions.left + ((value - scenario.horizon_start_s) / horizon) * dimensions.plotWidth;
   const y = (value) => dimensions.top + (1 - value / 100) * dimensions.plotHeight;
-  const root = chart(width, height, "Resource trace", "Energy remaining and storage used as percentages of capacity.");
-  addGrid(
-    root,
-    dimensions,
-    [0, 0.5, 1].map((position) => ({ position, value: scenario.horizon_start_s + horizon * position })),
-    [0, 0.5, 1].map((position) => ({ position, value: position * 100 })),
-    (value) => `${Math.round(value)}s`,
-    (value) => `${Math.round(value)}%`,
+  const root = chart(width, height, "Resource envelope", "Energy remaining and storage used as percentages of capacity.");
+
+  const definitions = svgElement("defs");
+  const gradient = svgElement("linearGradient", { id: "energy-gradient", x1: "0", y1: "0", x2: "0", y2: "1" });
+  gradient.append(
+    svgElement("stop", { offset: "0%", "stop-color": "#8d6bb8", "stop-opacity": "0.22" }),
+    svgElement("stop", { offset: "100%", "stop-color": "#8d6bb8", "stop-opacity": "0" }),
   );
-  root.append(svgElement("polyline", { points: linePoints(energy, x, y), class: "energy-line" }));
-  root.append(svgElement("polyline", { points: linePoints(storage, x, y), class: "storage-line" }));
+  definitions.append(gradient);
+  root.append(definitions);
+
+  [0, 0.5, 1].forEach((fraction) => {
+    const gridY = y(fraction * 100);
+    root.append(svgElement("line", { x1: dimensions.left, y1: gridY, x2: dimensions.left + dimensions.plotWidth, y2: gridY, class: "chart-grid" }));
+    root.append(svgElement("text", { x: dimensions.left - 10, y: gridY + 4, "text-anchor": "end", class: "chart-axis" }, `${fraction * 100}%`));
+  });
+  [0, 0.5, 1].forEach((fraction) => {
+    const value = scenario.horizon_start_s + horizon * fraction;
+    root.append(svgElement("text", { x: x(value), y: height - 18, "text-anchor": "middle", class: "chart-axis" }, `${Math.round(value / 60)}m`));
+  });
+
+  const area = [
+    `${x(energy[0].x)},${y(0)}`,
+    ...energy.map((point) => `${x(point.x)},${y(point.y)}`),
+    `${x(energy.at(-1).x)},${y(0)}`,
+  ].join(" ");
+  root.append(svgElement("polygon", { points: area, class: "energy-area" }));
+  root.append(svgElement("polyline", { points: seriesPoints(energy, x, y), class: "energy-line" }));
+  root.append(svgElement("polyline", { points: seriesPoints(storage, x, y), class: "storage-line" }));
   const energyFinal = energy.at(-1);
   const storageFinal = storage.at(-1);
-  root.append(svgElement("text", { x: x(energyFinal.x) + 8, y: y(energyFinal.y) + 4, class: "chart-title-label" }, `Energy ${energyFinal.y.toFixed(0)}%`));
-  root.append(svgElement("text", { x: x(storageFinal.x) + 8, y: y(storageFinal.y) + 4, class: "chart-title-label" }, `Storage ${storageFinal.y.toFixed(0)}%`));
+  root.append(svgElement("text", { x: dimensions.left, y: 17, class: "chart-panel-label" }, "Capacity utilization"));
+  root.append(svgElement("text", { x: x(energyFinal.x) - 6, y: y(energyFinal.y) - 10, "text-anchor": "end", class: "chart-title-label" }, `Energy ${energyFinal.y.toFixed(0)}%`));
+  root.append(svgElement("text", { x: x(storageFinal.x) - 6, y: y(storageFinal.y) - 10, "text-anchor": "end", class: "chart-title-label" }, `Storage ${storageFinal.y.toFixed(0)}%`));
   elements.resources.replaceChildren(root);
 }
 
 function renderConvergence(points) {
+  elements.learningKicker.textContent = "Search diagnostics";
+  elements.learningTitle.textContent = "Convergence trace";
+  elements.learningLegend.replaceChildren(...legendItems([["objective", "Incumbent objective"]]));
   if (!points.length) {
-    emptyChart(elements.convergence, "This solver did not publish a convergence trace.");
+    emptyChart(elements.learning, "This solver did not publish a convergence trace.");
     return;
   }
   const width = 650;
-  const height = 300;
-  const dimensions = { left: 58, top: 22, plotWidth: 520, plotHeight: 220, height };
+  const height = 320;
+  const dimensions = { left: 56, top: 28, plotWidth: 544, plotHeight: 225 };
   const maxEvaluation = Math.max(1, ...points.map((point) => point.evaluation));
   const maxValue = Math.max(1, ...points.map((point) => point.total_value));
   const x = (value) => dimensions.left + (value / maxEvaluation) * dimensions.plotWidth;
   const y = (value) => dimensions.top + (1 - value / maxValue) * dimensions.plotHeight;
-  const root = chart(width, height, "Search convergence", "Incumbent total value by unique genome evaluation.");
-  addGrid(
-    root,
-    dimensions,
-    [0, 0.5, 1].map((position) => ({ position, value: maxEvaluation * position })),
-    [0, 0.5, 1].map((position) => ({ position, value: maxValue * position })),
-    (value) => `${Math.round(value)}`,
-    (value) => `${Math.round(value)}`,
-  );
+  const root = chart(width, height, "Search convergence", "Incumbent objective value by unique solution evaluation.");
+  [0, 0.5, 1].forEach((fraction) => {
+    const gridY = y(maxValue * fraction);
+    root.append(svgElement("line", { x1: dimensions.left, y1: gridY, x2: dimensions.left + dimensions.plotWidth, y2: gridY, class: "chart-grid" }));
+    root.append(svgElement("text", { x: dimensions.left - 10, y: gridY + 4, "text-anchor": "end", class: "chart-axis" }, `${Math.round(maxValue * fraction)}`));
+    root.append(svgElement("text", { x: x(maxEvaluation * fraction), y: height - 18, "text-anchor": "middle", class: "chart-axis" }, `${Math.round(maxEvaluation * fraction)}`));
+  });
   const series = points.map((point) => ({ x: point.evaluation, y: point.total_value }));
-  root.append(svgElement("polyline", { points: linePoints(series, x, y), class: "convergence-line" }));
+  root.append(svgElement("polyline", { points: seriesPoints(series, x, y), class: "convergence-line" }));
   series.forEach((point) => root.append(svgElement("circle", { cx: x(point.x), cy: y(point.y), r: 4, class: "chart-point" })));
-  const final = series.at(-1);
-  root.append(svgElement("text", { x: x(final.x) + 8, y: y(final.y) + 4, class: "chart-title-label" }, `Value ${final.y.toFixed(1)}`));
-  elements.convergence.replaceChildren(root);
+  root.append(svgElement("text", { x: dimensions.left, y: 17, class: "chart-panel-label" }, "Objective by evaluation"));
+  elements.learning.replaceChildren(root);
+}
+
+function renderTraining(trace) {
+  elements.learningKicker.textContent = "Learning diagnostics";
+  elements.learningTitle.textContent = "Training curves";
+  elements.learningLegend.replaceChildren(...legendItems([
+    ["objective", "Objective"],
+    ["epsilon", "Epsilon"],
+    ["td-error", "Mean |TD|"],
+  ]));
+  if (!trace.length) {
+    emptyChart(elements.learning, "Training trace is unavailable for this run.");
+    return;
+  }
+  const points = sampleSeries(trace);
+  const width = 650;
+  const height = 340;
+  const left = 56;
+  const plotWidth = 544;
+  const topY = 29;
+  const topHeight = 128;
+  const lowerY = 207;
+  const lowerHeight = 72;
+  const maxEpisode = Math.max(1, ...points.map((point) => point.episode));
+  const maxValue = Math.max(1, ...points.map((point) => point.total_value));
+  const maxTd = Math.max(1e-12, ...points.map((point) => point.mean_abs_td_error));
+  const x = (value) => left + (value / maxEpisode) * plotWidth;
+  const yValue = (value) => topY + (1 - value / maxValue) * topHeight;
+  const yDiagnostic = (value) => lowerY + (1 - value) * lowerHeight;
+  const root = chart(width, height, "Q-learning training curves", "Objective value, epsilon exploration schedule, and normalized mean absolute temporal-difference error by episode.");
+
+  [0, 0.5, 1].forEach((fraction) => {
+    const objectiveY = yValue(maxValue * fraction);
+    const diagnosticY = yDiagnostic(fraction);
+    root.append(svgElement("line", { x1: left, y1: objectiveY, x2: left + plotWidth, y2: objectiveY, class: "chart-grid" }));
+    root.append(svgElement("text", { x: left - 10, y: objectiveY + 4, "text-anchor": "end", class: "chart-axis" }, `${Math.round(maxValue * fraction)}`));
+    root.append(svgElement("line", { x1: left, y1: diagnosticY, x2: left + plotWidth, y2: diagnosticY, class: "chart-grid" }));
+    root.append(svgElement("text", { x: left - 10, y: diagnosticY + 4, "text-anchor": "end", class: "chart-axis" }, fraction.toFixed(1)));
+    root.append(svgElement("text", { x: x(maxEpisode * fraction), y: height - 17, "text-anchor": "middle", class: "chart-axis" }, `${Math.round(maxEpisode * fraction)}`));
+  });
+  root.append(svgElement("text", { x: left, y: 17, class: "chart-panel-label" }, "Policy objective"));
+  root.append(svgElement("text", { x: left, y: lowerY - 13, class: "chart-panel-label" }, "Exploration / normalized TD error"));
+  root.append(svgElement("text", { x: left + plotWidth, y: height - 17, "text-anchor": "end", class: "chart-panel-label" }, "Episode"));
+
+  const objective = points.map((point) => ({ x: point.episode, y: point.total_value }));
+  const epsilon = points.map((point) => ({ x: point.episode, y: point.epsilon }));
+  const td = points.map((point) => ({ x: point.episode, y: point.mean_abs_td_error / maxTd }));
+  root.append(svgElement("polyline", { points: seriesPoints(objective, x, yValue), class: "objective-line" }));
+  root.append(svgElement("polyline", { points: seriesPoints(epsilon, x, yDiagnostic), class: "epsilon-line" }));
+  root.append(svgElement("polyline", { points: seriesPoints(td, x, yDiagnostic), class: "td-line" }));
+  elements.learning.replaceChildren(root);
+}
+
+function renderGlobeFallback(scenario, scheduledIds) {
+  const globe = document.createElement("div");
+  globe.className = "fallback-globe";
+  const core = document.createElement("span");
+  core.className = "fallback-globe-core";
+  globe.append(core);
+  scenario.tasks.forEach((task, index) => {
+    const marker = document.createElement("span");
+    marker.className = scheduledIds.has(task.task_id) ? "fallback-marker is-scheduled" : "fallback-marker";
+    marker.style.setProperty("--marker-x", `${38 + index * 13}%`);
+    marker.style.setProperty("--marker-y", `${35 + (index % 2) * 18}%`);
+    marker.title = task.target.name;
+    globe.append(marker);
+  });
+  elements.globe.replaceChildren(globe);
+  elements.globeLoading.firstElementChild?.remove();
+  elements.globeLoading.lastElementChild.textContent = "Static mission geometry · 3D engine unavailable";
+}
+
+function notionalGroundTrack(Cesium, longitudeCenter) {
+  const coordinates = [];
+  for (let index = 0; index <= 180; index += 1) {
+    const phase = (index / 180) * Math.PI * 2;
+    const longitude = ((longitudeCenter - 160 + index * 2 + 540) % 360) - 180;
+    const latitude = 68 * Math.sin(phase);
+    coordinates.push(longitude, latitude, 560000);
+  }
+  return Cesium.Cartesian3.fromDegreesArrayHeights(coordinates);
+}
+
+function naturalEarthLayer(Cesium) {
+  const provider = new Cesium.UrlTemplateImageryProvider({
+    url: `${Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII")}/{z}/{x}/{reverseY}.jpg`,
+    tilingScheme: new Cesium.GeographicTilingScheme(),
+    maximumLevel: 5,
+    credit: new Cesium.Credit("Natural Earth II · CesiumJS"),
+  });
+  return new Cesium.ImageryLayer(provider, {
+    brightness: 1.08,
+    contrast: 1.08,
+    saturation: 1.08,
+    gamma: 1.04,
+  });
+}
+
+function nasaBlueMarbleLayer(Cesium) {
+  const provider = new Cesium.UrlTemplateImageryProvider({
+    url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg",
+    tilingScheme: new Cesium.WebMercatorTilingScheme(),
+    maximumLevel: 8,
+    credit: new Cesium.Credit("NASA Earth Observatory · GIBS"),
+  });
+  return new Cesium.ImageryLayer(provider, {
+    brightness: 1.18,
+    contrast: 1.08,
+    saturation: 1.12,
+    gamma: 1.08,
+  });
+}
+
+function renderMissionGlobe(scenario, result) {
+  const scheduledTasks = result.validation.simulation?.tasks || [];
+  const scheduledIds = new Set(scheduledTasks.map((task) => task.task_id));
+  elements.globeTargets.textContent = `${scenario.tasks.length} targets`;
+  elements.globeSequence.textContent = `${scheduledIds.size} selected · ${scenario.satellite.satellite_id}`;
+  elements.globe.setAttribute("aria-label", `Interactive WGS84 globe with ${scenario.tasks.length} mission targets, ${scheduledIds.size} scheduled.`);
+
+  const Cesium = window.Cesium;
+  if (!Cesium) {
+    renderGlobeFallback(scenario, scheduledIds);
+    return;
+  }
+  try {
+    if (!state.globe) {
+      const primaryImagery = nasaBlueMarbleLayer(Cesium);
+      state.globe = new Cesium.Viewer("mission-globe", {
+        animation: false,
+        baseLayer: primaryImagery,
+        baseLayerPicker: false,
+        fullscreenButton: false,
+        geocoder: false,
+        homeButton: false,
+        infoBox: false,
+        navigationHelpButton: false,
+        scene3DOnly: true,
+        sceneModePicker: false,
+        selectionIndicator: false,
+        timeline: false,
+        shouldAnimate: false,
+        requestRenderMode: true,
+      });
+      primaryImagery.imageryProvider.errorEvent.addEventListener(() => {
+        if (!state.imageryFallbackActive && state.globe) {
+          state.globe.imageryLayers.add(naturalEarthLayer(Cesium), 0);
+          state.imageryFallbackActive = true;
+          elements.globe.dataset.imagerySource = "natural-earth-fallback";
+        }
+      });
+      elements.globe.dataset.imagerySource = "nasa-blue-marble";
+      let imageryRequestsObserved = false;
+      state.globe.scene.globe.tileLoadProgressEvent.addEventListener((pendingRequests) => {
+        if (pendingRequests > 0) imageryRequestsObserved = true;
+        if (imageryRequestsObserved && pendingRequests === 0) {
+          elements.globe.dataset.imageryReady = "true";
+        }
+      });
+      state.globe.scene.backgroundColor = Cesium.Color.fromCssColorString("#211b2a");
+      state.globe.scene.globe.baseColor = Cesium.Color.fromCssColorString("#263a49");
+      state.globe.scene.globe.enableLighting = false;
+      state.globe.scene.globe.showGroundAtmosphere = true;
+      state.globe.scene.skyBox.show = false;
+      state.globe.scene.sun.show = false;
+      state.globe.scene.moon.show = false;
+      state.globe.resolutionScale = Math.min(1.25, window.devicePixelRatio || 1);
+    }
+
+    const viewer = state.globe;
+    viewer.entities.removeAll();
+    const longitudeCenter = scenario.tasks.reduce((sum, task) => sum + task.target.longitude_deg, 0) / scenario.tasks.length;
+    const latitudeCenter = scenario.tasks.reduce((sum, task) => sum + task.target.latitude_deg, 0) / scenario.tasks.length;
+    const scheduledColor = Cesium.Color.fromCssColorString("#d6a9e9");
+    const candidateColor = Cesium.Color.fromCssColorString("#d99066");
+
+    viewer.entities.add({
+      polyline: {
+        positions: notionalGroundTrack(Cesium, longitudeCenter),
+        width: 1.5,
+        material: new Cesium.PolylineDashMaterialProperty({
+          color: Cesium.Color.fromCssColorString("#b9a3c8").withAlpha(0.48),
+          dashLength: 14,
+        }),
+      },
+    });
+
+    scenario.tasks.forEach((task, index) => {
+      const selected = scheduledIds.has(task.task_id);
+      const color = selected ? scheduledColor : candidateColor;
+      const position = Cesium.Cartesian3.fromDegrees(task.target.longitude_deg, task.target.latitude_deg, 18000);
+      viewer.entities.add({
+        id: `target-${task.task_id}`,
+        name: task.target.name,
+        position,
+        point: {
+          pixelSize: selected ? 11 : 8,
+          color,
+          outlineColor: Cesium.Color.WHITE.withAlpha(0.76),
+          outlineWidth: 1,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        label: {
+          text: task.target.name.toUpperCase(),
+          font: "600 11px sans-serif",
+          fillColor: Cesium.Color.WHITE.withAlpha(0.88),
+          outlineColor: Cesium.Color.fromCssColorString("#211b2a"),
+          outlineWidth: 3,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          pixelOffset: new Cesium.Cartesian2((index - 1) * 18, -22 - index * 12),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        ellipse: {
+          semiMajorAxis: selected ? 68000 : 44000,
+          semiMinorAxis: selected ? 68000 : 44000,
+          material: color.withAlpha(selected ? 0.16 : 0.08),
+          outline: true,
+          outlineColor: color.withAlpha(0.5),
+          height: 0,
+        },
+      });
+    });
+
+    const taskById = new Map(scenario.tasks.map((task) => [task.task_id, task]));
+    const sequenceCoordinates = [];
+    scheduledTasks.forEach((assignment) => {
+      const task = taskById.get(assignment.task_id);
+      if (task) sequenceCoordinates.push(task.target.longitude_deg, task.target.latitude_deg, 70000);
+    });
+    if (sequenceCoordinates.length >= 6) {
+      viewer.entities.add({
+        polyline: {
+          positions: Cesium.Cartesian3.fromDegreesArrayHeights(sequenceCoordinates),
+          width: 3,
+          material: new Cesium.PolylineGlowMaterialProperty({
+            color: scheduledColor.withAlpha(0.78),
+            glowPower: 0.16,
+          }),
+          arcType: Cesium.ArcType.GEODESIC,
+        },
+      });
+    }
+
+    const satelliteLongitude = longitudeCenter - 8;
+    const satelliteLatitude = Math.min(72, latitudeCenter + 23);
+    const satellitePosition = Cesium.Cartesian3.fromDegrees(satelliteLongitude, satelliteLatitude, 680000);
+    viewer.entities.add({
+      id: "mission-satellite",
+      position: satellitePosition,
+      point: {
+        pixelSize: 10,
+        color: Cesium.Color.fromCssColorString("#fff3e9"),
+        outlineColor: scheduledColor,
+        outlineWidth: 3,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+      label: {
+        text: scenario.satellite.satellite_id.toUpperCase(),
+        font: "700 11px sans-serif",
+        fillColor: Cesium.Color.WHITE,
+        outlineColor: Cesium.Color.fromCssColorString("#211b2a"),
+        outlineWidth: 3,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        pixelOffset: new Cesium.Cartesian2(0, -23),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+    });
+
+    const firstScheduled = taskById.get(scheduledTasks[0]?.task_id);
+    if (firstScheduled) {
+      viewer.entities.add({
+        polyline: {
+          positions: [
+            satellitePosition,
+            Cesium.Cartesian3.fromDegrees(firstScheduled.target.longitude_deg, firstScheduled.target.latitude_deg, 0),
+          ],
+          width: 1.5,
+          material: new Cesium.PolylineDashMaterialProperty({ color: candidateColor.withAlpha(0.72), dashLength: 10 }),
+        },
+      });
+    }
+
+    const missionCenter = new Cesium.BoundingSphere(
+      Cesium.Cartesian3.fromDegrees(longitudeCenter, latitudeCenter, 0),
+      250000,
+    );
+    viewer.camera.flyToBoundingSphere(missionCenter, {
+      duration: 0,
+      offset: new Cesium.HeadingPitchRange(
+        Cesium.Math.toRadians(-18),
+        Cesium.Math.toRadians(-68),
+        9000000,
+      ),
+    });
+    viewer.scene.requestRender();
+    elements.globeLoading.classList.add("is-hidden");
+  } catch (error) {
+    console.warn("Cesium mission view unavailable", error);
+    state.globe = null;
+    state.imageryFallbackActive = false;
+    renderGlobeFallback(scenario, scheduledIds);
+  }
 }
 
 function renderResult(payload) {
   const { scenario, result, convergence } = payload;
-  elements.value.textContent = result.metrics.total_value.toFixed(2);
-  elements.tasks.textContent = String(result.metrics.completed_tasks);
-  elements.taskContext.textContent = `of ${scenario.tasks.length} candidates`;
+  const trainingTrace = result.schedule.metadata.training_trace;
+  elements.value.textContent = result.metrics.total_value.toFixed(1);
+  elements.tasks.textContent = `${result.metrics.completed_tasks}/${scenario.tasks.length}`;
+  elements.taskContext.textContent = `${((result.metrics.completed_tasks / Math.max(1, scenario.tasks.length)) * 100).toFixed(0)}% of candidate targets`;
   elements.slew.textContent = `${result.metrics.total_slew_time_s.toFixed(1)}s`;
-  elements.runtime.textContent = `${result.schedule.solver_name} · seed ${result.schedule.seed ?? "—"} · ${(result.runtime_s * 1000).toFixed(1)} ms`;
-  renderTimeline(scenario, result);
+  elements.feasible.textContent = result.validation.is_feasible ? "PASS" : "FAIL";
+  const timingNote = staticDeployment ? " · recorded at build" : "";
+  elements.runtime.textContent = `${result.schedule.solver_name} · seed ${result.schedule.seed ?? "—"} · ${(result.runtime_s * 1000).toFixed(1)} ms${timingNote}`;
+  renderMissionGlobe(scenario, result);
+  renderGantt(scenario, result);
   renderResources(scenario, result);
-  renderConvergence(convergence);
+  if (Array.isArray(trainingTrace) && trainingTrace.length) renderTraining(trainingTrace);
+  else renderConvergence(convergence);
   elements.results.hidden = false;
 }
 
 async function runSolve() {
-  setBusy(true, "Solving and validating the schedule…");
+  const progressMessage = staticDeployment
+    ? "Loading the precomputed reproducibility artifact…"
+    : "Evaluating the solver and replaying the resulting schedule…";
+  setBusy(true, progressMessage);
   try {
     const payload = await api("/api/solve", {
       method: "POST",
@@ -243,13 +686,15 @@ async function runSolve() {
       }),
     });
     renderResult(payload);
-    elements.status.textContent = "Feasible schedule verified by the shared simulator.";
+    elements.status.textContent = staticDeployment
+      ? "Precomputed run loaded · feasibility and diagnostic artifacts were generated by the shared simulator."
+      : "Schedule replay completed · the shared simulator produced the feasibility verdict and diagnostics.";
   } catch (error) {
     elements.status.classList.add("error");
     elements.status.textContent = error instanceof Error ? error.message : "The run failed.";
   } finally {
     elements.button.disabled = false;
-    elements.button.firstChild.textContent = "Run scheduler ";
+    elements.button.firstChild.textContent = staticDeployment ? "Load reference run " : "Evaluate solver ";
   }
 }
 
@@ -260,7 +705,16 @@ async function initialize() {
     state.solvers = solverPayload.solvers;
     populateSelect(elements.scenario, state.scenarios, "scenario_id", (item) => item.name);
     populateSelect(elements.solver, state.solvers, "solver_name", (item) => `${item.solver_name} · ${item.category}`);
-    elements.solver.value = "greedy-insertion";
+    elements.solver.value = "q-learning";
+    if (staticDeployment) {
+      const dataset = await loadStaticDataset();
+      elements.seed.value = dataset.metadata.seed;
+      elements.budget.value = dataset.metadata.evaluation_budget;
+      elements.seed.disabled = true;
+      elements.budget.disabled = true;
+      elements.deploymentMode.textContent = "GitHub Pages · precomputed runs";
+      elements.button.firstChild.textContent = "Load reference run ";
+    }
     updateScenarioContext();
     await runSolve();
   } catch (error) {

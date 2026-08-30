@@ -23,8 +23,12 @@ class LabRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'self'; script-src 'self'; style-src 'self'; "
-            "img-src 'self' data:; object-src 'none'; frame-ancestors 'none'",
+            "default-src 'self'; script-src 'self' 'unsafe-eval' https://cesium.com; "
+            "style-src 'self' https://cesium.com; img-src 'self' data: blob: https://cesium.com "
+            "https://gibs.earthdata.nasa.gov; "
+            "font-src 'self' data: https://cesium.com; worker-src 'self' blob: https://cesium.com; "
+            "connect-src 'self' https://cesium.com https://gibs.earthdata.nasa.gov; "
+            "object-src 'none'; frame-ancestors 'none'",
         )
         self.end_headers()
         self.wfile.write(response.body)

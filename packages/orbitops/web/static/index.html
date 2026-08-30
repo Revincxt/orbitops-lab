@@ -3,33 +3,97 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Interactive satellite scheduling laboratory for OrbitOps.">
-  <title>OrbitOps Web Lab</title>
-  <link rel="stylesheet" href="/app.css">
+  <meta name="description" content="Reproducible research interface for constrained Earth-observation scheduling.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="OrbitOps Scheduling Laboratory">
+  <meta property="og:description" content="Reproducible research interface for constrained Earth-observation scheduling.">
+  <meta property="og:url" content="https://revincxt.github.io/orbitops-lab/">
+  <meta property="og:image" content="https://revincxt.github.io/orbitops-lab/orbitops-social-card.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <title>OrbitOps Scheduling Laboratory</title>
+  <link rel="preconnect" href="https://cesium.com">
+  <link rel="preconnect" href="https://gibs.earthdata.nasa.gov">
+  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Widgets/widgets.css">
+  <link rel="stylesheet" href="./app.css">
 </head>
 <body>
-  <div class="ambient ambient-one" aria-hidden="true"></div>
-  <div class="ambient ambient-two" aria-hidden="true"></div>
   <main class="shell">
     <header class="masthead">
-      <a class="brand" href="/" aria-label="OrbitOps Web Lab home">
+      <a class="brand" href="./" aria-label="OrbitOps Scheduling Laboratory home">
         <span class="brand-mark" aria-hidden="true"><i></i></span>
-        <span>OrbitOps <em>Lab</em></span>
+        <span>OrbitOps <em>Laboratory</em></span>
       </a>
-      <span class="mode">Local mission sandbox</span>
+      <nav class="primary-nav" aria-label="Primary navigation">
+        <a href="#experiment">Experiment</a>
+        <a href="#results">Results</a>
+        <a href="https://github.com/Revincxt/orbitops-lab" rel="noreferrer">Repository</a>
+      </nav>
+      <div class="masthead-meta">
+        <span id="deployment-mode">Local API execution</span>
+        <span class="stage-chip">v0.1</span>
+      </div>
     </header>
 
-    <section class="intro" aria-labelledby="page-title">
-      <p class="kicker">Agile Earth-observation scheduling</p>
-      <h1 id="page-title">Make every scheduling decision inspectable.</h1>
-      <p class="lede">Compare hand-built algorithms against the same constraints, then trace the schedule, resources, and search path behind the score.</p>
+    <section class="hero" aria-labelledby="page-title">
+      <div class="study-summary">
+        <p class="kicker">Research software · Earth-observation mission planning</p>
+        <h1 id="page-title">Constrained satellite scheduling laboratory</h1>
+        <p class="lede">OrbitOps is a reproducible environment for comparing exact, heuristic, stochastic-search, and reinforcement-learning policies under a shared feasibility model.</p>
+        <dl class="research-metadata" aria-label="Study definition">
+          <div>
+            <dt>Problem class</dt>
+            <dd>Single-satellite, offline task scheduling</dd>
+          </div>
+          <div>
+            <dt>Objective</dt>
+            <dd>Lexicographic value, completion, and slew minimization</dd>
+          </div>
+          <div>
+            <dt>Constraints</dt>
+            <dd>Visibility, temporal overlap, attitude, energy, and storage</dd>
+          </div>
+          <div>
+            <dt>Evaluation</dt>
+            <dd>Independent replay through one deterministic simulator</dd>
+          </div>
+        </dl>
+        <p class="scope-note"><strong>Model scope.</strong> The current release uses precomputed visibility windows and a notional ground track; it does not claim high-fidelity orbit propagation.</p>
+        <div class="method-tags" aria-label="Available method families">
+          <span>Exact</span><span>Heuristic</span><span>Search</span><span>Q-learning</span>
+        </div>
+      </div>
+
+      <article class="globe-card" aria-labelledby="globe-title">
+        <div class="visual-heading globe-heading">
+          <div>
+            <p class="section-index">Geospatial context</p>
+            <h2 id="globe-title">Targets and selected sequence</h2>
+          </div>
+          <span class="tech-badge">CesiumJS · NASA GIBS</span>
+        </div>
+        <div class="globe-frame">
+          <div id="mission-globe" role="img" aria-label="Interactive three-dimensional globe showing mission targets and scheduled observation sequence"></div>
+          <div id="globe-loading" class="globe-loading" aria-live="polite">
+            <span class="orbit-loader" aria-hidden="true"></span>
+            <span>Preparing mission geometry</span>
+          </div>
+          <div class="globe-overlay" aria-hidden="true">
+            <span><i></i> Scheduled target</span>
+            <span><i></i> Candidate target</span>
+          </div>
+        </div>
+        <div class="globe-footer">
+          <p><strong id="globe-targets">— targets</strong><span id="globe-sequence">Awaiting schedule</span></p>
+          <small>WGS84 · NASA Blue Marble · illustrative track</small>
+        </div>
+      </article>
     </section>
 
-    <section class="control-surface" aria-labelledby="controls-title">
+    <section id="experiment" class="control-surface" aria-labelledby="controls-title">
       <div class="control-heading">
         <div>
-          <p class="section-index">01 / Configure</p>
-          <h2 id="controls-title">Mission run</h2>
+          <p class="section-index">Experiment configuration</p>
+          <h2 id="controls-title">Solver evaluation</h2>
         </div>
         <p id="scenario-context" class="context">Loading scenario catalog…</p>
       </div>
@@ -50,58 +114,64 @@
           <span>Evaluation budget</span>
           <input id="budget-input" name="evaluation_budget" type="number" value="250" min="1" max="5000" step="10">
         </label>
-        <button id="run-button" type="submit">Run scheduler <span aria-hidden="true">→</span></button>
+        <button id="run-button" type="submit">Evaluate solver <span aria-hidden="true">→</span></button>
       </form>
-      <p id="status" class="status" aria-live="polite">Preparing the lab…</p>
+      <p id="status" class="status" aria-live="polite">Loading experimental configuration…</p>
     </section>
 
     <section id="results" class="results" aria-labelledby="results-title" hidden>
       <div class="result-heading">
         <div>
-          <p class="section-index">02 / Inspect</p>
-          <h2 id="results-title">Schedule result</h2>
+          <p class="section-index">Experimental output</p>
+          <h2 id="results-title">Validated schedule</h2>
         </div>
         <p id="runtime" class="runtime"></p>
       </div>
 
       <div class="metric-grid" aria-label="Primary schedule metrics">
         <article>
-          <span>Total value</span>
+          <span>Objective value</span>
           <strong id="metric-value">—</strong>
           <small>Primary objective</small>
         </article>
         <article>
-          <span>Completed tasks</span>
+          <span>Completion</span>
           <strong id="metric-tasks">—</strong>
           <small id="metric-task-context">of — candidates</small>
         </article>
         <article>
-          <span>Total slew</span>
+          <span>Attitude motion</span>
           <strong id="metric-slew">—</strong>
-          <small>Seconds of attitude motion</small>
+          <small>Total slew seconds</small>
+        </article>
+        <article class="feasible-metric">
+          <span>Feasibility</span>
+          <strong id="metric-feasible">—</strong>
+          <small>Shared simulator verdict</small>
         </article>
       </div>
 
-      <article class="visual-block" aria-labelledby="timeline-title">
+      <article class="visual-block gantt-block" aria-labelledby="timeline-title">
         <div class="visual-heading">
           <div>
-            <p class="section-index">Timeline</p>
-            <h3 id="timeline-title">Observation schedule</h3>
+            <p class="section-index">Schedule / Gantt</p>
+            <h3 id="timeline-title">Visibility and observation plan</h3>
           </div>
-          <div class="legend" aria-label="Timeline legend">
-            <span><i class="swatch observation"></i>Observation</span>
+          <div class="legend" aria-label="Gantt chart legend">
+            <span><i class="swatch visibility"></i>Visibility window</span>
+            <span><i class="swatch observation"></i>Scheduled</span>
             <span><i class="swatch slew"></i>Slew</span>
           </div>
         </div>
-        <div id="timeline-chart" class="chart-host"></div>
+        <div id="timeline-chart" class="chart-host gantt-host"></div>
       </article>
 
       <div class="visual-pair">
         <article class="visual-block" aria-labelledby="resources-title">
           <div class="visual-heading">
             <div>
-              <p class="section-index">State</p>
-              <h3 id="resources-title">Resource trace</h3>
+              <p class="section-index">Simulation state</p>
+              <h3 id="resources-title">Resource envelope</h3>
             </div>
             <div class="legend" aria-label="Resource chart legend">
               <span><i class="swatch energy"></i>Energy left</span>
@@ -111,18 +181,32 @@
           <div id="resource-chart" class="chart-host"></div>
         </article>
 
-        <article class="visual-block" aria-labelledby="convergence-title">
+        <article class="visual-block" aria-labelledby="learning-title">
           <div class="visual-heading">
             <div>
-              <p class="section-index">Search</p>
-              <h3 id="convergence-title">Convergence</h3>
+              <p id="learning-kicker" class="section-index">Learning diagnostics</p>
+              <h3 id="learning-title">Training curves</h3>
+            </div>
+            <div id="learning-legend" class="legend" aria-label="Learning chart legend">
+              <span><i class="swatch objective"></i>Objective</span>
+              <span><i class="swatch epsilon"></i>Epsilon</span>
+              <span><i class="swatch td-error"></i>Mean |TD|</span>
             </div>
           </div>
-          <div id="convergence-chart" class="chart-host"></div>
+          <div id="learning-chart" class="chart-host"></div>
         </article>
       </div>
+
+      <aside class="evidence-strip" aria-label="Evidence pipeline">
+        <div><span>01</span><p><strong>Decision variables</strong>Solver emits task assignments</p></div>
+        <div><span>02</span><p><strong>State reconstruction</strong>Shared transitions replay resources</p></div>
+        <div><span>03</span><p><strong>Constraint validation</strong>Independent checks produce the verdict</p></div>
+      </aside>
     </section>
   </main>
-  <script src="/app.js" defer></script>
+  <script src="./deployment-config.js"></script>
+  <script src="./cesium-config.js"></script>
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Cesium.js" defer></script>
+  <script src="./app.js" defer></script>
 </body>
 </html>
