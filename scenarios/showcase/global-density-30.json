@@ -7,13 +7,13 @@
   "satellite": {
     "satellite_id": "sat-large-hard-000",
     "energy_capacity_wh": 220.0,
-    "initial_energy_wh": 115.79185126754372,
-    "recharge_rate_w": 20.85527796275354,
+    "initial_energy_wh": 115.791851,
+    "recharge_rate_w": 20.855278,
     "storage_capacity_gb": 42.0,
-    "initial_storage_gb": 7.570901007829602,
-    "initial_attitude_deg": 5.923098889620725,
-    "slew_rate_deg_s": 1.8401566939193175,
-    "settling_time_s": 11.149655872642441
+    "initial_storage_gb": 7.570901,
+    "initial_attitude_deg": 5.923099,
+    "slew_rate_deg_s": 1.840157,
+    "settling_time_s": 11.149656
   },
   "tasks": [
     {
@@ -24,18 +24,18 @@
         "latitude_deg": 31.2304,
         "longitude_deg": 121.4737
       },
-      "priority_value": 5.534253208169026,
-      "duration_s": 82.77227136588833,
+      "priority_value": 5.534253,
+      "duration_s": 82.772271,
       "visibility_windows": [
         {
           "window_id": "w-000-0",
-          "start_s": 502.6922716323311,
-          "end_s": 636.7186698638207
+          "start_s": 502.692272,
+          "end_s": 636.71867
         }
       ],
-      "required_attitude_deg": -27.47729425402342,
-      "energy_cost_wh": 31.15383395294842,
-      "storage_cost_gb": 3.6334734564830584
+      "required_attitude_deg": -27.477294,
+      "energy_cost_wh": 31.153834,
+      "storage_cost_gb": 3.633473
     },
     {
       "task_id": "task-001",
@@ -45,18 +45,18 @@
         "latitude_deg": 48.8566,
         "longitude_deg": 2.3522
       },
-      "priority_value": 88.62023862273617,
-      "duration_s": 71.82572720019482,
+      "priority_value": 88.620239,
+      "duration_s": 71.825727,
       "visibility_windows": [
         {
           "window_id": "w-001-0",
-          "start_s": 1377.4596119278772,
-          "end_s": 1486.428757555763
+          "start_s": 1377.459612,
+          "end_s": 1486.428758
         }
       ],
-      "required_attitude_deg": 33.46434309807961,
-      "energy_cost_wh": 31.290257611640115,
-      "storage_cost_gb": 1.891117025666066
+      "required_attitude_deg": 33.464343,
+      "energy_cost_wh": 31.290258,
+      "storage_cost_gb": 1.891117
     },
     {
       "task_id": "task-002",
@@ -66,18 +66,18 @@
         "latitude_deg": -23.5505,
         "longitude_deg": -46.6333
       },
-      "priority_value": 48.6232124804397,
-      "duration_s": 63.80086629236102,
+      "priority_value": 48.623212,
+      "duration_s": 63.800866,
       "visibility_windows": [
         {
           "window_id": "w-002-0",
-          "start_s": 1339.0300655594829,
-          "end_s": 1472.3735638427065
+          "start_s": 1339.030066,
+          "end_s": 1472.373564
         }
       ],
-      "required_attitude_deg": 59.23453205591042,
-      "energy_cost_wh": 18.98549768273582,
-      "storage_cost_gb": 4.457153159245501
+      "required_attitude_deg": 59.234532,
+      "energy_cost_wh": 18.985498,
+      "storage_cost_gb": 4.457153
     },
     {
       "task_id": "task-003",
@@ -87,18 +87,18 @@
         "latitude_deg": -33.8688,
         "longitude_deg": 151.2093
       },
-      "priority_value": 15.101390924029635,
-      "duration_s": 66.85192001277875,
+      "priority_value": 15.101391,
+      "duration_s": 66.85192,
       "visibility_windows": [
         {
           "window_id": "w-003-0",
-          "start_s": 1310.2641774455824,
-          "end_s": 1409.7049848680308
+          "start_s": 1310.264177,
+          "end_s": 1409.704985
         }
       ],
-      "required_attitude_deg": -62.99302455800554,
-      "energy_cost_wh": 26.30661434408514,
-      "storage_cost_gb": 1.8590936570010703
+      "required_attitude_deg": -62.993025,
+      "energy_cost_wh": 26.306614,
+      "storage_cost_gb": 1.859094
     },
     {
       "task_id": "task-004",
@@ -108,18 +108,18 @@
         "latitude_deg": -1.2921,
         "longitude_deg": 36.8219
       },
-      "priority_value": 31.92348160281238,
-      "duration_s": 67.66810128701172,
+      "priority_value": 31.923482,
+      "duration_s": 67.668101,
       "visibility_windows": [
         {
           "window_id": "w-004-0",
-          "start_s": 1115.8806394273934,
-          "end_s": 1219.0860898723997
+          "start_s": 1115.880639,
+          "end_s": 1219.08609
         }
       ],
-      "required_attitude_deg": 71.6317915188404,
-      "energy_cost_wh": 21.41367364802199,
-      "storage_cost_gb": 1.9393672016303207
+      "required_attitude_deg": 71.631792,
+      "energy_cost_wh": 21.413674,
+      "storage_cost_gb": 1.939367
     },
     {
       "task_id": "task-005",
@@ -129,18 +129,18 @@
         "latitude_deg": 37.7749,
         "longitude_deg": -122.4194
       },
-      "priority_value": 60.14641389861313,
-      "duration_s": 58.661369409299056,
+      "priority_value": 60.146414,
+      "duration_s": 58.661369,
       "visibility_windows": [
         {
           "window_id": "w-005-0",
-          "start_s": 692.5490464809068,
-          "end_s": 798.1905064495114
+          "start_s": 692.549046,
+          "end_s": 798.190506
         }
       ],
-      "required_attitude_deg": 77.73647312023411,
-      "energy_cost_wh": 20.550200931475153,
-      "storage_cost_gb": 4.161806156188208
+      "required_attitude_deg": 77.736473,
+      "energy_cost_wh": 20.550201,
+      "storage_cost_gb": 4.161806
     },
     {
       "task_id": "task-006",
@@ -150,18 +150,18 @@
         "latitude_deg": 19.076,
         "longitude_deg": 72.8777
       },
-      "priority_value": 4.252737073205276,
-      "duration_s": 60.931428408530024,
+      "priority_value": 4.252737,
+      "duration_s": 60.931428,
       "visibility_windows": [
         {
           "window_id": "w-006-0",
-          "start_s": 1562.2579180990354,
-          "end_s": 1672.2986223187897
+          "start_s": 1562.257918,
+          "end_s": 1672.298622
         }
       ],
-      "required_attitude_deg": 4.707069515530009,
-      "energy_cost_wh": 16.570866448961837,
-      "storage_cost_gb": 1.544609178029704
+      "required_attitude_deg": 4.70707,
+      "energy_cost_wh": 16.570866,
+      "storage_cost_gb": 1.544609
     },
     {
       "task_id": "task-007",
@@ -171,18 +171,18 @@
         "latitude_deg": 64.1466,
         "longitude_deg": -21.9426
       },
-      "priority_value": 71.28487117009566,
-      "duration_s": 38.50889557509586,
+      "priority_value": 71.284871,
+      "duration_s": 38.508896,
       "visibility_windows": [
         {
           "window_id": "w-007-0",
-          "start_s": 1317.273203814576,
-          "end_s": 1374.299584889951
+          "start_s": 1317.273204,
+          "end_s": 1374.299585
         }
       ],
-      "required_attitude_deg": -22.150090371498678,
-      "energy_cost_wh": 30.179244793889463,
-      "storage_cost_gb": 2.3675984630503604
+      "required_attitude_deg": -22.15009,
+      "energy_cost_wh": 30.179245,
+      "storage_cost_gb": 2.367598
     },
     {
       "task_id": "task-008",
@@ -192,18 +192,18 @@
         "latitude_deg": 35.6762,
         "longitude_deg": 139.6503
       },
-      "priority_value": 55.79703131293958,
-      "duration_s": 92.8682067672452,
+      "priority_value": 55.797031,
+      "duration_s": 92.868207,
       "visibility_windows": [
         {
           "window_id": "w-008-0",
-          "start_s": 1120.7705629854172,
-          "end_s": 1268.2333610512665
+          "start_s": 1120.770563,
+          "end_s": 1268.233361
         }
       ],
-      "required_attitude_deg": -48.27040663371618,
-      "energy_cost_wh": 16.91565242308825,
-      "storage_cost_gb": 2.4197582851986392
+      "required_attitude_deg": -48.270407,
+      "energy_cost_wh": 16.915652,
+      "storage_cost_gb": 2.419758
     },
     {
       "task_id": "task-009",
@@ -213,18 +213,18 @@
         "latitude_deg": -33.9249,
         "longitude_deg": 18.4241
       },
-      "priority_value": 98.11374757238185,
-      "duration_s": 67.50503838735276,
+      "priority_value": 98.113748,
+      "duration_s": 67.505038,
       "visibility_windows": [
         {
           "window_id": "w-009-0",
-          "start_s": 1161.6497333914995,
-          "end_s": 1281.0004711966392
+          "start_s": 1161.649733,
+          "end_s": 1281.000471
         }
       ],
-      "required_attitude_deg": -6.475392950297191,
-      "energy_cost_wh": 20.817220084826673,
-      "storage_cost_gb": 2.2591478067811464
+      "required_attitude_deg": -6.475393,
+      "energy_cost_wh": 20.81722,
+      "storage_cost_gb": 2.259148
     },
     {
       "task_id": "task-010",
@@ -234,18 +234,18 @@
         "latitude_deg": 19.4326,
         "longitude_deg": -99.1332
       },
-      "priority_value": 2.833063429042665,
-      "duration_s": 44.69221766874635,
+      "priority_value": 2.833063,
+      "duration_s": 44.692218,
       "visibility_windows": [
         {
           "window_id": "w-010-0",
-          "start_s": 1230.961233035189,
-          "end_s": 1334.6792917680216
+          "start_s": 1230.961233,
+          "end_s": 1334.679292
         }
       ],
-      "required_attitude_deg": -2.3130898798186337,
-      "energy_cost_wh": 25.453361780877945,
-      "storage_cost_gb": 3.9703391646439234
+      "required_attitude_deg": -2.31309,
+      "energy_cost_wh": 25.453362,
+      "storage_cost_gb": 3.970339
     },
     {
       "task_id": "task-011",
@@ -255,18 +255,18 @@
         "latitude_deg": 25.2048,
         "longitude_deg": 55.2708
       },
-      "priority_value": 97.9062989331601,
-      "duration_s": 34.448984105650844,
+      "priority_value": 97.906299,
+      "duration_s": 34.448984,
       "visibility_windows": [
         {
           "window_id": "w-011-0",
-          "start_s": 1381.1049939966,
-          "end_s": 1459.3388715254619
+          "start_s": 1381.104994,
+          "end_s": 1459.338872
         }
       ],
-      "required_attitude_deg": -76.3325215330714,
-      "energy_cost_wh": 24.877261767907978,
-      "storage_cost_gb": 4.359902241979437
+      "required_attitude_deg": -76.332522,
+      "energy_cost_wh": 24.877262,
+      "storage_cost_gb": 4.359902
     },
     {
       "task_id": "task-012",
@@ -276,18 +276,18 @@
         "latitude_deg": 51.5074,
         "longitude_deg": -0.1278
       },
-      "priority_value": 14.01447070174662,
-      "duration_s": 52.91975333389544,
+      "priority_value": 14.014471,
+      "duration_s": 52.919753,
       "visibility_windows": [
         {
           "window_id": "w-012-0",
-          "start_s": 625.7941037522519,
-          "end_s": 740.8163650592637
+          "start_s": 625.794104,
+          "end_s": 740.816365
         }
       ],
-      "required_attitude_deg": 36.22101081912204,
-      "energy_cost_wh": 28.49521561859935,
-      "storage_cost_gb": 1.756039795218482
+      "required_attitude_deg": 36.221011,
+      "energy_cost_wh": 28.495216,
+      "storage_cost_gb": 1.75604
     },
     {
       "task_id": "task-013",
@@ -297,18 +297,18 @@
         "latitude_deg": -33.4489,
         "longitude_deg": -70.6693
       },
-      "priority_value": 80.0490692585973,
-      "duration_s": 43.97577416435399,
+      "priority_value": 80.049069,
+      "duration_s": 43.975774,
       "visibility_windows": [
         {
           "window_id": "w-013-0",
-          "start_s": 943.7710658145552,
-          "end_s": 1014.9536635157166
+          "start_s": 943.771066,
+          "end_s": 1014.953664
         }
       ],
-      "required_attitude_deg": -52.26047773716303,
-      "energy_cost_wh": 18.966447921052275,
-      "storage_cost_gb": 3.0845617589290972
+      "required_attitude_deg": -52.260478,
+      "energy_cost_wh": 18.966448,
+      "storage_cost_gb": 3.084562
     },
     {
       "task_id": "task-014",
@@ -318,18 +318,18 @@
         "latitude_deg": 13.7563,
         "longitude_deg": 100.5018
       },
-      "priority_value": 71.35055402322365,
-      "duration_s": 51.62188118237165,
+      "priority_value": 71.350554,
+      "duration_s": 51.621881,
       "visibility_windows": [
         {
           "window_id": "w-014-0",
-          "start_s": 1111.1611933098884,
-          "end_s": 1195.793304068221
+          "start_s": 1111.161193,
+          "end_s": 1195.793304
         }
       ],
-      "required_attitude_deg": -60.23438949400722,
-      "energy_cost_wh": 19.780103560667662,
-      "storage_cost_gb": 4.279372252490118
+      "required_attitude_deg": -60.234389,
+      "energy_cost_wh": 19.780104,
+      "storage_cost_gb": 4.279372
     },
     {
       "task_id": "task-015",
@@ -339,18 +339,18 @@
         "latitude_deg": 49.2827,
         "longitude_deg": -123.1207
       },
-      "priority_value": 61.35653580207715,
-      "duration_s": 50.7601549476377,
+      "priority_value": 61.356536,
+      "duration_s": 50.760155,
       "visibility_windows": [
         {
           "window_id": "w-015-0",
-          "start_s": 1058.8042059813679,
-          "end_s": 1164.6597833946623
+          "start_s": 1058.804206,
+          "end_s": 1164.659783
         }
       ],
-      "required_attitude_deg": -32.90148981771125,
-      "energy_cost_wh": 25.693015864289467,
-      "storage_cost_gb": 2.2666467666954797
+      "required_attitude_deg": -32.90149,
+      "energy_cost_wh": 25.693016,
+      "storage_cost_gb": 2.266647
     },
     {
       "task_id": "task-016",
@@ -360,18 +360,18 @@
         "latitude_deg": 30.0444,
         "longitude_deg": 31.2357
       },
-      "priority_value": 64.60951330921853,
-      "duration_s": 60.23585375703483,
+      "priority_value": 64.609513,
+      "duration_s": 60.235854,
       "visibility_windows": [
         {
           "window_id": "w-016-0",
-          "start_s": 1064.4742487264007,
-          "end_s": 1170.9784959603405
+          "start_s": 1064.474249,
+          "end_s": 1170.978496
         }
       ],
-      "required_attitude_deg": 77.1642677426365,
-      "energy_cost_wh": 17.576752594742224,
-      "storage_cost_gb": 2.7430042696513013
+      "required_attitude_deg": 77.164268,
+      "energy_cost_wh": 17.576753,
+      "storage_cost_gb": 2.743004
     },
     {
       "task_id": "task-017",
@@ -381,18 +381,18 @@
         "latitude_deg": 1.3521,
         "longitude_deg": 103.8198
       },
-      "priority_value": 68.60677412928052,
-      "duration_s": 72.01754850836801,
+      "priority_value": 68.606774,
+      "duration_s": 72.017549,
       "visibility_windows": [
         {
           "window_id": "w-017-0",
-          "start_s": 1279.9849916695064,
-          "end_s": 1398.3101076272635
+          "start_s": 1279.984992,
+          "end_s": 1398.310108
         }
       ],
-      "required_attitude_deg": -36.07235938195114,
-      "energy_cost_wh": 18.221615753685157,
-      "storage_cost_gb": 3.0174108291713506
+      "required_attitude_deg": -36.072359,
+      "energy_cost_wh": 18.221616,
+      "storage_cost_gb": 3.017411
     },
     {
       "task_id": "task-018",
@@ -402,18 +402,18 @@
         "latitude_deg": 40.7128,
         "longitude_deg": -74.006
       },
-      "priority_value": 46.618457785952614,
-      "duration_s": 81.96457055321382,
+      "priority_value": 46.618458,
+      "duration_s": 81.964571,
       "visibility_windows": [
         {
           "window_id": "w-018-0",
-          "start_s": 966.5740175136765,
-          "end_s": 1086.2381183858959
+          "start_s": 966.574018,
+          "end_s": 1086.238118
         }
       ],
-      "required_attitude_deg": -71.69988249350261,
-      "energy_cost_wh": 13.412035728156464,
-      "storage_cost_gb": 2.526572445043611
+      "required_attitude_deg": -71.699882,
+      "energy_cost_wh": 13.412036,
+      "storage_cost_gb": 2.526572
     },
     {
       "task_id": "task-019",
@@ -423,18 +423,18 @@
         "latitude_deg": -34.6037,
         "longitude_deg": -58.3816
       },
-      "priority_value": 45.047845986175794,
-      "duration_s": 95.32433146498306,
+      "priority_value": 45.047846,
+      "duration_s": 95.324331,
       "visibility_windows": [
         {
           "window_id": "w-019-0",
-          "start_s": 1559.9318291719396,
-          "end_s": 1702.0435775901826
+          "start_s": 1559.931829,
+          "end_s": 1702.043578
         }
       ],
-      "required_attitude_deg": -20.24319992322944,
-      "energy_cost_wh": 15.509443209662352,
-      "storage_cost_gb": 4.208152892451113
+      "required_attitude_deg": -20.2432,
+      "energy_cost_wh": 15.509443,
+      "storage_cost_gb": 4.208153
     },
     {
       "task_id": "task-020",
@@ -444,18 +444,18 @@
         "latitude_deg": 37.5665,
         "longitude_deg": 126.978
       },
-      "priority_value": 89.26125123040451,
-      "duration_s": 47.37593585967031,
+      "priority_value": 89.261251,
+      "duration_s": 47.375936,
       "visibility_windows": [
         {
           "window_id": "w-020-0",
-          "start_s": 1283.3245445628893,
-          "end_s": 1383.4142305481637
+          "start_s": 1283.324545,
+          "end_s": 1383.414231
         }
       ],
-      "required_attitude_deg": 65.10473359773363,
-      "energy_cost_wh": 16.243516301584407,
-      "storage_cost_gb": 3.1723414720590397
+      "required_attitude_deg": 65.104734,
+      "energy_cost_wh": 16.243516,
+      "storage_cost_gb": 3.172341
     },
     {
       "task_id": "task-021",
@@ -465,18 +465,18 @@
         "latitude_deg": 6.5244,
         "longitude_deg": 3.3792
       },
-      "priority_value": 78.57002750869884,
-      "duration_s": 75.83971897550433,
+      "priority_value": 78.570028,
+      "duration_s": 75.839719,
       "visibility_windows": [
         {
           "window_id": "w-021-0",
-          "start_s": 875.7465141567976,
-          "end_s": 1001.926633305375
+          "start_s": 875.746514,
+          "end_s": 1001.926633
         }
       ],
-      "required_attitude_deg": -77.54571681044567,
-      "energy_cost_wh": 18.250007264367156,
-      "storage_cost_gb": 3.9631956601390526
+      "required_attitude_deg": -77.545717,
+      "energy_cost_wh": 18.250007,
+      "storage_cost_gb": 3.963196
     },
     {
       "task_id": "task-022",
@@ -486,18 +486,18 @@
         "latitude_deg": 41.9028,
         "longitude_deg": 12.4964
       },
-      "priority_value": 89.52179163386089,
-      "duration_s": 46.80652847321019,
+      "priority_value": 89.521792,
+      "duration_s": 46.806528,
       "visibility_windows": [
         {
           "window_id": "w-022-0",
-          "start_s": 1101.3482974193498,
-          "end_s": 1169.1351418737001
+          "start_s": 1101.348297,
+          "end_s": 1169.135142
         }
       ],
-      "required_attitude_deg": -32.08279831072286,
-      "energy_cost_wh": 17.561090458346598,
-      "storage_cost_gb": 4.312332844532689
+      "required_attitude_deg": -32.082798,
+      "energy_cost_wh": 17.56109,
+      "storage_cost_gb": 4.312333
     },
     {
       "task_id": "task-023",
@@ -507,18 +507,18 @@
         "latitude_deg": 43.6532,
         "longitude_deg": -79.3832
       },
-      "priority_value": 88.47386491276339,
-      "duration_s": 55.23165890598058,
+      "priority_value": 88.473865,
+      "duration_s": 55.231659,
       "visibility_windows": [
         {
           "window_id": "w-023-0",
-          "start_s": 1610.5295497382142,
-          "end_s": 1724.891306983985
+          "start_s": 1610.52955,
+          "end_s": 1724.891307
         }
       ],
-      "required_attitude_deg": 54.3548340666984,
-      "energy_cost_wh": 19.426128953355974,
-      "storage_cost_gb": 4.3421255440817585
+      "required_attitude_deg": 54.354834,
+      "energy_cost_wh": 19.426129,
+      "storage_cost_gb": 4.342126
     },
     {
       "task_id": "task-024",
@@ -528,18 +528,18 @@
         "latitude_deg": -6.2088,
         "longitude_deg": 106.8456
       },
-      "priority_value": 98.0536461285085,
-      "duration_s": 102.19941662105002,
+      "priority_value": 98.053646,
+      "duration_s": 102.199417,
       "visibility_windows": [
         {
           "window_id": "w-024-0",
-          "start_s": 942.2876053765012,
-          "end_s": 1089.044261592395
+          "start_s": 942.287605,
+          "end_s": 1089.044262
         }
       ],
-      "required_attitude_deg": 58.71867119525177,
-      "energy_cost_wh": 29.348395815135852,
-      "storage_cost_gb": 2.792169295749344
+      "required_attitude_deg": 58.718671,
+      "energy_cost_wh": 29.348396,
+      "storage_cost_gb": 2.792169
     },
     {
       "task_id": "task-025",
@@ -549,18 +549,18 @@
         "latitude_deg": 40.4168,
         "longitude_deg": -3.7038
       },
-      "priority_value": 19.705104118033002,
-      "duration_s": 62.90081355774795,
+      "priority_value": 19.705104,
+      "duration_s": 62.900814,
       "visibility_windows": [
         {
           "window_id": "w-025-0",
-          "start_s": 1259.1897509403493,
-          "end_s": 1348.5331611534577
+          "start_s": 1259.189751,
+          "end_s": 1348.533161
         }
       ],
-      "required_attitude_deg": -27.59006064770466,
-      "energy_cost_wh": 14.339679845988357,
-      "storage_cost_gb": 4.455135574741618
+      "required_attitude_deg": -27.590061,
+      "energy_cost_wh": 14.33968,
+      "storage_cost_gb": 4.455136
     },
     {
       "task_id": "task-026",
@@ -570,18 +570,18 @@
         "latitude_deg": -12.0464,
         "longitude_deg": -77.0428
       },
-      "priority_value": 78.85503900341048,
-      "duration_s": 57.28275780742068,
+      "priority_value": 78.855039,
+      "duration_s": 57.282758,
       "visibility_windows": [
         {
           "window_id": "w-026-0",
-          "start_s": 1071.1936318607159,
-          "end_s": 1173.9402437903818
+          "start_s": 1071.193632,
+          "end_s": 1173.940244
         }
       ],
-      "required_attitude_deg": 57.102586492962246,
-      "energy_cost_wh": 24.812938833945537,
-      "storage_cost_gb": 4.22154069121764
+      "required_attitude_deg": 57.102586,
+      "energy_cost_wh": 24.812939,
+      "storage_cost_gb": 4.221541
     },
     {
       "task_id": "task-027",
@@ -591,18 +591,18 @@
         "latitude_deg": 41.0082,
         "longitude_deg": 28.9784
       },
-      "priority_value": 58.2379623430505,
-      "duration_s": 82.95919229626725,
+      "priority_value": 58.237962,
+      "duration_s": 82.959192,
       "visibility_windows": [
         {
           "window_id": "w-027-0",
-          "start_s": 866.2979352129009,
-          "end_s": 1007.4125952820507
+          "start_s": 866.297935,
+          "end_s": 1007.412595
         }
       ],
-      "required_attitude_deg": -49.8346617432359,
-      "energy_cost_wh": 24.146766270154124,
-      "storage_cost_gb": 3.5291153555938246
+      "required_attitude_deg": -49.834662,
+      "energy_cost_wh": 24.146766,
+      "storage_cost_gb": 3.529115
     },
     {
       "task_id": "task-028",
@@ -612,18 +612,18 @@
         "latitude_deg": 21.3099,
         "longitude_deg": -157.8581
       },
-      "priority_value": 44.34863611344938,
-      "duration_s": 94.9715497910762,
+      "priority_value": 44.348636,
+      "duration_s": 94.97155,
       "visibility_windows": [
         {
           "window_id": "w-028-0",
-          "start_s": 1413.19953619699,
-          "end_s": 1531.1434006695274
+          "start_s": 1413.199536,
+          "end_s": 1531.143401
         }
       ],
-      "required_attitude_deg": -79.02740025542028,
-      "energy_cost_wh": 18.901674563042157,
-      "storage_cost_gb": 1.8521997459722797
+      "required_attitude_deg": -79.0274,
+      "energy_cost_wh": 18.901675,
+      "storage_cost_gb": 1.8522
     },
     {
       "task_id": "task-029",
@@ -633,18 +633,18 @@
         "latitude_deg": 30.5928,
         "longitude_deg": 114.3055
       },
-      "priority_value": 18.400895416490997,
-      "duration_s": 66.63775853314849,
+      "priority_value": 18.400895,
+      "duration_s": 66.637759,
       "visibility_windows": [
         {
           "window_id": "w-029-0",
-          "start_s": 1397.816317296018,
-          "end_s": 1508.724476243856
+          "start_s": 1397.816317,
+          "end_s": 1508.724476
         }
       ],
-      "required_attitude_deg": -56.1971745591466,
-      "energy_cost_wh": 13.020763297058807,
-      "storage_cost_gb": 3.808232774272242
+      "required_attitude_deg": -56.197175,
+      "energy_cost_wh": 13.020763,
+      "storage_cost_gb": 3.808233
     }
   ],
   "metadata": {
@@ -656,6 +656,7 @@
     "instance_index": 0,
     "purpose": "v0.2 comparative-methods showcase",
     "research_question": "How do scalable heuristics behave on a dense global target set?",
+    "numeric_precision_decimals": 6,
     "geometry_note": "Targets use WGS84 reference coordinates; access windows are synthetic."
   }
 }

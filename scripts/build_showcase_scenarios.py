@@ -6,10 +6,11 @@ from pathlib import Path
 
 from orbitops.benchmarking.generator import generate_scenario
 from orbitops.benchmarking.models import BenchmarkSpec, ScenarioDifficulty, ScenarioSize
-from orbitops.domain.models import Scenario, Target
+from orbitops.domain.models import Scenario, Target, TimeWindow
 
 PROJECT_ROOT = Path(__file__).parents[1]
 OUTPUT_DIR = PROJECT_ROOT / "scenarios" / "showcase"
+SHOWCASE_DECIMAL_PLACES = 6
 
 # Ordered to keep every prefix geographically diverse. Coordinates are WGS84
 # reference points for display; access windows remain explicitly synthetic.
@@ -82,6 +83,12 @@ SHOWCASES: tuple[
 )
 
 
+def _quantize(value: float) -> float:
+    """Remove platform-level libm noise from committed synthetic fixtures."""
+
+    return round(value, SHOWCASE_DECIMAL_PLACES)
+
+
 def build_showcase(
     scenario_id: str,
     size: ScenarioSize,
@@ -101,14 +108,6 @@ def build_showcase(
         evaluation_budget=250,
     )
     generated, _ = generate_scenario(spec, size, difficulty, 0)
-    satellite = generated.satellite
-    if scenario_id == "showcase-resources-10":
-        total_storage_gb = sum(task.storage_cost_gb for task in generated.tasks)
-        satellite = satellite.model_copy(
-            update={
-                "storage_capacity_gb": satellite.initial_storage_gb + total_storage_gb * 0.65,
-            }
-        )
     tasks = tuple(
         task.model_copy(
             update={
@@ -117,11 +116,45 @@ def build_showcase(
                     name=REFERENCE_TARGETS[index][0],
                     latitude_deg=REFERENCE_TARGETS[index][1],
                     longitude_deg=REFERENCE_TARGETS[index][2],
-                )
+                ),
+                "priority_value": _quantize(task.priority_value),
+                "duration_s": _quantize(task.duration_s),
+                "visibility_windows": tuple(
+                    TimeWindow(
+                        window_id=window.window_id,
+                        start_s=_quantize(window.start_s),
+                        end_s=_quantize(window.end_s),
+                    )
+                    for window in task.visibility_windows
+                ),
+                "required_attitude_deg": _quantize(task.required_attitude_deg),
+                "energy_cost_wh": _quantize(task.energy_cost_wh),
+                "storage_cost_gb": _quantize(task.storage_cost_gb),
             }
         )
         for index, task in enumerate(generated.tasks)
     )
+    satellite = generated.satellite.model_copy(
+        update={
+            "energy_capacity_wh": _quantize(generated.satellite.energy_capacity_wh),
+            "initial_energy_wh": _quantize(generated.satellite.initial_energy_wh),
+            "recharge_rate_w": _quantize(generated.satellite.recharge_rate_w),
+            "storage_capacity_gb": _quantize(generated.satellite.storage_capacity_gb),
+            "initial_storage_gb": _quantize(generated.satellite.initial_storage_gb),
+            "initial_attitude_deg": _quantize(generated.satellite.initial_attitude_deg),
+            "slew_rate_deg_s": _quantize(generated.satellite.slew_rate_deg_s),
+            "settling_time_s": _quantize(generated.satellite.settling_time_s),
+        }
+    )
+    if scenario_id == "showcase-resources-10":
+        total_storage_gb = sum(task.storage_cost_gb for task in tasks)
+        satellite = satellite.model_copy(
+            update={
+                "storage_capacity_gb": _quantize(
+                    satellite.initial_storage_gb + total_storage_gb * 0.65
+                ),
+            }
+        )
     return generated.model_copy(
         update={
             "scenario_id": scenario_id,
@@ -132,6 +165,7 @@ def build_showcase(
                 **generated.metadata,
                 "purpose": "v0.2 comparative-methods showcase",
                 "research_question": research_question,
+                "numeric_precision_decimals": SHOWCASE_DECIMAL_PLACES,
                 "geometry_note": (
                     "Targets use WGS84 reference coordinates; access windows are synthetic."
                 ),

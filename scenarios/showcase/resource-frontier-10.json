@@ -7,13 +7,13 @@
   "satellite": {
     "satellite_id": "sat-small-hard-000",
     "energy_capacity_wh": 220.0,
-    "initial_energy_wh": 122.28337081770695,
-    "recharge_rate_w": 29.939572903562915,
-    "storage_capacity_gb": 26.113587686597693,
-    "initial_storage_gb": 5.476779447373173,
-    "initial_attitude_deg": -3.7583736259799174,
-    "slew_rate_deg_s": 1.5598792104962298,
-    "settling_time_s": 8.17072667539168
+    "initial_energy_wh": 122.283371,
+    "recharge_rate_w": 29.939573,
+    "storage_capacity_gb": 26.113587,
+    "initial_storage_gb": 5.476779,
+    "initial_attitude_deg": -3.758374,
+    "slew_rate_deg_s": 1.559879,
+    "settling_time_s": 8.170727
   },
   "tasks": [
     {
@@ -24,18 +24,18 @@
         "latitude_deg": 31.2304,
         "longitude_deg": 121.4737
       },
-      "priority_value": 15.36360900162501,
-      "duration_s": 86.67233681163552,
+      "priority_value": 15.363609,
+      "duration_s": 86.672337,
       "visibility_windows": [
         {
           "window_id": "w-000-0",
-          "start_s": 769.2933511429794,
-          "end_s": 906.1329282311649
+          "start_s": 769.293351,
+          "end_s": 906.132928
         }
       ],
-      "required_attitude_deg": 66.48019546157104,
-      "energy_cost_wh": 15.96906446311984,
-      "storage_cost_gb": 2.3253120555583773
+      "required_attitude_deg": 66.480195,
+      "energy_cost_wh": 15.969064,
+      "storage_cost_gb": 2.325312
     },
     {
       "task_id": "task-001",
@@ -45,18 +45,18 @@
         "latitude_deg": 48.8566,
         "longitude_deg": 2.3522
       },
-      "priority_value": 46.70726785349022,
-      "duration_s": 81.04838806654553,
+      "priority_value": 46.707268,
+      "duration_s": 81.048388,
       "visibility_windows": [
         {
           "window_id": "w-001-0",
-          "start_s": 1321.9904826228108,
-          "end_s": 1432.5746359430116
+          "start_s": 1321.990483,
+          "end_s": 1432.574636
         }
       ],
-      "required_attitude_deg": 53.751009595658786,
-      "energy_cost_wh": 22.27125690851516,
-      "storage_cost_gb": 3.9482545864403615
+      "required_attitude_deg": 53.75101,
+      "energy_cost_wh": 22.271257,
+      "storage_cost_gb": 3.948255
     },
     {
       "task_id": "task-002",
@@ -66,18 +66,18 @@
         "latitude_deg": -23.5505,
         "longitude_deg": -46.6333
       },
-      "priority_value": 34.2522126078947,
-      "duration_s": 34.51977306349784,
+      "priority_value": 34.252213,
+      "duration_s": 34.519773,
       "visibility_windows": [
         {
           "window_id": "w-002-0",
-          "start_s": 994.1487217953264,
-          "end_s": 1095.3571445422756
+          "start_s": 994.148722,
+          "end_s": 1095.357145
         }
       ],
-      "required_attitude_deg": -2.2957908178536854,
-      "energy_cost_wh": 18.107274492390616,
-      "storage_cost_gb": 2.3152135019450553
+      "required_attitude_deg": -2.295791,
+      "energy_cost_wh": 18.107274,
+      "storage_cost_gb": 2.315214
     },
     {
       "task_id": "task-003",
@@ -87,18 +87,18 @@
         "latitude_deg": -33.8688,
         "longitude_deg": 151.2093
       },
-      "priority_value": 22.439000481800342,
-      "duration_s": 39.27435299542187,
+      "priority_value": 22.439,
+      "duration_s": 39.274353,
       "visibility_windows": [
         {
           "window_id": "w-003-0",
-          "start_s": 632.8751249140959,
-          "end_s": 735.1358989556933
+          "start_s": 632.875125,
+          "end_s": 735.135899
         }
       ],
-      "required_attitude_deg": 9.95956730015628,
-      "energy_cost_wh": 12.567160873281402,
-      "storage_cost_gb": 1.8567880400972012
+      "required_attitude_deg": 9.959567,
+      "energy_cost_wh": 12.567161,
+      "storage_cost_gb": 1.856788
     },
     {
       "task_id": "task-004",
@@ -108,18 +108,18 @@
         "latitude_deg": -1.2921,
         "longitude_deg": 36.8219
       },
-      "priority_value": 73.35955646887271,
-      "duration_s": 66.15800968019352,
+      "priority_value": 73.359556,
+      "duration_s": 66.15801,
       "visibility_windows": [
         {
           "window_id": "w-004-0",
-          "start_s": 753.4345507531132,
-          "end_s": 888.6427385212055
+          "start_s": 753.434551,
+          "end_s": 888.642739
         }
       ],
-      "required_attitude_deg": -79.26876322336618,
-      "energy_cost_wh": 31.529711267251123,
-      "storage_cost_gb": 4.453216156578984
+      "required_attitude_deg": -79.268763,
+      "energy_cost_wh": 31.529711,
+      "storage_cost_gb": 4.453216
     },
     {
       "task_id": "task-005",
@@ -129,18 +129,18 @@
         "latitude_deg": 37.7749,
         "longitude_deg": -122.4194
       },
-      "priority_value": 68.01446546560771,
-      "duration_s": 79.85275791283033,
+      "priority_value": 68.014465,
+      "duration_s": 79.852758,
       "visibility_windows": [
         {
           "window_id": "w-005-0",
-          "start_s": 896.3430574885135,
-          "end_s": 1021.8117584645428
+          "start_s": 896.343057,
+          "end_s": 1021.811758
         }
       ],
-      "required_attitude_deg": 72.8967799403718,
-      "energy_cost_wh": 23.413789895537406,
-      "storage_cost_gb": 3.3266073297632164
+      "required_attitude_deg": 72.89678,
+      "energy_cost_wh": 23.41379,
+      "storage_cost_gb": 3.326607
     },
     {
       "task_id": "task-006",
@@ -150,18 +150,18 @@
         "latitude_deg": 19.076,
         "longitude_deg": 72.8777
       },
-      "priority_value": 51.8895052950075,
-      "duration_s": 46.400065379268355,
+      "priority_value": 51.889505,
+      "duration_s": 46.400065,
       "visibility_windows": [
         {
           "window_id": "w-006-0",
-          "start_s": 1044.1304732332792,
-          "end_s": 1123.7190132450366
+          "start_s": 1044.130473,
+          "end_s": 1123.719013
         }
       ],
-      "required_attitude_deg": 71.6765722810041,
-      "energy_cost_wh": 29.770110646779184,
-      "storage_cost_gb": 4.222116429337212
+      "required_attitude_deg": 71.676572,
+      "energy_cost_wh": 29.770111,
+      "storage_cost_gb": 4.222116
     },
     {
       "task_id": "task-007",
@@ -171,18 +171,18 @@
         "latitude_deg": 64.1466,
         "longitude_deg": -21.9426
       },
-      "priority_value": 72.71608503573333,
-      "duration_s": 99.09928559059652,
+      "priority_value": 72.716085,
+      "duration_s": 99.099286,
       "visibility_windows": [
         {
           "window_id": "w-007-0",
-          "start_s": 1651.3819976201087,
-          "end_s": 1807.2433746077147
+          "start_s": 1651.381998,
+          "end_s": 1807.243375
         }
       ],
-      "required_attitude_deg": -55.14108850605075,
-      "energy_cost_wh": 16.74926012337854,
-      "storage_cost_gb": 1.7434223745168946
+      "required_attitude_deg": -55.141089,
+      "energy_cost_wh": 16.74926,
+      "storage_cost_gb": 1.743422
     },
     {
       "task_id": "task-008",
@@ -192,18 +192,18 @@
         "latitude_deg": 35.6762,
         "longitude_deg": 139.6503
       },
-      "priority_value": 31.312668485213596,
-      "duration_s": 86.02792023926949,
+      "priority_value": 31.312668,
+      "duration_s": 86.02792,
       "visibility_windows": [
         {
           "window_id": "w-008-0",
-          "start_s": 1792.9520422930675,
-          "end_s": 1901.6477377908698
+          "start_s": 1792.952042,
+          "end_s": 1901.647738
         }
       ],
-      "required_attitude_deg": -75.05185101969305,
-      "energy_cost_wh": 16.415766726311073,
-      "storage_cost_gb": 3.7950494041559524
+      "required_attitude_deg": -75.051851,
+      "energy_cost_wh": 16.415767,
+      "storage_cost_gb": 3.795049
     },
     {
       "task_id": "task-009",
@@ -213,18 +213,18 @@
         "latitude_deg": -33.9249,
         "longitude_deg": 18.4241
       },
-      "priority_value": 83.34204036868886,
-      "duration_s": 86.9734772155092,
+      "priority_value": 83.34204,
+      "duration_s": 86.973477,
       "visibility_windows": [
         {
           "window_id": "w-009-0",
-          "start_s": 958.8548843498753,
-          "end_s": 1086.986841457704
+          "start_s": 958.854884,
+          "end_s": 1086.986841
         }
       ],
-      "required_attitude_deg": -21.579529614501993,
-      "energy_cost_wh": 20.81013378379528,
-      "storage_cost_gb": 3.7629558742598563
+      "required_attitude_deg": -21.57953,
+      "energy_cost_wh": 20.810134,
+      "storage_cost_gb": 3.762956
     }
   ],
   "metadata": {
@@ -236,6 +236,7 @@
     "instance_index": 0,
     "purpose": "v0.2 comparative-methods showcase",
     "research_question": "Which observations survive simultaneous energy and storage pressure?",
+    "numeric_precision_decimals": 6,
     "geometry_note": "Targets use WGS84 reference coordinates; access windows are synthetic."
   }
 }

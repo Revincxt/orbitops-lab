@@ -2,7 +2,12 @@ from pathlib import Path
 
 from orbitops.domain.models import Scenario
 
-from scripts.build_showcase_scenarios import OUTPUT_DIR, SHOWCASES, build_showcase
+from scripts.build_showcase_scenarios import (
+    OUTPUT_DIR,
+    SHOWCASE_DECIMAL_PLACES,
+    SHOWCASES,
+    build_showcase,
+)
 
 
 def test_committed_showcases_are_reproducible_and_cover_declared_scales() -> None:
@@ -17,6 +22,7 @@ def test_committed_showcases_are_reproducible_and_cover_declared_scales() -> Non
         assert committed == regenerated
         observed_counts.append(len(committed.tasks))
         assert committed.metadata["research_question"] == question
+        assert committed.metadata["numeric_precision_decimals"] == SHOWCASE_DECIMAL_PLACES
         assert all(task.target.name != task.target.target_id for task in committed.tasks)
 
     assert observed_counts == [6, 10, 18, 30]
