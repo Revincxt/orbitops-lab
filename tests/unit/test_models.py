@@ -9,7 +9,7 @@ PROJECT_ROOT = Path(__file__).parents[2]
 DEMO_PATH = PROJECT_ROOT / "scenarios" / "examples" / "demo.json"
 SCHEMA_PATH = PROJECT_ROOT / "schemas" / "scenario-v0.1.schema.json"
 SCHEDULE_SCHEMA_PATH = PROJECT_ROOT / "schemas" / "schedule-v0.1.schema.json"
-POLICY_SCHEMA_PATH = PROJECT_ROOT / "schemas" / "linear-q-policy-v1.schema.json"
+POLICY_SCHEMA_PATH = PROJECT_ROOT / "schemas" / "linear-q-policy-v2.schema.json"
 SCHEDULE_PATH = PROJECT_ROOT / "scenarios" / "examples" / "feasible-schedule.json"
 
 

@@ -33,13 +33,22 @@ def test_catalog_exposes_only_valid_scenarios_and_solver_capabilities() -> None:
     solvers = application.dispatch("GET", "/api/solvers")
 
     assert health.status == 200
-    assert payload(health)["scenario_count"] == 3
+    assert payload(health)["scenario_count"] == 7
     scenario_items = payload(scenarios)["scenarios"]
     assert {item["scenario_id"] for item in scenario_items} == {  # type: ignore[index, union-attr]
         "demo-001",
+        "showcase-global-30",
+        "showcase-resources-10",
+        "showcase-slew-18",
+        "showcase-temporal-06",
         "tiny-conflict",
         "tiny-resource",
     }
+    global_summary = next(  # type: ignore[arg-type]
+        item for item in scenario_items if item["scenario_id"] == "showcase-global-30"
+    )
+    assert global_summary["research_question"].startswith("How do scalable heuristics")
+    assert global_summary["geometry_note"].endswith("access windows are synthetic.")
     solver_items = payload(solvers)["solvers"]
     metadata = {item["solver_name"]: item for item in solver_items}  # type: ignore[index, union-attr]
     assert metadata["greedy-insertion"]["category"] == "baseline"
@@ -48,6 +57,8 @@ def test_catalog_exposes_only_valid_scenarios_and_solver_capabilities() -> None:
     assert metadata["genetic"]["stochastic"] is True
     assert metadata["q-learning"]["category"] == "advanced"
     assert metadata["q-learning"]["stochastic"] is True
+    assert metadata["q-policy-only"]["category"] == "advanced"
+    assert metadata["q-policy-only"]["stochastic"] is True
 
 
 def test_solve_returns_validated_schedule_and_visualization_data() -> None:

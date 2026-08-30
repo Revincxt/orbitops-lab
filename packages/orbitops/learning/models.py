@@ -21,8 +21,8 @@ FEATURE_NAMES = (
     "storage_efficiency",
     "slew_efficiency",
     "remaining_fraction",
-    "energy_headroom",
-    "storage_headroom",
+    "plan_end_energy_headroom",
+    "plan_end_storage_headroom",
 )
 
 
@@ -64,9 +64,9 @@ class TrainingPoint(DomainModel):
 
 
 class LinearQPolicy(DomainModel):
-    """Portable, scenario-bound linear action-value model."""
+    """Portable, scenario-bound v2 linear action-value model."""
 
-    schema_version: Literal["1"] = "1"
+    schema_version: Literal["2"] = "2"
     algorithm: Literal["linear-q-learning"] = "linear-q-learning"
     training_scenario_id: str = Field(min_length=1)
     scenario_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -75,6 +75,8 @@ class LinearQPolicy(DomainModel):
     seed: int
     episodes_completed: int = Field(ge=0)
     transitions: int = Field(ge=0)
+    selected_checkpoint_episode: int | None = Field(ge=1)
+    evaluated_checkpoints: int = Field(ge=0)
     learning_rate: float = Field(gt=0, le=1)
     discount_factor: float = Field(ge=0, le=1)
     initial_epsilon: float = Field(ge=0, le=1)
@@ -86,6 +88,17 @@ class LinearQPolicy(DomainModel):
             raise ValueError("feature_names and weights must have equal length")
         if len(self.feature_names) != len(set(self.feature_names)):
             raise ValueError("feature_names must be unique")
+        if self.evaluated_checkpoints > self.episodes_completed:
+            raise ValueError("evaluated_checkpoints cannot exceed episodes_completed")
+        if self.selected_checkpoint_episode is None:
+            if self.evaluated_checkpoints != 0:
+                raise ValueError(
+                    "selected_checkpoint_episode is required when checkpoints were evaluated"
+                )
+        elif self.evaluated_checkpoints == 0:
+            raise ValueError("evaluated_checkpoints must be positive when a checkpoint is selected")
+        elif self.selected_checkpoint_episode > self.evaluated_checkpoints:
+            raise ValueError("selected checkpoint cannot follow the evaluated checkpoints")
         return self
 
     def q_value(self, features: tuple[float, ...]) -> float:

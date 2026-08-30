@@ -24,7 +24,8 @@ The primitive returns only schedules accepted by the common validator.
   under the v0.1 lexicographic objective.
 
 Task IDs, starts, windows, and total slew provide deterministic tie-breaking.
-The optional time limit is soft and checked between insertion evaluations.
+The optional time limit is soft but is propagated through insertion candidate
+enumeration rather than checked only between complete task evaluations.
 
 ## Exact tiny-instance search
 
@@ -60,8 +61,9 @@ never returns a schedule that bypassed the production constraints.
 
 `--evaluation-budget` counts unique decoded genomes. Re-evaluating a cached
 genome does not consume the budget. The deterministic greedy initializer is
-constructed first, then its genome is decoded as evaluation one. A soft time
-limit can stop either algorithm between candidate evaluations.
+constructed first, then its genome is decoded as evaluation one. One absolute
+deadline covers initialization, candidate insertion, genome decoding, and the
+outer search loop.
 
 ## Multi-start local search
 
@@ -120,3 +122,11 @@ training run cannot return an objective worse than its initializer, but it does
 not prove optimality or generalization. See
 [per-scenario reinforcement learning](reinforcement-learning.md) for the feature
 contract, update equation, artifact format, commands, and evidence boundary.
+
+`q-policy-only` uses the same seeded training loop. It greedily replays the
+weights after every completed episode and returns the best fingerprint-bound
+checkpoint whose replay completed before the shared absolute deadline. Its
+published convergence trace contains pure checkpoint improvements; the separate
+episode training trace remains an exploratory-schedule diagnostic. This
+separates policy quality from the `q-learning` hybrid's guaranteed greedy lower
+bound and makes a direct policy/heuristic comparison possible.

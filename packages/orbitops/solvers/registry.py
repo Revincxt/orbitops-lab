@@ -15,7 +15,7 @@ from orbitops.solvers.greedy import (
     GreedyValueSolver,
 )
 from orbitops.solvers.local_search import LocalSearchSolver
-from orbitops.solvers.q_learning import QLearningSolver
+from orbitops.solvers.q_learning import QLearningSolver, QPolicyOnlySolver
 from orbitops.solvers.random_feasible import RandomFeasibleSolver
 
 SolverFactory = Callable[[SolverConfig | None], BaseSolver]
@@ -31,6 +31,7 @@ _SOLVERS: dict[str, SolverFactory] = {
     GreedyInsertionSolver.name: GreedyInsertionSolver,
     LocalSearchSolver.name: LocalSearchSolver,
     QLearningSolver.name: QLearningSolver,
+    QPolicyOnlySolver.name: QPolicyOnlySolver,
 }
 
 _BASELINE_SOLVERS = (
@@ -50,6 +51,7 @@ _ADVANCED_SOLVERS = (
     GeneticSolver.name,
     LocalSearchSolver.name,
     QLearningSolver.name,
+    QPolicyOnlySolver.name,
 )
 
 

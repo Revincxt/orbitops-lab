@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any
 
 from orbitops.domain.models import Metrics, Scenario, Schedule, ValidationReport
@@ -49,6 +50,7 @@ class GenomeEvaluator:
         solver_name: str,
         seed: int,
         budget: int,
+        deadline_at: float | None = None,
     ) -> None:
         if budget <= 0:
             raise ValueError("evaluation budget must be positive")
@@ -56,7 +58,9 @@ class GenomeEvaluator:
         self.solver_name = solver_name
         self.seed = seed
         self.budget = budget
+        self.deadline_at = deadline_at
         self.evaluations = 0
+        self.timed_out = False
         self._cache: dict[Genome, EvaluatedGenome] = {}
         self._task_by_id = {task.task_id: task for task in scenario.tasks}
         self._expected_ids = frozenset(self._task_by_id)
@@ -72,12 +76,16 @@ class GenomeEvaluator:
 
         schedule = empty_schedule(self.scenario, self.solver_name, self.seed)
         for task_id in genome.order:
+            if self.deadline_at is not None and perf_counter() >= self.deadline_at:
+                self.timed_out = True
+                break
             if task_id not in genome.active:
                 continue
             candidate = best_feasible_insertion(
                 self.scenario,
                 schedule,
                 self._task_by_id[task_id],
+                deadline_at=self.deadline_at,
             )
             if candidate is not None:
                 schedule = candidate.schedule

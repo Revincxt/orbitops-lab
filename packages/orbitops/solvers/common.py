@@ -51,6 +51,8 @@ def feasible_insertions(
     scenario: Scenario,
     schedule: Schedule,
     task: ObservationTask,
+    *,
+    deadline_at: float | None = None,
 ) -> tuple[InsertionCandidate, ...]:
     """Enumerate deterministic, validator-approved boundary insertions.
 
@@ -68,6 +70,8 @@ def feasible_insertions(
     seen: set[tuple[tuple[str, float, str], ...]] = set()
 
     for position in range(len(ordered) + 1):
+        if deadline_at is not None and perf_counter() >= deadline_at:
+            break
         previous_assignment = ordered[position - 1] if position > 0 else None
         next_assignment = ordered[position] if position < len(ordered) else None
         previous_task = (
@@ -76,6 +80,8 @@ def feasible_insertions(
         next_task = task_by_id[next_assignment.task_id] if next_assignment is not None else None
 
         for window in task.visibility_windows:
+            if deadline_at is not None and perf_counter() >= deadline_at:
+                break
             earliest_s = max(window.start_s, scenario.horizon_start_s)
             if previous_assignment is None:
                 earliest_s = max(
@@ -115,6 +121,8 @@ def feasible_insertions(
                 )
 
             for start_s in _candidate_starts(earliest_s, latest_s):
+                if deadline_at is not None and perf_counter() >= deadline_at:
+                    break
                 inserted = TaskAssignment(
                     task_id=task.task_id,
                     start_s=start_s,
@@ -158,8 +166,15 @@ def best_feasible_insertion(
     scenario: Scenario,
     schedule: Schedule,
     task: ObservationTask,
+    *,
+    deadline_at: float | None = None,
 ) -> InsertionCandidate | None:
-    candidates = feasible_insertions(scenario, schedule, task)
+    candidates = feasible_insertions(
+        scenario,
+        schedule,
+        task,
+        deadline_at=deadline_at,
+    )
     return candidates[0] if candidates else None
 
 

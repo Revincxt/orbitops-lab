@@ -34,11 +34,13 @@ operator decision.
 The hosted interface is available at
 `https://revincxt.github.io/orbitops-lab/`. GitHub Pages cannot execute the
 Python API, so the deployment workflow builds a static reproducibility artifact
-instead of pretending that the browser is solving schedules. The artifact
-contains all 30 valid scenario-and-solver combinations for the three committed
-scenarios and ten solvers, generated at seed 42 with an evaluation budget of
-250. Scenario and solver controls select among those recorded results; seed and
-budget inputs are read-only in the hosted mode.
+instead of pretending that the browser is solving schedules. It includes the
+committed 3-task regression cases and deterministic 6, 10, 18, and 30-task
+showcases. Seed 42 is fixed, while size-aware search budgets keep the artifact
+bounded. Every result reports its actual budget and build provenance; expensive
+or unsupported combinations are listed as explicit omissions. Scenario and
+solver controls select among recorded results, so seed and budget inputs remain
+read-only in hosted mode.
 
 Every push to `main` runs `scripts/build_pages.py`, packages the framework-free
 interface and its precomputed result dataset, and deploys the artifact through
@@ -48,7 +50,7 @@ path for arbitrary seeds, budgets, or additional scenarios.
 ## Interaction model
 
 The configuration surface selects a committed Scenario JSON document, one of
-the ten built-in solvers, a deterministic seed, and an evaluation budget. The
+the eleven built-in solver modes, a deterministic seed, and an evaluation budget. The
 server solves the selected scenario synchronously, revalidates the schedule with
 the shared simulator, and returns one result payload for all views.
 
@@ -57,6 +59,11 @@ Q-learning solver and a 250-episode budget. This makes the complete learning
 and validation story visible on first load. The interface renders:
 
 - **Primary metrics:** total value, completed observations, and total slew time.
+- **Method comparison:** all precomputed methods for the selected scenario with
+  objective, completion, feasibility, runtime, evaluation count, seed, budget,
+  and stopping reason.
+- **Constraint audit:** scheduled/unscheduled task accounting, resource margins,
+  validation issues, search effort, and exact-search proof status.
 - **3D mission geometry:** all scenario targets on a WGS84 globe, selected-target
   highlighting, scheduled observation sequence, an elevated satellite marker,
   and an explicitly notional orbit-context track.
@@ -64,8 +71,10 @@ and validation story visible on first load. The interface renders:
   interval, and the slew immediately preceding a selected observation.
 - **Resource trace:** energy remaining and storage used, normalized against the
   satellite capacities after every simulated task.
-- **Training curves:** policy objective, epsilon, and normalized mean absolute
-  temporal-difference error for Q-learning runs.
+- **Training curves:** realized exploratory episode-schedule objective, epsilon,
+  and normalized mean absolute temporal-difference error for Q-learning runs.
+  This diagnostic is not labeled as pure-policy performance; deterministic
+  checkpoint replay quality is recorded separately in run metadata.
 - **Search convergence:** incumbent objective value by unique evaluation for
   stochastic-search solvers; deterministic solvers receive a terminal point.
 
@@ -74,9 +83,10 @@ propagation. v0.1 scenarios contain target coordinates and visibility windows,
 but no orbital elements, epoch, or propagator state. The interface therefore
 does not claim that the displayed context track predicts spacecraft position.
 
-Disabled exact-solver choices are informative guardrails. The API independently
-enforces the same ten-task brute-force and sixteen-task branch-and-bound limits,
-so bypassing the interface cannot start an unsupported search.
+Disabled exact-solver choices are informative guardrails. The local API enforces
+the ten-task brute-force and sixteen-task branch-and-bound implementation limits.
+The static build uses stricter eight- and twelve-task caps to bound deployment
+time and records each skipped combination in its omission manifest.
 
 ## JSON API
 

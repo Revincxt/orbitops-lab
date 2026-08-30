@@ -1,0 +1,661 @@
+{
+  "schema_version": "0.1",
+  "scenario_id": "showcase-global-30",
+  "name": "How do scalable heuristics behave on a dense global target set",
+  "horizon_start_s": 0.0,
+  "horizon_end_s": 2400.0,
+  "satellite": {
+    "satellite_id": "sat-large-hard-000",
+    "energy_capacity_wh": 220.0,
+    "initial_energy_wh": 115.79185126754372,
+    "recharge_rate_w": 20.85527796275354,
+    "storage_capacity_gb": 42.0,
+    "initial_storage_gb": 7.570901007829602,
+    "initial_attitude_deg": 5.923098889620725,
+    "slew_rate_deg_s": 1.8401566939193175,
+    "settling_time_s": 11.149655872642441
+  },
+  "tasks": [
+    {
+      "task_id": "task-000",
+      "target": {
+        "target_id": "target-000",
+        "name": "Shanghai",
+        "latitude_deg": 31.2304,
+        "longitude_deg": 121.4737
+      },
+      "priority_value": 5.534253208169026,
+      "duration_s": 82.77227136588833,
+      "visibility_windows": [
+        {
+          "window_id": "w-000-0",
+          "start_s": 502.6922716323311,
+          "end_s": 636.7186698638207
+        }
+      ],
+      "required_attitude_deg": -27.47729425402342,
+      "energy_cost_wh": 31.15383395294842,
+      "storage_cost_gb": 3.6334734564830584
+    },
+    {
+      "task_id": "task-001",
+      "target": {
+        "target_id": "target-001",
+        "name": "Paris",
+        "latitude_deg": 48.8566,
+        "longitude_deg": 2.3522
+      },
+      "priority_value": 88.62023862273617,
+      "duration_s": 71.82572720019482,
+      "visibility_windows": [
+        {
+          "window_id": "w-001-0",
+          "start_s": 1377.4596119278772,
+          "end_s": 1486.428757555763
+        }
+      ],
+      "required_attitude_deg": 33.46434309807961,
+      "energy_cost_wh": 31.290257611640115,
+      "storage_cost_gb": 1.891117025666066
+    },
+    {
+      "task_id": "task-002",
+      "target": {
+        "target_id": "target-002",
+        "name": "São Paulo",
+        "latitude_deg": -23.5505,
+        "longitude_deg": -46.6333
+      },
+      "priority_value": 48.6232124804397,
+      "duration_s": 63.80086629236102,
+      "visibility_windows": [
+        {
+          "window_id": "w-002-0",
+          "start_s": 1339.0300655594829,
+          "end_s": 1472.3735638427065
+        }
+      ],
+      "required_attitude_deg": 59.23453205591042,
+      "energy_cost_wh": 18.98549768273582,
+      "storage_cost_gb": 4.457153159245501
+    },
+    {
+      "task_id": "task-003",
+      "target": {
+        "target_id": "target-003",
+        "name": "Sydney",
+        "latitude_deg": -33.8688,
+        "longitude_deg": 151.2093
+      },
+      "priority_value": 15.101390924029635,
+      "duration_s": 66.85192001277875,
+      "visibility_windows": [
+        {
+          "window_id": "w-003-0",
+          "start_s": 1310.2641774455824,
+          "end_s": 1409.7049848680308
+        }
+      ],
+      "required_attitude_deg": -62.99302455800554,
+      "energy_cost_wh": 26.30661434408514,
+      "storage_cost_gb": 1.8590936570010703
+    },
+    {
+      "task_id": "task-004",
+      "target": {
+        "target_id": "target-004",
+        "name": "Nairobi",
+        "latitude_deg": -1.2921,
+        "longitude_deg": 36.8219
+      },
+      "priority_value": 31.92348160281238,
+      "duration_s": 67.66810128701172,
+      "visibility_windows": [
+        {
+          "window_id": "w-004-0",
+          "start_s": 1115.8806394273934,
+          "end_s": 1219.0860898723997
+        }
+      ],
+      "required_attitude_deg": 71.6317915188404,
+      "energy_cost_wh": 21.41367364802199,
+      "storage_cost_gb": 1.9393672016303207
+    },
+    {
+      "task_id": "task-005",
+      "target": {
+        "target_id": "target-005",
+        "name": "San Francisco",
+        "latitude_deg": 37.7749,
+        "longitude_deg": -122.4194
+      },
+      "priority_value": 60.14641389861313,
+      "duration_s": 58.661369409299056,
+      "visibility_windows": [
+        {
+          "window_id": "w-005-0",
+          "start_s": 692.5490464809068,
+          "end_s": 798.1905064495114
+        }
+      ],
+      "required_attitude_deg": 77.73647312023411,
+      "energy_cost_wh": 20.550200931475153,
+      "storage_cost_gb": 4.161806156188208
+    },
+    {
+      "task_id": "task-006",
+      "target": {
+        "target_id": "target-006",
+        "name": "Mumbai",
+        "latitude_deg": 19.076,
+        "longitude_deg": 72.8777
+      },
+      "priority_value": 4.252737073205276,
+      "duration_s": 60.931428408530024,
+      "visibility_windows": [
+        {
+          "window_id": "w-006-0",
+          "start_s": 1562.2579180990354,
+          "end_s": 1672.2986223187897
+        }
+      ],
+      "required_attitude_deg": 4.707069515530009,
+      "energy_cost_wh": 16.570866448961837,
+      "storage_cost_gb": 1.544609178029704
+    },
+    {
+      "task_id": "task-007",
+      "target": {
+        "target_id": "target-007",
+        "name": "Reykjavík",
+        "latitude_deg": 64.1466,
+        "longitude_deg": -21.9426
+      },
+      "priority_value": 71.28487117009566,
+      "duration_s": 38.50889557509586,
+      "visibility_windows": [
+        {
+          "window_id": "w-007-0",
+          "start_s": 1317.273203814576,
+          "end_s": 1374.299584889951
+        }
+      ],
+      "required_attitude_deg": -22.150090371498678,
+      "energy_cost_wh": 30.179244793889463,
+      "storage_cost_gb": 2.3675984630503604
+    },
+    {
+      "task_id": "task-008",
+      "target": {
+        "target_id": "target-008",
+        "name": "Tokyo",
+        "latitude_deg": 35.6762,
+        "longitude_deg": 139.6503
+      },
+      "priority_value": 55.79703131293958,
+      "duration_s": 92.8682067672452,
+      "visibility_windows": [
+        {
+          "window_id": "w-008-0",
+          "start_s": 1120.7705629854172,
+          "end_s": 1268.2333610512665
+        }
+      ],
+      "required_attitude_deg": -48.27040663371618,
+      "energy_cost_wh": 16.91565242308825,
+      "storage_cost_gb": 2.4197582851986392
+    },
+    {
+      "task_id": "task-009",
+      "target": {
+        "target_id": "target-009",
+        "name": "Cape Town",
+        "latitude_deg": -33.9249,
+        "longitude_deg": 18.4241
+      },
+      "priority_value": 98.11374757238185,
+      "duration_s": 67.50503838735276,
+      "visibility_windows": [
+        {
+          "window_id": "w-009-0",
+          "start_s": 1161.6497333914995,
+          "end_s": 1281.0004711966392
+        }
+      ],
+      "required_attitude_deg": -6.475392950297191,
+      "energy_cost_wh": 20.817220084826673,
+      "storage_cost_gb": 2.2591478067811464
+    },
+    {
+      "task_id": "task-010",
+      "target": {
+        "target_id": "target-010",
+        "name": "Mexico City",
+        "latitude_deg": 19.4326,
+        "longitude_deg": -99.1332
+      },
+      "priority_value": 2.833063429042665,
+      "duration_s": 44.69221766874635,
+      "visibility_windows": [
+        {
+          "window_id": "w-010-0",
+          "start_s": 1230.961233035189,
+          "end_s": 1334.6792917680216
+        }
+      ],
+      "required_attitude_deg": -2.3130898798186337,
+      "energy_cost_wh": 25.453361780877945,
+      "storage_cost_gb": 3.9703391646439234
+    },
+    {
+      "task_id": "task-011",
+      "target": {
+        "target_id": "target-011",
+        "name": "Dubai",
+        "latitude_deg": 25.2048,
+        "longitude_deg": 55.2708
+      },
+      "priority_value": 97.9062989331601,
+      "duration_s": 34.448984105650844,
+      "visibility_windows": [
+        {
+          "window_id": "w-011-0",
+          "start_s": 1381.1049939966,
+          "end_s": 1459.3388715254619
+        }
+      ],
+      "required_attitude_deg": -76.3325215330714,
+      "energy_cost_wh": 24.877261767907978,
+      "storage_cost_gb": 4.359902241979437
+    },
+    {
+      "task_id": "task-012",
+      "target": {
+        "target_id": "target-012",
+        "name": "London",
+        "latitude_deg": 51.5074,
+        "longitude_deg": -0.1278
+      },
+      "priority_value": 14.01447070174662,
+      "duration_s": 52.91975333389544,
+      "visibility_windows": [
+        {
+          "window_id": "w-012-0",
+          "start_s": 625.7941037522519,
+          "end_s": 740.8163650592637
+        }
+      ],
+      "required_attitude_deg": 36.22101081912204,
+      "energy_cost_wh": 28.49521561859935,
+      "storage_cost_gb": 1.756039795218482
+    },
+    {
+      "task_id": "task-013",
+      "target": {
+        "target_id": "target-013",
+        "name": "Santiago",
+        "latitude_deg": -33.4489,
+        "longitude_deg": -70.6693
+      },
+      "priority_value": 80.0490692585973,
+      "duration_s": 43.97577416435399,
+      "visibility_windows": [
+        {
+          "window_id": "w-013-0",
+          "start_s": 943.7710658145552,
+          "end_s": 1014.9536635157166
+        }
+      ],
+      "required_attitude_deg": -52.26047773716303,
+      "energy_cost_wh": 18.966447921052275,
+      "storage_cost_gb": 3.0845617589290972
+    },
+    {
+      "task_id": "task-014",
+      "target": {
+        "target_id": "target-014",
+        "name": "Bangkok",
+        "latitude_deg": 13.7563,
+        "longitude_deg": 100.5018
+      },
+      "priority_value": 71.35055402322365,
+      "duration_s": 51.62188118237165,
+      "visibility_windows": [
+        {
+          "window_id": "w-014-0",
+          "start_s": 1111.1611933098884,
+          "end_s": 1195.793304068221
+        }
+      ],
+      "required_attitude_deg": -60.23438949400722,
+      "energy_cost_wh": 19.780103560667662,
+      "storage_cost_gb": 4.279372252490118
+    },
+    {
+      "task_id": "task-015",
+      "target": {
+        "target_id": "target-015",
+        "name": "Vancouver",
+        "latitude_deg": 49.2827,
+        "longitude_deg": -123.1207
+      },
+      "priority_value": 61.35653580207715,
+      "duration_s": 50.7601549476377,
+      "visibility_windows": [
+        {
+          "window_id": "w-015-0",
+          "start_s": 1058.8042059813679,
+          "end_s": 1164.6597833946623
+        }
+      ],
+      "required_attitude_deg": -32.90148981771125,
+      "energy_cost_wh": 25.693015864289467,
+      "storage_cost_gb": 2.2666467666954797
+    },
+    {
+      "task_id": "task-016",
+      "target": {
+        "target_id": "target-016",
+        "name": "Cairo",
+        "latitude_deg": 30.0444,
+        "longitude_deg": 31.2357
+      },
+      "priority_value": 64.60951330921853,
+      "duration_s": 60.23585375703483,
+      "visibility_windows": [
+        {
+          "window_id": "w-016-0",
+          "start_s": 1064.4742487264007,
+          "end_s": 1170.9784959603405
+        }
+      ],
+      "required_attitude_deg": 77.1642677426365,
+      "energy_cost_wh": 17.576752594742224,
+      "storage_cost_gb": 2.7430042696513013
+    },
+    {
+      "task_id": "task-017",
+      "target": {
+        "target_id": "target-017",
+        "name": "Singapore",
+        "latitude_deg": 1.3521,
+        "longitude_deg": 103.8198
+      },
+      "priority_value": 68.60677412928052,
+      "duration_s": 72.01754850836801,
+      "visibility_windows": [
+        {
+          "window_id": "w-017-0",
+          "start_s": 1279.9849916695064,
+          "end_s": 1398.3101076272635
+        }
+      ],
+      "required_attitude_deg": -36.07235938195114,
+      "energy_cost_wh": 18.221615753685157,
+      "storage_cost_gb": 3.0174108291713506
+    },
+    {
+      "task_id": "task-018",
+      "target": {
+        "target_id": "target-018",
+        "name": "New York",
+        "latitude_deg": 40.7128,
+        "longitude_deg": -74.006
+      },
+      "priority_value": 46.618457785952614,
+      "duration_s": 81.96457055321382,
+      "visibility_windows": [
+        {
+          "window_id": "w-018-0",
+          "start_s": 966.5740175136765,
+          "end_s": 1086.2381183858959
+        }
+      ],
+      "required_attitude_deg": -71.69988249350261,
+      "energy_cost_wh": 13.412035728156464,
+      "storage_cost_gb": 2.526572445043611
+    },
+    {
+      "task_id": "task-019",
+      "target": {
+        "target_id": "target-019",
+        "name": "Buenos Aires",
+        "latitude_deg": -34.6037,
+        "longitude_deg": -58.3816
+      },
+      "priority_value": 45.047845986175794,
+      "duration_s": 95.32433146498306,
+      "visibility_windows": [
+        {
+          "window_id": "w-019-0",
+          "start_s": 1559.9318291719396,
+          "end_s": 1702.0435775901826
+        }
+      ],
+      "required_attitude_deg": -20.24319992322944,
+      "energy_cost_wh": 15.509443209662352,
+      "storage_cost_gb": 4.208152892451113
+    },
+    {
+      "task_id": "task-020",
+      "target": {
+        "target_id": "target-020",
+        "name": "Seoul",
+        "latitude_deg": 37.5665,
+        "longitude_deg": 126.978
+      },
+      "priority_value": 89.26125123040451,
+      "duration_s": 47.37593585967031,
+      "visibility_windows": [
+        {
+          "window_id": "w-020-0",
+          "start_s": 1283.3245445628893,
+          "end_s": 1383.4142305481637
+        }
+      ],
+      "required_attitude_deg": 65.10473359773363,
+      "energy_cost_wh": 16.243516301584407,
+      "storage_cost_gb": 3.1723414720590397
+    },
+    {
+      "task_id": "task-021",
+      "target": {
+        "target_id": "target-021",
+        "name": "Lagos",
+        "latitude_deg": 6.5244,
+        "longitude_deg": 3.3792
+      },
+      "priority_value": 78.57002750869884,
+      "duration_s": 75.83971897550433,
+      "visibility_windows": [
+        {
+          "window_id": "w-021-0",
+          "start_s": 875.7465141567976,
+          "end_s": 1001.926633305375
+        }
+      ],
+      "required_attitude_deg": -77.54571681044567,
+      "energy_cost_wh": 18.250007264367156,
+      "storage_cost_gb": 3.9631956601390526
+    },
+    {
+      "task_id": "task-022",
+      "target": {
+        "target_id": "target-022",
+        "name": "Rome",
+        "latitude_deg": 41.9028,
+        "longitude_deg": 12.4964
+      },
+      "priority_value": 89.52179163386089,
+      "duration_s": 46.80652847321019,
+      "visibility_windows": [
+        {
+          "window_id": "w-022-0",
+          "start_s": 1101.3482974193498,
+          "end_s": 1169.1351418737001
+        }
+      ],
+      "required_attitude_deg": -32.08279831072286,
+      "energy_cost_wh": 17.561090458346598,
+      "storage_cost_gb": 4.312332844532689
+    },
+    {
+      "task_id": "task-023",
+      "target": {
+        "target_id": "target-023",
+        "name": "Toronto",
+        "latitude_deg": 43.6532,
+        "longitude_deg": -79.3832
+      },
+      "priority_value": 88.47386491276339,
+      "duration_s": 55.23165890598058,
+      "visibility_windows": [
+        {
+          "window_id": "w-023-0",
+          "start_s": 1610.5295497382142,
+          "end_s": 1724.891306983985
+        }
+      ],
+      "required_attitude_deg": 54.3548340666984,
+      "energy_cost_wh": 19.426128953355974,
+      "storage_cost_gb": 4.3421255440817585
+    },
+    {
+      "task_id": "task-024",
+      "target": {
+        "target_id": "target-024",
+        "name": "Jakarta",
+        "latitude_deg": -6.2088,
+        "longitude_deg": 106.8456
+      },
+      "priority_value": 98.0536461285085,
+      "duration_s": 102.19941662105002,
+      "visibility_windows": [
+        {
+          "window_id": "w-024-0",
+          "start_s": 942.2876053765012,
+          "end_s": 1089.044261592395
+        }
+      ],
+      "required_attitude_deg": 58.71867119525177,
+      "energy_cost_wh": 29.348395815135852,
+      "storage_cost_gb": 2.792169295749344
+    },
+    {
+      "task_id": "task-025",
+      "target": {
+        "target_id": "target-025",
+        "name": "Madrid",
+        "latitude_deg": 40.4168,
+        "longitude_deg": -3.7038
+      },
+      "priority_value": 19.705104118033002,
+      "duration_s": 62.90081355774795,
+      "visibility_windows": [
+        {
+          "window_id": "w-025-0",
+          "start_s": 1259.1897509403493,
+          "end_s": 1348.5331611534577
+        }
+      ],
+      "required_attitude_deg": -27.59006064770466,
+      "energy_cost_wh": 14.339679845988357,
+      "storage_cost_gb": 4.455135574741618
+    },
+    {
+      "task_id": "task-026",
+      "target": {
+        "target_id": "target-026",
+        "name": "Lima",
+        "latitude_deg": -12.0464,
+        "longitude_deg": -77.0428
+      },
+      "priority_value": 78.85503900341048,
+      "duration_s": 57.28275780742068,
+      "visibility_windows": [
+        {
+          "window_id": "w-026-0",
+          "start_s": 1071.1936318607159,
+          "end_s": 1173.9402437903818
+        }
+      ],
+      "required_attitude_deg": 57.102586492962246,
+      "energy_cost_wh": 24.812938833945537,
+      "storage_cost_gb": 4.22154069121764
+    },
+    {
+      "task_id": "task-027",
+      "target": {
+        "target_id": "target-027",
+        "name": "Istanbul",
+        "latitude_deg": 41.0082,
+        "longitude_deg": 28.9784
+      },
+      "priority_value": 58.2379623430505,
+      "duration_s": 82.95919229626725,
+      "visibility_windows": [
+        {
+          "window_id": "w-027-0",
+          "start_s": 866.2979352129009,
+          "end_s": 1007.4125952820507
+        }
+      ],
+      "required_attitude_deg": -49.8346617432359,
+      "energy_cost_wh": 24.146766270154124,
+      "storage_cost_gb": 3.5291153555938246
+    },
+    {
+      "task_id": "task-028",
+      "target": {
+        "target_id": "target-028",
+        "name": "Honolulu",
+        "latitude_deg": 21.3099,
+        "longitude_deg": -157.8581
+      },
+      "priority_value": 44.34863611344938,
+      "duration_s": 94.9715497910762,
+      "visibility_windows": [
+        {
+          "window_id": "w-028-0",
+          "start_s": 1413.19953619699,
+          "end_s": 1531.1434006695274
+        }
+      ],
+      "required_attitude_deg": -79.02740025542028,
+      "energy_cost_wh": 18.901674563042157,
+      "storage_cost_gb": 1.8521997459722797
+    },
+    {
+      "task_id": "task-029",
+      "target": {
+        "target_id": "target-029",
+        "name": "Wuhan",
+        "latitude_deg": 30.5928,
+        "longitude_deg": 114.3055
+      },
+      "priority_value": 18.400895416490997,
+      "duration_s": 66.63775853314849,
+      "visibility_windows": [
+        {
+          "window_id": "w-029-0",
+          "start_s": 1397.816317296018,
+          "end_s": 1508.724476243856
+        }
+      ],
+      "required_attitude_deg": -56.1971745591466,
+      "energy_cost_wh": 13.020763297058807,
+      "storage_cost_gb": 3.808232774272242
+    }
+  ],
+  "metadata": {
+    "benchmark_id": "orbitops-showcase-v02",
+    "generator": "benchmark-generator-v1",
+    "generator_seed": 8756159730291866994,
+    "size": "large",
+    "difficulty": "hard",
+    "instance_index": 0,
+    "purpose": "v0.2 comparative-methods showcase",
+    "research_question": "How do scalable heuristics behave on a dense global target set?",
+    "geometry_note": "Targets use WGS84 reference coordinates; access windows are synthetic."
+  }
+}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import perf_counter
 
 from orbitops.domain.models import (
     Metrics,
@@ -59,11 +60,29 @@ class SchedulingEnvironment:
             remaining_task_ids=tuple(sorted(self._task_by_id)),
         )
 
-    def actions(self, state: SchedulingState) -> tuple[SchedulingAction, ...]:
+    @staticmethod
+    def deadline_reached(deadline_at: float | None) -> bool:
+        return deadline_at is not None and perf_counter() >= deadline_at
+
+    def actions(
+        self,
+        state: SchedulingState,
+        *,
+        deadline_at: float | None = None,
+    ) -> tuple[SchedulingAction, ...]:
+        """Enumerate feasible task actions without working past a shared deadline."""
+
         actions: list[SchedulingAction] = []
         for task_id in state.remaining_task_ids:
+            if self.deadline_reached(deadline_at):
+                break
             task = self._task_by_id[task_id]
-            insertion = best_feasible_insertion(self.scenario, state.schedule, task)
+            insertion = best_feasible_insertion(
+                self.scenario,
+                state.schedule,
+                task,
+                deadline_at=deadline_at,
+            )
             if insertion is not None:
                 actions.append(SchedulingAction(task=task, insertion=insertion))
         return tuple(actions)
@@ -131,6 +150,11 @@ class SchedulingEnvironment:
             next_simulation.total_slew_time_s - self._simulation_slew(state),
         )
         satellite = self.scenario.satellite
+        # ``final_state`` is projected to the scenario horizon and therefore
+        # includes recharge after the last scheduled observation.  A learning
+        # action needs the resource margin at the end of the current plan,
+        # before that future recharge can hide an immediate bottleneck.
+        terminal_task = next_simulation.tasks[-1]
         features = (
             1.0,
             task.priority_value / self._total_value,
@@ -141,9 +165,8 @@ class SchedulingEnvironment:
             1.0 - self._clamp(task.storage_cost_gb / max(self._max_storage, 1e-12)),
             1.0 - self._clamp(incremental_slew / self._horizon),
             len(state.remaining_task_ids) / self._task_count,
-            self._clamp(next_simulation.final_state.energy_wh / satellite.energy_capacity_wh),
-            1.0
-            - self._clamp(next_simulation.final_state.storage_gb / satellite.storage_capacity_gb),
+            self._clamp(terminal_task.energy_after_wh / satellite.energy_capacity_wh),
+            1.0 - self._clamp(terminal_task.storage_after_gb / satellite.storage_capacity_gb),
         )
         assert len(features) == len(FEATURE_NAMES)
         return features

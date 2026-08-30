@@ -98,14 +98,19 @@ class GeneticSolver(BaseSolver):
 
     def solve(self, scenario: Scenario) -> SolveResult:
         started_at = perf_counter()
+        deadline_at = self._deadline_at(started_at)
         rng = random.Random(self.config.seed)
         evaluator = GenomeEvaluator(
             scenario,
             solver_name=self.name,
             seed=self.config.seed,
             budget=self.config.evaluation_budget,
+            deadline_at=deadline_at,
         )
-        greedy = GreedyInsertionSolver(SolverConfig(seed=self.config.seed)).solve(scenario)
+        greedy = GreedyInsertionSolver(
+            SolverConfig(seed=self.config.seed),
+            deadline_at=deadline_at,
+        ).solve(scenario)
         seed_genome = genome_from_schedule(scenario, greedy.schedule)
         best = evaluator.evaluate(seed_genome)
         convergence = [convergence_point(evaluator.evaluations, best)]
@@ -123,7 +128,7 @@ class GeneticSolver(BaseSolver):
             )
         )
         value_genome = Genome(order=value_order, active=frozenset(value_order))
-        if evaluator.evaluations < evaluator.budget:
+        if evaluator.evaluations < evaluator.budget and not evaluator.timed_out:
             value_evaluated = evaluator.evaluate(value_genome)
             population_by_genome[value_genome] = value_evaluated
             if is_better(value_evaluated, best):
@@ -134,6 +139,7 @@ class GeneticSolver(BaseSolver):
         while (
             len(population_by_genome) < target_population_size
             and evaluator.evaluations < evaluator.budget
+            and not evaluator.timed_out
             and initialization_attempts < target_population_size * 20
         ):
             initialization_attempts += 1
@@ -149,10 +155,10 @@ class GeneticSolver(BaseSolver):
 
         population = list(population_by_genome.values())
         generations = 0
-        timed_out = False
+        timed_out = evaluator.timed_out or self._time_limit_reached(started_at)
 
         while evaluator.evaluations < evaluator.budget and len(population) >= 2:
-            if self._time_limit_reached(started_at):
+            if evaluator.timed_out or self._time_limit_reached(started_at):
                 timed_out = True
                 break
             evaluations_before_generation = evaluator.evaluations
@@ -166,6 +172,7 @@ class GeneticSolver(BaseSolver):
             while (
                 len(next_population) < target_population_size
                 and evaluator.evaluations < evaluator.budget
+                and not evaluator.timed_out
                 and generation_attempts < target_population_size * 30
             ):
                 if self._time_limit_reached(started_at):
@@ -196,6 +203,9 @@ class GeneticSolver(BaseSolver):
                     try:
                         evaluated = evaluator.evaluate(mutated)
                     except EvaluationBudgetExceeded:
+                        break
+                    if evaluator.timed_out:
+                        timed_out = True
                         break
                     next_population[mutated] = evaluated
                     if is_better(evaluated, best):

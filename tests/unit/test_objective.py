@@ -43,6 +43,32 @@ def test_score_schedule_uses_scenario_values() -> None:
     assert metrics.total_slew_time_s == 24.5
 
 
+def test_score_is_stable_for_every_schedule_order() -> None:
+    scenario = Scenario.from_json(DEMO_PATH)
+    chronological = Schedule(
+        scenario_id=scenario.scenario_id,
+        solver_name="test",
+        tasks=(
+            _assignment("obs-shanghai", 120.0, "w-shanghai-1"),
+            _assignment("obs-hangzhou", 390.0, "w-hangzhou-1"),
+            _assignment("obs-wuhan", 620.0, "w-wuhan-1"),
+        ),
+    )
+    reverse_payload_order = chronological.model_copy(
+        update={"tasks": tuple(reversed(chronological.tasks))}
+    )
+
+    assert score_schedule(
+        scenario,
+        chronological,
+        total_slew_time_s=42.0,
+    ) == score_schedule(
+        scenario,
+        reverse_payload_order,
+        total_slew_time_s=42.0,
+    )
+
+
 def test_unknown_scheduled_task_is_rejected() -> None:
     scenario = Scenario.from_json(DEMO_PATH)
     schedule = Schedule(

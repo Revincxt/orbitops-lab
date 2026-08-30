@@ -11,10 +11,11 @@
   <meta property="og:image" content="https://revincxt.github.io/orbitops-lab/orbitops-social-card.jpg">
   <meta name="twitter:card" content="summary_large_image">
   <title>OrbitOps Scheduling Laboratory</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=0.2.0">
   <link rel="preconnect" href="https://cesium.com">
   <link rel="preconnect" href="https://gibs.earthdata.nasa.gov">
   <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Widgets/widgets.css">
-  <link rel="stylesheet" href="./app.css">
+  <link rel="stylesheet" href="./app.css?v=0.2.0">
 </head>
 <body>
   <main class="shell">
@@ -30,7 +31,7 @@
       </nav>
       <div class="masthead-meta">
         <span id="deployment-mode">Local API execution</span>
-        <span class="stage-chip">v0.1</span>
+        <span class="stage-chip">v0.2</span>
       </div>
     </header>
 
@@ -59,7 +60,7 @@
         </dl>
         <p class="scope-note"><strong>Model scope.</strong> The current release uses precomputed visibility windows and a notional ground track; it does not claim high-fidelity orbit propagation.</p>
         <div class="method-tags" aria-label="Available method families">
-          <span>Exact</span><span>Heuristic</span><span>Search</span><span>Q-learning</span>
+          <span>Exact</span><span>Heuristic</span><span>Search</span><span>Q-policy / hybrid</span>
         </div>
       </div>
 
@@ -103,7 +104,7 @@
           <select id="scenario-select" name="scenario_id" required></select>
         </label>
         <label>
-          <span>Solver</span>
+          <span>Focus solver</span>
           <select id="solver-select" name="solver_name" required></select>
         </label>
         <label>
@@ -128,6 +129,14 @@
         <p id="runtime" class="runtime"></p>
       </div>
 
+      <dl class="run-record" aria-label="Run provenance">
+        <div><dt>Scenario</dt><dd id="record-scenario">—</dd></div>
+        <div><dt>Method</dt><dd id="record-method">—</dd></div>
+        <div><dt>Seed</dt><dd id="record-seed">—</dd></div>
+        <div><dt>Budget</dt><dd id="record-budget">—</dd></div>
+        <div><dt>Revision</dt><dd id="record-revision">—</dd></div>
+      </dl>
+
       <div class="metric-grid" aria-label="Primary schedule metrics">
         <article>
           <span>Objective value</span>
@@ -150,6 +159,56 @@
           <small>Shared simulator verdict</small>
         </article>
       </div>
+
+      <article class="visual-block comparison-block" aria-labelledby="comparison-title">
+        <div class="visual-heading">
+          <div>
+            <p class="section-index">Method comparison</p>
+            <h3 id="comparison-title">Results on the same scenario</h3>
+          </div>
+          <p id="comparison-context" class="comparison-context">One evaluated method</p>
+        </div>
+        <div class="table-scroll">
+          <table class="comparison-table">
+            <thead>
+              <tr>
+                <th scope="col">Method</th>
+                <th scope="col">Objective</th>
+                <th scope="col">Completion</th>
+                <th scope="col">Slew</th>
+                <th scope="col">Feasible</th>
+                <th scope="col">Runtime</th>
+                <th scope="col">Evaluations</th>
+                <th scope="col">Stop reason</th>
+                <th scope="col">Seed / budget</th>
+              </tr>
+            </thead>
+            <tbody id="comparison-body"></tbody>
+          </table>
+        </div>
+        <p id="comparison-note" class="table-note">Runtime is descriptive. Evaluation units differ by method family and are reported without claiming equal computational work.</p>
+      </article>
+
+      <article class="visual-block audit-block" aria-labelledby="audit-title">
+        <div class="visual-heading">
+          <div>
+            <p class="section-index">Constraint audit</p>
+            <h3 id="audit-title">Feasibility and exclusion diagnostics</h3>
+          </div>
+          <p id="audit-summary" class="audit-summary">Awaiting validated output</p>
+        </div>
+        <div class="audit-grid">
+          <section aria-labelledby="unscheduled-title">
+            <h4 id="unscheduled-title">Unscheduled targets</h4>
+            <ul id="unscheduled-list" class="audit-list"></ul>
+          </section>
+          <section aria-labelledby="issues-title">
+            <h4 id="issues-title">Validator issues and margins</h4>
+            <ul id="validation-list" class="audit-list"></ul>
+          </section>
+        </div>
+        <p id="audit-methodology" class="table-note"></p>
+      </article>
 
       <article class="visual-block gantt-block" aria-labelledby="timeline-title">
         <div class="visual-heading">
@@ -204,9 +263,9 @@
       </aside>
     </section>
   </main>
-  <script src="./deployment-config.js"></script>
-  <script src="./cesium-config.js"></script>
+  <script src="./deployment-config.js?v=0.2.0"></script>
+  <script src="./cesium-config.js?v=0.2.0"></script>
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Cesium.js" defer></script>
-  <script src="./app.js" defer></script>
+  <script src="./app.js?v=0.2.0" defer></script>
 </body>
 </html>

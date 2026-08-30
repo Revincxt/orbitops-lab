@@ -31,6 +31,20 @@ def _fmt(value: float | None, digits: int = 3) -> str:
     return "—" if value is None else f"{value:.{digits}f}"
 
 
+def _estimate_interval(
+    estimate: float | None,
+    low: float | None,
+    high: float | None,
+    *,
+    digits: int = 3,
+) -> str:
+    if estimate is None:
+        return "—"
+    if low is None or high is None:
+        return _fmt(estimate, digits)
+    return f"{_fmt(estimate, digits)} [{_fmt(low, digits)}, {_fmt(high, digits)}]"
+
+
 def _descriptor(report: BenchmarkReport, scenario_id: str | None) -> ScenarioDescriptor:
     if not report.scenarios:
         raise ValueError("benchmark report contains no scenarios")
@@ -320,8 +334,10 @@ def _summary_table(report: BenchmarkReport) -> str:
         "<tr>"
         f"<td>{summary.rank}</td><th>{escape(summary.solver_name)}</th>"
         f"<td>{summary.feasible_rate:.3f}</td>"
-        f"<td>{_fmt(summary.mean_value_ratio)}</td>"
+        f"<td>{_estimate_interval(summary.mean_value_ratio, summary.value_ratio_ci95_low, summary.value_ratio_ci95_high)}</td>"
+        f"<td>{summary.value_ratio_scenario_count if summary.value_ratio_scenario_count is not None else '—'}</td>"
         f"<td>{_fmt(summary.best_observed_rate)}</td>"
+        f"<td>{_fmt(summary.mean_total_value)} / {_fmt(summary.median_total_value)}</td>"
         f"<td>{_fmt(summary.mean_completed_tasks, 2)}</td>"
         f"<td>{_fmt(summary.mean_total_slew_time_s, 2)}</td>"
         f"<td>{summary.mean_runtime_s:.5f}</td>"
@@ -331,8 +347,36 @@ def _summary_table(report: BenchmarkReport) -> str:
     return (
         '<details><summary>Exact solver summary</summary><div class="table-wrap">'
         "<table><thead><tr><th>Rank</th><th>Solver</th><th>Feasible</th>"
-        "<th>Value ratio</th><th>Best rate</th><th>Tasks</th><th>Slew</th>"
+        "<th>Value ratio mean [scenario-block 95% CI]</th><th>Ratio scenarios</th>"
+        "<th>Best rate</th><th>Raw value mean / median</th>"
+        "<th>Tasks</th><th>Slew</th>"
         f"<th>Runtime</th></tr></thead><tbody>{rows}</tbody></table></div></details>"
+    )
+
+
+def _pairwise_table(report: BenchmarkReport) -> str:
+    if not report.comparisons:
+        return '<p class="empty">At least two solvers are required for paired evidence.</p>'
+    rows = "".join(
+        "<tr>"
+        f"<th>{escape(comparison.solver_a)}</th>"
+        f"<th>{escape(comparison.solver_b)}</th>"
+        f"<td>{comparison.paired_count}</td>"
+        f"<td>{comparison.failed_both_count}</td>"
+        f"<td>{comparison.wins_a} / {comparison.ties} / {comparison.losses_a}</td>"
+        f"<td>{_fmt(comparison.win_rate_a)}</td>"
+        f"<td>{comparison.both_feasible_count}</td>"
+        f"<td>{_estimate_interval(comparison.mean_normalized_value_gap, comparison.normalized_value_gap_ci95_low, comparison.normalized_value_gap_ci95_high)}</td>"
+        f"<td>{comparison.normalized_value_gap_scenario_count if comparison.normalized_value_gap_scenario_count is not None else '—'}</td>"
+        "</tr>"
+        for comparison in report.comparisons
+    )
+    return (
+        '<div class="table-wrap"><table><thead><tr><th>Solver A</th><th>Solver B</th>'
+        "<th>Shared cells</th><th>Excluded (both failed)</th>"
+        "<th>A win / tie / loss</th><th>A win rate</th><th>Both feasible</th>"
+        "<th>Normalized value gap [scenario-block 95% CI]</th><th>Gap scenarios</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table></div>"
     )
 
 
@@ -432,14 +476,19 @@ def render_benchmark_html(
     </header>
     <section aria-labelledby="ranking-heading">
       <h2 id="ranking-heading">Algorithm ranking</h2>
-      <p class="section-note">Feasibility is ranked first; bars show mean value relative to the best feasible solver on each scenario and seed.</p>
+      <p class="section-note">Feasibility is ranked first. Value ratios are normalized against the best feasible solver in each scenario/seed cell, averaged within scenario, and then averaged equally across scenarios; intervals resample scenario blocks.</p>
       {_ranking(report)}
       {_summary_table(report)}
     </section>
     <section aria-labelledby="difficulty-heading">
       <h2 id="difficulty-heading">Performance by difficulty</h2>
-      <p class="section-note">Mean normalized value ratio within each synthetic difficulty tier. Darker cells are closer to the best observed value.</p>
+      <p class="section-note">Descriptive mean normalized value ratio within each synthetic difficulty tier. Darker cells are closer to the best observed value; inferential intervals are reported only at the scenario-block level above.</p>
       {_difficulty_heatmap(report)}
+    </section>
+    <section aria-labelledby="pairwise-heading">
+      <h2 id="pairwise-heading">Paired comparisons</h2>
+      <p class="section-note">Every row compares shared scenario/seed cells. One-sided failures count as feasibility wins or losses; cells where both methods fail are excluded, not ties. Win/tie/loss uses the complete lexicographic objective. Normalized primary-value gaps use jointly feasible cells, average seeds within scenario, and report deterministic scenario-block percentile-bootstrap 95% intervals; a lexicographic win can therefore have a zero value gap.</p>
+      {_pairwise_table(report)}
     </section>
     <section aria-labelledby="convergence-heading">
       <h2 id="convergence-heading">Search convergence</h2>

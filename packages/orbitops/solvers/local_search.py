@@ -60,14 +60,19 @@ class LocalSearchSolver(BaseSolver):
 
     def solve(self, scenario: Scenario) -> SolveResult:
         started_at = perf_counter()
+        deadline_at = self._deadline_at(started_at)
         rng = random.Random(self.config.seed)
         evaluator = GenomeEvaluator(
             scenario,
             solver_name=self.name,
             seed=self.config.seed,
             budget=self.config.evaluation_budget,
+            deadline_at=deadline_at,
         )
-        greedy = GreedyInsertionSolver(SolverConfig(seed=self.config.seed)).solve(scenario)
+        greedy = GreedyInsertionSolver(
+            SolverConfig(seed=self.config.seed),
+            deadline_at=deadline_at,
+        ).solve(scenario)
         seed_genome = genome_from_schedule(scenario, greedy.schedule)
         best = evaluator.evaluate(seed_genome)
         convergence = [convergence_point(evaluator.evaluations, best)]
@@ -77,14 +82,14 @@ class LocalSearchSolver(BaseSolver):
         }
         restarts_started = 0
         total_attempts = 0
-        timed_out = False
+        timed_out = evaluator.timed_out or self._time_limit_reached(started_at)
         stagnation_limit = max(20, len(scenario.tasks) * 6)
         maximum_attempts = self.config.evaluation_budget * 8
 
         for restart in range(self.max_restarts):
             if evaluator.evaluations >= evaluator.budget or total_attempts >= maximum_attempts:
                 break
-            if self._time_limit_reached(started_at):
+            if evaluator.timed_out or self._time_limit_reached(started_at):
                 timed_out = True
                 break
 
@@ -104,7 +109,7 @@ class LocalSearchSolver(BaseSolver):
             while stagnation < stagnation_limit and total_attempts < maximum_attempts:
                 if evaluator.evaluations >= evaluator.budget:
                     break
-                if self._time_limit_reached(started_at):
+                if evaluator.timed_out or self._time_limit_reached(started_at):
                     timed_out = True
                     break
                 proposed = propose_neighbor(current.genome, rng)
@@ -117,6 +122,9 @@ class LocalSearchSolver(BaseSolver):
                 try:
                     candidate = evaluator.evaluate(genome)
                 except EvaluationBudgetExceeded:
+                    break
+                if evaluator.timed_out:
+                    timed_out = True
                     break
                 if evaluator.evaluations > evaluations_before:
                     operator_stats[operator]["evaluated"] += 1

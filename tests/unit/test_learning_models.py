@@ -24,6 +24,8 @@ def make_policy(scenario: Scenario) -> LinearQPolicy:
         seed=7,
         episodes_completed=12,
         transitions=30,
+        selected_checkpoint_episode=None,
+        evaluated_checkpoints=0,
         learning_rate=0.12,
         discount_factor=0.95,
         initial_epsilon=0.35,
@@ -61,6 +63,8 @@ def test_policy_round_trips_and_scores_features(tmp_path: Path) -> None:
     restored = LinearQPolicy.from_json(path)
 
     assert restored == policy
+    assert restored.selected_checkpoint_episode is None
+    assert restored.evaluated_checkpoints == 0
     assert restored.q_value((1.0,) * len(FEATURE_NAMES)) == sum(range(len(FEATURE_NAMES)))
 
 
@@ -77,6 +81,25 @@ def test_policy_rejects_invalid_feature_contracts() -> None:
     with pytest.raises(ValidationError, match="must be unique"):
         LinearQPolicy.model_validate(payload)
 
+    payload = make_policy(scenario).model_dump(mode="json")
+    payload["schema_version"] = "1"
+    payload["feature_names"][-2:] = ["energy_headroom", "storage_headroom"]
+    with pytest.raises(ValidationError, match="Input should be '2'"):
+        LinearQPolicy.model_validate(payload)
+
     policy = make_policy(scenario)
     with pytest.raises(ValueError, match="vector length"):
         policy.q_value((1.0,))
+
+
+def test_policy_rejects_inconsistent_checkpoint_provenance() -> None:
+    scenario = Scenario.from_json(SCENARIO_PATH)
+    payload = make_policy(scenario).model_dump(mode="json")
+    payload["evaluated_checkpoints"] = 4
+
+    with pytest.raises(ValidationError, match="selected_checkpoint_episode is required"):
+        LinearQPolicy.model_validate(payload)
+
+    payload["selected_checkpoint_episode"] = 13
+    with pytest.raises(ValidationError, match="cannot follow the evaluated checkpoints"):
+        LinearQPolicy.model_validate(payload)
