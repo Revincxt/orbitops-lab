@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import perf_counter
 
 from orbitops.domain.models import (
     ObservationTask,
@@ -64,6 +65,7 @@ def feasible_appends(
     task: ObservationTask,
     *,
     validation: ValidationReport | None = None,
+    deadline_at: float | None = None,
 ) -> tuple[InsertionCandidate, ...]:
     """Append a task at its earliest resource-feasible time in each window.
 
@@ -113,6 +115,8 @@ def feasible_appends(
     seen: set[tuple[float, str]] = set()
 
     for window in sorted(task.visibility_windows, key=lambda item: (item.start_s, item.window_id)):
+        if deadline_at is not None and perf_counter() >= deadline_at:
+            break
         start_s = max(window.start_s, transition_ready_s, scenario.horizon_start_s)
         idle_s = start_s - current_time_s
         energy_at_end_wh = recharge_energy_wh(

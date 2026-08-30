@@ -1,7 +1,14 @@
 "use strict";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const state = { scenarios: [], solvers: [], globe: null, imageryFallbackActive: false };
+const state = {
+  scenarios: [],
+  solvers: [],
+  globe: null,
+  imageryFallbackActive: false,
+  staticDataset: null,
+  runCache: new Map(),
+};
 const deployment = window.ORBITOPS_DEPLOYMENT || { mode: "api" };
 const staticDeployment = deployment.mode === "static";
 let staticDatasetPromise = null;
@@ -33,6 +40,18 @@ const elements = {
   globeTargets: document.getElementById("globe-targets"),
   globeSequence: document.getElementById("globe-sequence"),
   deploymentMode: document.getElementById("deployment-mode"),
+  comparisonBody: document.getElementById("comparison-body"),
+  comparisonContext: document.getElementById("comparison-context"),
+  comparisonNote: document.getElementById("comparison-note"),
+  auditSummary: document.getElementById("audit-summary"),
+  auditMethodology: document.getElementById("audit-methodology"),
+  unscheduledList: document.getElementById("unscheduled-list"),
+  validationList: document.getElementById("validation-list"),
+  recordScenario: document.getElementById("record-scenario"),
+  recordMethod: document.getElementById("record-method"),
+  recordSeed: document.getElementById("record-seed"),
+  recordBudget: document.getElementById("record-budget"),
+  recordRevision: document.getElementById("record-revision"),
 };
 
 function svgElement(name, attributes = {}, text = null) {
@@ -89,7 +108,9 @@ async function loadStaticDataset() {
   if (!staticDatasetPromise) {
     staticDatasetPromise = fetch("./pages-data.json").then(async (response) => {
       if (!response.ok) throw new Error("Static experiment dataset is unavailable.");
-      return response.json();
+      const dataset = await response.json();
+      state.staticDataset = dataset;
+      return dataset;
     });
   }
   return staticDatasetPromise;
@@ -103,7 +124,10 @@ async function staticApi(path, options = {}) {
     const request = JSON.parse(options.body);
     const key = `${request.scenario_id}::${request.solver_name}`;
     const result = dataset.runs[key];
-    if (!result) throw new Error("No precomputed result is available for this method and scenario.");
+    if (!result) {
+      const omission = (dataset.omissions || {})[key];
+      throw new Error(omission?.reason || "No precomputed result is available for this method and scenario.");
+    }
     return result;
   }
   throw new Error(`Static deployment does not implement ${path}.`);
@@ -126,16 +150,46 @@ function populateSelect(select, items, valueKey, labelFactory) {
   }));
 }
 
+function runKey(scenarioId, solverName) {
+  return `${scenarioId}::${solverName}`;
+}
+
+function selectedStaticRun() {
+  return state.staticDataset?.runs[runKey(elements.scenario.value, elements.solver.value)] || null;
+}
+
+function applyStaticRunConfiguration() {
+  if (!staticDeployment) return;
+  const selected = selectedStaticRun();
+  if (!selected) return;
+  const metadata = selected.run_metadata || {};
+  elements.seed.value = metadata.seed ?? state.staticDataset.metadata.seed;
+  elements.budget.value = metadata.evaluation_budget ?? state.staticDataset.metadata.evaluation_budget;
+}
+
 function updateScenarioContext() {
   const scenario = state.scenarios.find((item) => item.scenario_id === elements.scenario.value);
   if (!scenario) return;
   const horizon = scenario.horizon_end_s - scenario.horizon_start_s;
-  elements.context.textContent = `${scenario.task_count} targets · ${(horizon / 60).toFixed(0)} min planning horizon`;
+  const studyQuestion = scenario.research_question ? ` · ${scenario.research_question}` : "";
+  const geometryNote = scenario.geometry_note ? ` ${scenario.geometry_note}` : "";
+  elements.context.textContent = `${scenario.task_count} targets · ${(horizon / 60).toFixed(0)} min planning horizon${studyQuestion}${geometryNote}`;
   for (const option of elements.solver.options) {
     const solver = state.solvers.find((item) => item.solver_name === option.value);
-    option.disabled = Boolean(solver && solver.max_tasks !== null && scenario.task_count > solver.max_tasks);
+    const exceedsCapability = Boolean(solver && solver.max_tasks !== null && scenario.task_count > solver.max_tasks);
+    const missingStaticRun = Boolean(
+      staticDeployment && state.staticDataset && !state.staticDataset.runs[runKey(scenario.scenario_id, option.value)],
+    );
+    option.disabled = exceedsCapability || missingStaticRun;
+    const omission = state.staticDataset?.omissions?.[runKey(scenario.scenario_id, option.value)];
+    option.title = omission?.reason || "";
   }
-  if (elements.solver.selectedOptions[0]?.disabled) elements.solver.value = "greedy-insertion";
+  if (elements.solver.selectedOptions[0]?.disabled) {
+    const preferred = [...elements.solver.options].find((option) => option.value === "greedy-insertion" && !option.disabled);
+    const available = preferred || [...elements.solver.options].find((option) => !option.disabled);
+    if (available) elements.solver.value = available.value;
+  }
+  applyStaticRunConfiguration();
 }
 
 function setBusy(busy, message) {
@@ -147,6 +201,229 @@ function setBusy(busy, message) {
   }
   elements.status.classList.remove("error");
   elements.status.textContent = message;
+}
+
+function displayReason(value) {
+  return String(value || "not reported").replaceAll("_", " ");
+}
+
+function methodVariant(solverName) {
+  if (solverName === "q-learning") return "hybrid";
+  if (solverName === "q-policy-only") return "pure policy";
+  return "";
+}
+
+function methodLabel(solverName) {
+  const variant = methodVariant(solverName);
+  return variant ? `${solverName} (${variant})` : solverName;
+}
+
+function runMetadata(payload) {
+  const scheduleMetadata = payload.result.schedule.metadata || {};
+  return {
+    seed: payload.run_metadata?.seed ?? payload.result.schedule.seed ?? Number(elements.seed.value),
+    evaluation_budget: payload.run_metadata?.evaluation_budget
+      ?? scheduleMetadata.evaluation_budget
+      ?? Number(elements.budget.value),
+    evaluations: payload.run_metadata?.evaluations
+      ?? scheduleMetadata.evaluations
+      ?? scheduleMetadata.nodes_expanded
+      ?? null,
+    stop_reason: payload.run_metadata?.stop_reason
+      ?? scheduleMetadata.stop_reason
+      ?? (scheduleMetadata.optimality_proven ? "optimality_proven" : "method_completed"),
+    source_revision: payload.run_metadata?.source_revision
+      ?? state.staticDataset?.metadata?.source_revision
+      ?? "local working tree",
+    software_version: payload.run_metadata?.software_version
+      ?? state.staticDataset?.metadata?.software_version
+      ?? "local",
+    budget_profile: payload.run_metadata?.budget_profile ?? "requested",
+  };
+}
+
+function appendCell(row, text, className = "") {
+  const cell = document.createElement("td");
+  cell.textContent = text;
+  if (className) cell.className = className;
+  row.append(cell);
+  return cell;
+}
+
+function renderComparison(scenarioId, focusedSolver) {
+  const entries = [];
+  if (staticDeployment && state.staticDataset) {
+    state.solvers.forEach((solver) => {
+      const key = runKey(scenarioId, solver.solver_name);
+      entries.push({
+        solver,
+        payload: state.staticDataset.runs[key] || null,
+        omission: state.staticDataset.omissions?.[key] || null,
+      });
+    });
+  } else {
+    state.solvers.forEach((solver) => {
+      const payload = state.runCache.get(runKey(scenarioId, solver.solver_name));
+      if (payload) entries.push({ solver, payload, omission: null });
+    });
+  }
+
+  entries.sort((left, right) => {
+    if (!left.payload) return right.payload ? 1 : 0;
+    if (!right.payload) return -1;
+    return right.payload.result.metrics.total_value - left.payload.result.metrics.total_value
+      || left.solver.solver_name.localeCompare(right.solver.solver_name);
+  });
+
+  const rows = entries.map(({ solver, payload, omission }) => {
+    const row = document.createElement("tr");
+    if (solver.solver_name === focusedSolver) row.classList.add("is-focused");
+    const methodCell = appendCell(row, solver.solver_name, "method-name");
+    const category = document.createElement("small");
+    const variant = methodVariant(solver.solver_name);
+    category.textContent = variant ? `${solver.category} · ${variant}` : solver.category;
+    methodCell.append(category);
+    if (!payload) {
+      row.classList.add("is-omitted");
+      const reason = document.createElement("td");
+      reason.colSpan = 8;
+      reason.textContent = omission?.reason || "Not evaluated in this local session.";
+      row.append(reason);
+      return row;
+    }
+
+    const { result, scenario } = payload;
+    const metadata = runMetadata(payload);
+    const completion = `${result.metrics.completed_tasks}/${scenario.tasks.length}`;
+    appendCell(row, result.metrics.total_value.toFixed(1), "numeric");
+    appendCell(row, completion, "numeric");
+    appendCell(row, `${result.metrics.total_slew_time_s.toFixed(1)} s`, "numeric");
+    appendCell(row, result.validation.is_feasible ? "PASS" : "FAIL", result.validation.is_feasible ? "pass" : "fail");
+    appendCell(row, `${(result.runtime_s * 1000).toFixed(1)} ms`, "numeric");
+    appendCell(row, metadata.evaluations === null ? "—" : String(metadata.evaluations), "numeric");
+    appendCell(row, displayReason(metadata.stop_reason));
+    appendCell(row, `${metadata.seed} / ${metadata.evaluation_budget}`, "numeric");
+    return row;
+  });
+  elements.comparisonBody.replaceChildren(...rows);
+
+  const availableCount = entries.filter((entry) => entry.payload).length;
+  const omittedCount = entries.length - availableCount;
+  elements.comparisonContext.textContent = staticDeployment
+    ? `${availableCount} reference methods · ${omittedCount} documented omissions`
+    : `${availableCount} method${availableCount === 1 ? "" : "s"} evaluated in this session`;
+  elements.comparisonNote.textContent = staticDeployment
+    ? "Runtime is descriptive. Large stochastic cases use the recorded reduced Pages budget; omissions and every actual seed/budget remain explicit. Evaluation units differ by method family."
+    : "Evaluate additional methods to extend this within-session comparison. Evaluation units differ by method family and do not imply equal computational work.";
+}
+
+function fallbackAudit(scenario, result) {
+  const simulation = result.validation.simulation;
+  const scheduledIds = new Set((simulation?.tasks || []).map((task) => task.task_id));
+  const minimumEnergy = Math.min(
+    scenario.satellite.initial_energy_wh,
+    ...(simulation?.tasks || []).map((task) => task.energy_after_wh),
+  );
+  const finalStorage = simulation?.final_state?.storage_gb ?? scenario.satellite.initial_storage_gb;
+  return {
+    methodology: "Local-session fallback: exclusions report solver termination, while validator issues and resource margins come from deterministic replay.",
+    summary: {
+      scheduled_tasks: scheduledIds.size,
+      unscheduled_tasks: scenario.tasks.length - scheduledIds.size,
+      validation_issues: result.validation.issues.length,
+      minimum_energy_wh: minimumEnergy,
+      storage_remaining_gb: Math.max(0, scenario.satellite.storage_capacity_gb - finalStorage),
+    },
+    issues: result.validation.issues,
+    unscheduled: scenario.tasks
+      .filter((task) => !scheduledIds.has(task.task_id))
+      .map((task) => ({
+        task_id: task.task_id,
+        target_name: task.target.name,
+        reason_code: "solver_termination",
+        reason: `Not selected before ${displayReason(result.schedule.metadata.stop_reason || "method completion")}.`,
+      })),
+  };
+}
+
+function auditItem(title, code, description, itemClass = "") {
+  const item = document.createElement("li");
+  if (itemClass) item.className = itemClass;
+  const heading = document.createElement("p");
+  const strong = document.createElement("strong");
+  strong.textContent = title;
+  const tag = document.createElement("code");
+  tag.textContent = code;
+  heading.append(strong, tag);
+  const detail = document.createElement("span");
+  detail.textContent = description;
+  item.append(heading, detail);
+  return item;
+}
+
+function renderConstraintAudit(scenario, result, auditPayload) {
+  const audit = auditPayload || fallbackAudit(scenario, result);
+  const summary = audit.summary;
+  elements.auditSummary.textContent = `${summary.scheduled_tasks} scheduled · ${summary.unscheduled_tasks} unscheduled · ${summary.validation_issues} validator issues`;
+
+  const unscheduledItems = audit.unscheduled.map((item) => auditItem(
+    `${item.target_name} · ${item.task_id}`,
+    displayReason(item.reason_code),
+    item.reason,
+  ));
+  if (!unscheduledItems.length) {
+    unscheduledItems.push(auditItem(
+      "All candidate targets scheduled",
+      "complete",
+      "No target requires an exclusion diagnosis for this incumbent.",
+      "audit-pass",
+    ));
+  }
+  elements.unscheduledList.replaceChildren(...unscheduledItems);
+
+  const validationItems = [
+    auditItem(
+      "Minimum post-task energy",
+      "energy margin",
+      `${summary.minimum_energy_wh.toFixed(2)} Wh remained at the tightest recorded point.`,
+      "audit-margin",
+    ),
+    auditItem(
+      "Final storage headroom",
+      "storage margin",
+      `${summary.storage_remaining_gb.toFixed(2)} GB remained after replay.`,
+      "audit-margin",
+    ),
+  ];
+  audit.issues.forEach((issue) => {
+    validationItems.push(auditItem(
+      issue.task_id ? `${issue.task_id} · ${issue.severity}` : issue.severity,
+      issue.code,
+      issue.message,
+      issue.severity === "error" ? "audit-error" : "audit-warning",
+    ));
+  });
+  if (!audit.issues.length) {
+    validationItems.push(auditItem(
+      "Independent replay passed",
+      "no issues",
+      "The shared simulator reported no validation warnings or errors.",
+      "audit-pass",
+    ));
+  }
+  elements.validationList.replaceChildren(...validationItems);
+  elements.auditMethodology.textContent = audit.methodology;
+}
+
+function renderProvenance(payload) {
+  const metadata = runMetadata(payload);
+  const revision = String(metadata.source_revision);
+  elements.recordScenario.textContent = payload.scenario.scenario_id;
+  elements.recordMethod.textContent = methodLabel(payload.result.schedule.solver_name);
+  elements.recordSeed.textContent = String(metadata.seed);
+  elements.recordBudget.textContent = `${metadata.evaluation_budget} · ${metadata.budget_profile}`;
+  elements.recordRevision.textContent = revision.length > 12 ? revision.slice(0, 12) : revision;
+  elements.recordRevision.title = `${revision} · OrbitOps ${metadata.software_version}`;
 }
 
 function renderGantt(scenario, result) {
@@ -353,7 +630,7 @@ function renderTraining(trace) {
   elements.learningKicker.textContent = "Learning diagnostics";
   elements.learningTitle.textContent = "Training curves";
   elements.learningLegend.replaceChildren(...legendItems([
-    ["objective", "Objective"],
+    ["objective", "Episode schedule objective"],
     ["epsilon", "Epsilon"],
     ["td-error", "Mean |TD|"],
   ]));
@@ -376,7 +653,7 @@ function renderTraining(trace) {
   const x = (value) => left + (value / maxEpisode) * plotWidth;
   const yValue = (value) => topY + (1 - value / maxValue) * topHeight;
   const yDiagnostic = (value) => lowerY + (1 - value) * lowerHeight;
-  const root = chart(width, height, "Q-learning training curves", "Objective value, epsilon exploration schedule, and normalized mean absolute temporal-difference error by episode.");
+  const root = chart(width, height, "Q-learning training curves", "Realized exploratory episode schedule objective, epsilon exploration schedule, and normalized mean absolute temporal-difference error by episode.");
 
   [0, 0.5, 1].forEach((fraction) => {
     const objectiveY = yValue(maxValue * fraction);
@@ -387,7 +664,7 @@ function renderTraining(trace) {
     root.append(svgElement("text", { x: left - 10, y: diagnosticY + 4, "text-anchor": "end", class: "chart-axis" }, fraction.toFixed(1)));
     root.append(svgElement("text", { x: x(maxEpisode * fraction), y: height - 17, "text-anchor": "middle", class: "chart-axis" }, `${Math.round(maxEpisode * fraction)}`));
   });
-  root.append(svgElement("text", { x: left, y: 17, class: "chart-panel-label" }, "Policy objective"));
+  root.append(svgElement("text", { x: left, y: 17, class: "chart-panel-label" }, "Episode schedule objective"));
   root.append(svgElement("text", { x: left, y: lowerY - 13, class: "chart-panel-label" }, "Exploration / normalized TD error"));
   root.append(svgElement("text", { x: left + plotWidth, y: height - 17, "text-anchor": "end", class: "chart-panel-label" }, "Episode"));
 
@@ -400,17 +677,40 @@ function renderTraining(trace) {
   elements.learning.replaceChildren(root);
 }
 
+function wrapLongitude(value) {
+  return ((value + 540) % 360) - 180;
+}
+
+function circularLongitudeCenter(tasks) {
+  if (!tasks.length) return 0;
+  const vector = tasks.reduce((total, task) => {
+    const radians = (task.target.longitude_deg * Math.PI) / 180;
+    return {
+      x: total.x + Math.cos(radians),
+      y: total.y + Math.sin(radians),
+    };
+  }, { x: 0, y: 0 });
+  if (Math.abs(vector.x) < 1e-12 && Math.abs(vector.y) < 1e-12) return 0;
+  return (Math.atan2(vector.y, vector.x) * 180) / Math.PI;
+}
+
 function renderGlobeFallback(scenario, scheduledIds) {
   const globe = document.createElement("div");
   globe.className = "fallback-globe";
   const core = document.createElement("span");
   core.className = "fallback-globe-core";
   globe.append(core);
-  scenario.tasks.forEach((task, index) => {
+  const longitudeCenter = circularLongitudeCenter(scenario.tasks);
+  const longitudeSpan = Math.max(
+    24,
+    ...scenario.tasks.map((task) => Math.abs(wrapLongitude(task.target.longitude_deg - longitudeCenter))),
+  );
+  scenario.tasks.forEach((task) => {
     const marker = document.createElement("span");
     marker.className = scheduledIds.has(task.task_id) ? "fallback-marker is-scheduled" : "fallback-marker";
-    marker.style.setProperty("--marker-x", `${38 + index * 13}%`);
-    marker.style.setProperty("--marker-y", `${35 + (index % 2) * 18}%`);
+    const longitudeOffset = wrapLongitude(task.target.longitude_deg - longitudeCenter);
+    marker.style.setProperty("--marker-x", `${50 + (longitudeOffset / longitudeSpan) * 34}%`);
+    marker.style.setProperty("--marker-y", `${50 - (task.target.latitude_deg / 90) * 34}%`);
     marker.title = task.target.name;
     globe.append(marker);
   });
@@ -518,10 +818,13 @@ function renderMissionGlobe(scenario, result) {
 
     const viewer = state.globe;
     viewer.entities.removeAll();
-    const longitudeCenter = scenario.tasks.reduce((sum, task) => sum + task.target.longitude_deg, 0) / scenario.tasks.length;
-    const latitudeCenter = scenario.tasks.reduce((sum, task) => sum + task.target.latitude_deg, 0) / scenario.tasks.length;
+    const longitudeCenter = circularLongitudeCenter(scenario.tasks);
+    const latitudeCenter = scenario.tasks.length
+      ? scenario.tasks.reduce((sum, task) => sum + task.target.latitude_deg, 0) / scenario.tasks.length
+      : 0;
     const scheduledColor = Cesium.Color.fromCssColorString("#d6a9e9");
     const candidateColor = Cesium.Color.fromCssColorString("#d99066");
+    const targetPositions = [];
 
     viewer.entities.add({
       polyline: {
@@ -538,6 +841,7 @@ function renderMissionGlobe(scenario, result) {
       const selected = scheduledIds.has(task.task_id);
       const color = selected ? scheduledColor : candidateColor;
       const position = Cesium.Cartesian3.fromDegrees(task.target.longitude_deg, task.target.latitude_deg, 18000);
+      targetPositions.push(position);
       viewer.entities.add({
         id: `target-${task.task_id}`,
         name: task.target.name,
@@ -550,13 +854,14 @@ function renderMissionGlobe(scenario, result) {
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
         label: {
+          show: selected || scenario.tasks.length <= 12,
           text: task.target.name.toUpperCase(),
           font: "600 11px sans-serif",
           fillColor: Cesium.Color.WHITE.withAlpha(0.88),
           outlineColor: Cesium.Color.fromCssColorString("#211b2a"),
           outlineWidth: 3,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          pixelOffset: new Cesium.Cartesian2((index - 1) * 18, -22 - index * 12),
+          pixelOffset: new Cesium.Cartesian2(((index % 3) - 1) * 18, -22 - (index % 4) * 10),
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
         ellipse: {
@@ -590,7 +895,7 @@ function renderMissionGlobe(scenario, result) {
       });
     }
 
-    const satelliteLongitude = longitudeCenter - 8;
+    const satelliteLongitude = wrapLongitude(longitudeCenter - 8);
     const satelliteLatitude = Math.min(72, latitudeCenter + 23);
     const satellitePosition = Cesium.Cartesian3.fromDegrees(satelliteLongitude, satelliteLatitude, 680000);
     viewer.entities.add({
@@ -629,16 +934,16 @@ function renderMissionGlobe(scenario, result) {
       });
     }
 
-    const missionCenter = new Cesium.BoundingSphere(
-      Cesium.Cartesian3.fromDegrees(longitudeCenter, latitudeCenter, 0),
-      250000,
-    );
+    const missionCenter = targetPositions.length
+      ? Cesium.BoundingSphere.fromPoints(targetPositions)
+      : new Cesium.BoundingSphere(Cesium.Cartesian3.fromDegrees(longitudeCenter, latitudeCenter, 0), 250000);
+    const cameraRange = Math.min(18000000, Math.max(1400000, missionCenter.radius * 2.75));
     viewer.camera.flyToBoundingSphere(missionCenter, {
       duration: 0,
       offset: new Cesium.HeadingPitchRange(
         Cesium.Math.toRadians(-18),
         Cesium.Math.toRadians(-68),
-        9000000,
+        cameraRange,
       ),
     });
     viewer.scene.requestRender();
@@ -654,13 +959,17 @@ function renderMissionGlobe(scenario, result) {
 function renderResult(payload) {
   const { scenario, result, convergence } = payload;
   const trainingTrace = result.schedule.metadata.training_trace;
+  state.runCache.set(runKey(scenario.scenario_id, result.schedule.solver_name), payload);
   elements.value.textContent = result.metrics.total_value.toFixed(1);
   elements.tasks.textContent = `${result.metrics.completed_tasks}/${scenario.tasks.length}`;
   elements.taskContext.textContent = `${((result.metrics.completed_tasks / Math.max(1, scenario.tasks.length)) * 100).toFixed(0)}% of candidate targets`;
   elements.slew.textContent = `${result.metrics.total_slew_time_s.toFixed(1)}s`;
   elements.feasible.textContent = result.validation.is_feasible ? "PASS" : "FAIL";
   const timingNote = staticDeployment ? " · recorded at build" : "";
-  elements.runtime.textContent = `${result.schedule.solver_name} · seed ${result.schedule.seed ?? "—"} · ${(result.runtime_s * 1000).toFixed(1)} ms${timingNote}`;
+  elements.runtime.textContent = `${result.schedule.solver_name} · ${(result.runtime_s * 1000).toFixed(1)} ms${timingNote}`;
+  renderProvenance(payload);
+  renderComparison(scenario.scenario_id, result.schedule.solver_name);
+  renderConstraintAudit(scenario, result, payload.constraint_audit);
   renderMissionGlobe(scenario, result);
   renderGantt(scenario, result);
   renderResources(scenario, result);
@@ -675,16 +984,26 @@ async function runSolve() {
     : "Evaluating the solver and replaying the resulting schedule…";
   setBusy(true, progressMessage);
   try {
+    const request = {
+      scenario_id: elements.scenario.value,
+      solver_name: elements.solver.value,
+      seed: Number(elements.seed.value),
+      evaluation_budget: Number(elements.budget.value),
+    };
     const payload = await api("/api/solve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        scenario_id: elements.scenario.value,
-        solver_name: elements.solver.value,
-        seed: Number(elements.seed.value),
-        evaluation_budget: Number(elements.budget.value),
-      }),
+      body: JSON.stringify(request),
     });
+    if (!payload.run_metadata) {
+      payload.run_metadata = {
+        seed: request.seed,
+        evaluation_budget: request.evaluation_budget,
+        budget_profile: "requested",
+        source_revision: "local working tree",
+        software_version: "local",
+      };
+    }
     renderResult(payload);
     elements.status.textContent = staticDeployment
       ? "Precomputed run loaded · feasibility and diagnostic artifacts were generated by the shared simulator."
@@ -704,7 +1023,12 @@ async function initialize() {
     state.scenarios = scenarioPayload.scenarios;
     state.solvers = solverPayload.solvers;
     populateSelect(elements.scenario, state.scenarios, "scenario_id", (item) => item.name);
-    populateSelect(elements.solver, state.solvers, "solver_name", (item) => `${item.solver_name} · ${item.category}`);
+    populateSelect(
+      elements.solver,
+      state.solvers,
+      "solver_name",
+      (item) => `${methodLabel(item.solver_name)} · ${item.category}`,
+    );
     elements.solver.value = "q-learning";
     if (staticDeployment) {
       const dataset = await loadStaticDataset();
@@ -728,4 +1052,5 @@ elements.form.addEventListener("submit", (event) => {
   runSolve();
 });
 elements.scenario.addEventListener("change", updateScenarioContext);
+elements.solver.addEventListener("change", applyStaticRunConfiguration);
 initialize();

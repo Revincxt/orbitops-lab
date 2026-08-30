@@ -20,7 +20,7 @@ EXPECTED_BASELINES = (
     "random-feasible",
 )
 EXPECTED_EXACT = ("branch-and-bound", "brute-force")
-EXPECTED_ADVANCED = ("genetic", "local-search", "q-learning")
+EXPECTED_ADVANCED = ("genetic", "local-search", "q-learning", "q-policy-only")
 EXPECTED_ALL = (
     "branch-and-bound",
     "brute-force",
@@ -31,6 +31,7 @@ EXPECTED_ALL = (
     "greedy-value",
     "local-search",
     "q-learning",
+    "q-policy-only",
     "random-feasible",
 )
 

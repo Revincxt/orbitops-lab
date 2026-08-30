@@ -10,7 +10,12 @@ from typing import Annotated, Any
 import typer
 from pydantic import ValidationError
 
-from orbitops.benchmarking import BenchmarkSpec, export_benchmark, run_benchmark
+from orbitops.benchmarking import (
+    BenchmarkSpec,
+    export_benchmark,
+    run_benchmark,
+    verify_benchmark_artifacts,
+)
 from orbitops.domain.models import DomainModel, Scenario, Schedule, SolveResult
 from orbitops.learning import LinearQPolicy, rollout_policy
 from orbitops.reporting import write_benchmark_html_from_json
@@ -119,6 +124,16 @@ def train_q_learning_policy(
         if not isinstance(raw_model, dict):
             raise RuntimeError("q-learning result did not contain a policy model")
         policy = LinearQPolicy.model_validate(raw_model)
+        if policy.selected_checkpoint_episode is None:
+            raise RuntimeError(
+                "training ended before any policy checkpoint replay completed; "
+                "increase the time limit before exporting a model"
+            )
+        policy_result = rollout_policy(
+            scenario,
+            policy,
+            solver_name="q-policy-export-check",
+        )
         policy.to_json(model_output)
         if result_output is not None:
             result_output.parent.mkdir(parents=True, exist_ok=True)
@@ -139,8 +154,11 @@ def train_q_learning_policy(
                 "seed": policy.seed,
                 "episodes_completed": policy.episodes_completed,
                 "transitions": policy.transitions,
-                "total_value": result.metrics.total_value,
-                "completed_tasks": result.metrics.completed_tasks,
+                "selected_checkpoint_episode": policy.selected_checkpoint_episode,
+                "policy_checkpoints_evaluated": policy.evaluated_checkpoints,
+                "policy_metrics": policy_result.metrics.model_dump(mode="json"),
+                "hybrid_metrics": result.metrics.model_dump(mode="json"),
+                "hybrid_result_mode": "greedy-incumbent-plus-training",
                 "result_output": str(result_output) if result_output is not None else None,
             },
             indent=2,
@@ -332,13 +350,40 @@ def benchmark_campaign(
             help="Artifact directory; defaults to runs/<benchmark-id>.",
         ),
     ] = None,
+    checkpoint_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--checkpoint-dir",
+            file_okay=False,
+            help="Atomic per-run checkpoints; defaults beside the artifact directory.",
+        ),
+    ] = None,
+    resume: Annotated[
+        bool,
+        typer.Option(help="Reuse matching completed run checkpoints."),
+    ] = False,
+    workers: Annotated[
+        int,
+        typer.Option(min=1, max=64, help="Bounded worker threads for independent runs."),
+    ] = 1,
+    retry_failures: Annotated[
+        bool,
+        typer.Option(help="When resuming, execute failed checkpoints again."),
+    ] = False,
 ) -> None:
     """Run a reproducible benchmark campaign and export its artifacts."""
 
     try:
         spec = BenchmarkSpec.from_toml(config_path)
         destination = output_dir or Path("runs") / spec.benchmark_id
-        report = run_benchmark(spec)
+        checkpoints = checkpoint_dir or destination.parent / f".{destination.name}.checkpoints"
+        report = run_benchmark(
+            spec,
+            checkpoint_dir=checkpoints,
+            resume=resume,
+            workers=workers,
+            retry_failures=retry_failures,
+        )
         files = export_benchmark(report, destination)
     except (OSError, ValidationError, ValueError, RuntimeError) as exc:
         typer.echo(str(exc), err=True)
@@ -353,6 +398,9 @@ def benchmark_campaign(
                 "failed_runs": sum(not run.feasible for run in report.runs),
                 "reproducibility_fingerprint": report.reproducibility_fingerprint,
                 "output_dir": str(destination),
+                "checkpoint_dir": str(checkpoints),
+                "resume": resume,
+                "workers": workers,
                 "artifact_count": len(files),
                 "ranking": [
                     {
@@ -363,6 +411,35 @@ def benchmark_campaign(
                     }
                     for summary in report.summaries
                 ],
+            },
+            indent=2,
+        )
+    )
+
+
+@app.command("benchmark-verify")
+def verify_benchmark_export(
+    artifact_dir: Annotated[
+        Path,
+        typer.Argument(exists=True, file_okay=False, readable=True),
+    ],
+) -> None:
+    """Verify the complete file set, checksums, and report identity of an export."""
+
+    try:
+        files = verify_benchmark_artifacts(artifact_dir)
+        manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValidationError, ValueError, RuntimeError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(
+        json.dumps(
+            {
+                "valid": True,
+                "benchmark_id": manifest["benchmark_id"],
+                "reproducibility_fingerprint": manifest["reproducibility_fingerprint"],
+                "artifact_count": len(files),
+                "artifact_dir": str(artifact_dir),
             },
             indent=2,
         )

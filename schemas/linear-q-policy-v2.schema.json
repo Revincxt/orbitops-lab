@@ -1,0 +1,116 @@
+{
+  "additionalProperties": false,
+  "description": "Portable, scenario-bound v2 linear action-value model.",
+  "properties": {
+    "algorithm": {
+      "const": "linear-q-learning",
+      "default": "linear-q-learning",
+      "title": "Algorithm",
+      "type": "string"
+    },
+    "discount_factor": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Discount Factor",
+      "type": "number"
+    },
+    "episodes_completed": {
+      "minimum": 0,
+      "title": "Episodes Completed",
+      "type": "integer"
+    },
+    "evaluated_checkpoints": {
+      "minimum": 0,
+      "title": "Evaluated Checkpoints",
+      "type": "integer"
+    },
+    "feature_names": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Feature Names",
+      "type": "array"
+    },
+    "final_epsilon": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Final Epsilon",
+      "type": "number"
+    },
+    "initial_epsilon": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Initial Epsilon",
+      "type": "number"
+    },
+    "learning_rate": {
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "title": "Learning Rate",
+      "type": "number"
+    },
+    "scenario_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Scenario Sha256",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "2",
+      "default": "2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "seed": {
+      "title": "Seed",
+      "type": "integer"
+    },
+    "selected_checkpoint_episode": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Selected Checkpoint Episode"
+    },
+    "training_scenario_id": {
+      "minLength": 1,
+      "title": "Training Scenario Id",
+      "type": "string"
+    },
+    "transitions": {
+      "minimum": 0,
+      "title": "Transitions",
+      "type": "integer"
+    },
+    "weights": {
+      "items": {
+        "type": "number"
+      },
+      "minItems": 1,
+      "title": "Weights",
+      "type": "array"
+    }
+  },
+  "required": [
+    "training_scenario_id",
+    "scenario_sha256",
+    "feature_names",
+    "weights",
+    "seed",
+    "episodes_completed",
+    "transitions",
+    "selected_checkpoint_episode",
+    "evaluated_checkpoints",
+    "learning_rate",
+    "discount_factor",
+    "initial_epsilon",
+    "final_epsilon"
+  ],
+  "title": "LinearQPolicy",
+  "type": "object"
+}

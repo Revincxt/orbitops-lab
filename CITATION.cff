@@ -4,8 +4,7 @@ title: "OrbitOps Lab"
 type: software
 authors:
   - name: Revincxt
-version: 0.1.0-dev
-date-released: 2026-08-04
+version: 0.2.0
+date-released: 2026-08-30
 license: MIT
 repository-code: "https://github.com/Revincxt/orbitops-lab"
-

@@ -26,11 +26,17 @@ class OrderedGreedySolver(BaseSolver):
 
     def solve(self, scenario: Scenario) -> SolveResult:
         started_at = perf_counter()
+        deadline_at = self._deadline_at(started_at)
         schedule = empty_schedule(scenario, self.name, self.config.seed)
         for task in self.order_tasks(scenario):
             if self._time_limit_reached(started_at):
                 break
-            candidate = best_feasible_insertion(scenario, schedule, task)
+            candidate = best_feasible_insertion(
+                scenario,
+                schedule,
+                task,
+                deadline_at=deadline_at,
+            )
             if candidate is not None:
                 schedule = candidate.schedule
         return build_solve_result(scenario, schedule, started_at=started_at)
@@ -99,6 +105,7 @@ class GreedyInsertionSolver(BaseSolver):
 
     def solve(self, scenario: Scenario) -> SolveResult:
         started_at = perf_counter()
+        deadline_at = self._deadline_at(started_at)
         schedule = empty_schedule(scenario, self.name, self.config.seed)
         remaining = {task.task_id: task for task in scenario.tasks}
 
@@ -107,7 +114,14 @@ class GreedyInsertionSolver(BaseSolver):
             for task_id in sorted(remaining):
                 if self._time_limit_reached(started_at):
                     break
-                candidates.extend(feasible_insertions(scenario, schedule, remaining[task_id]))
+                candidates.extend(
+                    feasible_insertions(
+                        scenario,
+                        schedule,
+                        remaining[task_id],
+                        deadline_at=deadline_at,
+                    )
+                )
             if not candidates:
                 break
 

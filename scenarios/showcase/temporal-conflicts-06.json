@@ -1,0 +1,178 @@
+{
+  "schema_version": "0.1",
+  "scenario_id": "showcase-temporal-06",
+  "name": "How do methods resolve overlapping access windows",
+  "horizon_start_s": 0.0,
+  "horizon_end_s": 2400.0,
+  "satellite": {
+    "satellite_id": "sat-tiny-medium-000",
+    "energy_capacity_wh": 220.0,
+    "initial_energy_wh": 174.57628,
+    "recharge_rate_w": 79.093499,
+    "storage_capacity_gb": 42.0,
+    "initial_storage_gb": 3.762877,
+    "initial_attitude_deg": 0.335442,
+    "slew_rate_deg_s": 2.0725,
+    "settling_time_s": 3.645463
+  },
+  "tasks": [
+    {
+      "task_id": "task-000",
+      "target": {
+        "target_id": "target-000",
+        "name": "Shanghai",
+        "latitude_deg": 31.2304,
+        "longitude_deg": 121.4737
+      },
+      "priority_value": 14.817094,
+      "duration_s": 87.890957,
+      "visibility_windows": [
+        {
+          "window_id": "w-000-0",
+          "start_s": 718.007549,
+          "end_s": 931.107234
+        }
+      ],
+      "required_attitude_deg": -54.591598,
+      "energy_cost_wh": 13.477362,
+      "storage_cost_gb": 2.734346
+    },
+    {
+      "task_id": "task-001",
+      "target": {
+        "target_id": "target-001",
+        "name": "Paris",
+        "latitude_deg": 48.8566,
+        "longitude_deg": 2.3522
+      },
+      "priority_value": 34.655802,
+      "duration_s": 85.103832,
+      "visibility_windows": [
+        {
+          "window_id": "w-001-0",
+          "start_s": 69.469235,
+          "end_s": 302.887869
+        },
+        {
+          "window_id": "w-001-1",
+          "start_s": 1765.980528,
+          "end_s": 1944.513612
+        }
+      ],
+      "required_attitude_deg": -52.160385,
+      "energy_cost_wh": 10.881261,
+      "storage_cost_gb": 1.488212
+    },
+    {
+      "task_id": "task-002",
+      "target": {
+        "target_id": "target-002",
+        "name": "São Paulo",
+        "latitude_deg": -23.5505,
+        "longitude_deg": -46.6333
+      },
+      "priority_value": 57.746374,
+      "duration_s": 49.521256,
+      "visibility_windows": [
+        {
+          "window_id": "w-002-0",
+          "start_s": 428.305663,
+          "end_s": 540.43413
+        }
+      ],
+      "required_attitude_deg": -10.190181,
+      "energy_cost_wh": 11.112363,
+      "storage_cost_gb": 1.821324
+    },
+    {
+      "task_id": "task-003",
+      "target": {
+        "target_id": "target-003",
+        "name": "Sydney",
+        "latitude_deg": -33.8688,
+        "longitude_deg": 151.2093
+      },
+      "priority_value": 38.89582,
+      "duration_s": 80.297111,
+      "visibility_windows": [
+        {
+          "window_id": "w-003-0",
+          "start_s": 435.069677,
+          "end_s": 621.947281
+        },
+        {
+          "window_id": "w-003-1",
+          "start_s": 1618.182868,
+          "end_s": 1870.465445
+        }
+      ],
+      "required_attitude_deg": 38.103265,
+      "energy_cost_wh": 16.717253,
+      "storage_cost_gb": 2.577425
+    },
+    {
+      "task_id": "task-004",
+      "target": {
+        "target_id": "target-004",
+        "name": "Nairobi",
+        "latitude_deg": -1.2921,
+        "longitude_deg": 36.8219
+      },
+      "priority_value": 81.904138,
+      "duration_s": 88.162917,
+      "visibility_windows": [
+        {
+          "window_id": "w-004-0",
+          "start_s": 129.616647,
+          "end_s": 327.73889
+        },
+        {
+          "window_id": "w-004-1",
+          "start_s": 1688.534355,
+          "end_s": 1881.309915
+        }
+      ],
+      "required_attitude_deg": 29.876531,
+      "energy_cost_wh": 12.025368,
+      "storage_cost_gb": 1.308314
+    },
+    {
+      "task_id": "task-005",
+      "target": {
+        "target_id": "target-005",
+        "name": "San Francisco",
+        "latitude_deg": 37.7749,
+        "longitude_deg": -122.4194
+      },
+      "priority_value": 36.368904,
+      "duration_s": 66.318306,
+      "visibility_windows": [
+        {
+          "window_id": "w-005-0",
+          "start_s": 1761.359731,
+          "end_s": 1954.021579
+        },
+        {
+          "window_id": "w-005-1",
+          "start_s": 1480.76648,
+          "end_s": 1687.538574
+        }
+      ],
+      "required_attitude_deg": 32.156096,
+      "energy_cost_wh": 8.510982,
+      "storage_cost_gb": 1.706037
+    }
+  ],
+  "metadata": {
+    "benchmark_id": "orbitops-showcase-v02",
+    "generator": "benchmark-generator-v1",
+    "generator_seed": 1787848800714248069,
+    "size": "tiny",
+    "difficulty": "medium",
+    "instance_index": 0,
+    "purpose": "v0.2 comparative-methods showcase",
+    "research_question": "How do methods resolve overlapping access windows?",
+    "numeric_precision_decimals": 6,
+    "geometry_note": "Targets use WGS84 reference coordinates; access windows are synthetic."
+  }
+}

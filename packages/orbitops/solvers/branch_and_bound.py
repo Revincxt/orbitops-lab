@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from math import fsum
 from time import perf_counter
 
 from orbitops.domain.models import (
@@ -39,12 +40,19 @@ class BranchAndBoundSolver(BaseSolver):
             )
 
         started_at = perf_counter()
+        deadline_at = self._deadline_at(started_at)
         stats = SearchStats()
         initial = empty_schedule(scenario, self.name, self.config.seed)
         initial_validation = validate_schedule(scenario, initial)
         initial_score = validated_score(scenario, initial, initial_validation)
+        total_possible_value = fsum(
+            task.priority_value for task in sorted(scenario.tasks, key=lambda item: item.task_id)
+        )
 
-        greedy = GreedyValueSolver(SolverConfig(seed=self.config.seed)).solve(scenario)
+        greedy = GreedyValueSolver(
+            SolverConfig(seed=self.config.seed),
+            deadline_at=deadline_at,
+        ).solve(scenario)
         best_schedule = greedy.schedule.model_copy(
             update={"solver_name": self.name, "metadata": {}}
         )
@@ -68,7 +76,7 @@ class BranchAndBoundSolver(BaseSolver):
                 best_score = score
 
             optimistic = ObjectiveScore(
-                total_value=score.total_value + sum(task.priority_value for task in remaining),
+                total_value=total_possible_value,
                 completed_tasks=score.completed_tasks + len(remaining),
                 negative_slew_time_s=score.negative_slew_time_s,
             )
@@ -96,6 +104,7 @@ class BranchAndBoundSolver(BaseSolver):
                     schedule,
                     task,
                     validation=validation,
+                    deadline_at=deadline_at,
                 ):
                     stats.feasible_extensions += 1
                     visit(

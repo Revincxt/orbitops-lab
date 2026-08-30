@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import fsum
 
 from orbitops.domain.models import Metrics, Scenario, Schedule
 
@@ -48,7 +49,9 @@ def score_schedule(
         raise ValueError("schedule cannot score the same task more than once")
 
     return Metrics(
-        total_value=sum(task_values[task_id] for task_id in scheduled_ids),
+        # Sort by the immutable identity before using an accurate summation so
+        # the same selected task set has one score regardless of schedule order.
+        total_value=fsum(task_values[task_id] for task_id in sorted(scheduled_ids)),
         completed_tasks=len(scheduled_ids),
         total_slew_time_s=total_slew_time_s,
     )

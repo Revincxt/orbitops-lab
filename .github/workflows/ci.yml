@@ -4,17 +4,56 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   quality:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --locked --extra dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest --cov=orbitops --cov-report=term-missing
+      - run: uv run orbitops validate scenarios/examples/demo.json
+
+  package-and-pages:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v9.0.0
         with:
           python-version: "3.12"
-      - run: uv sync --extra dev
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run mypy
-      - run: uv run pytest --cov=orbitops --cov-report=term-missing
-      - run: uv run orbitops validate scenarios/examples/demo.json
+      - run: uv sync --locked --extra dev
+      - run: node --check packages/orbitops/web/static/app.js
+      - run: uv run python scripts/build_pages.py --output site
+      - run: uv build
+      - name: Inspect packaged Web Lab assets
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheels = tuple(Path("dist").glob("*.whl"))
+          if len(wheels) != 1:
+              raise SystemExit(f"expected one wheel, found {len(wheels)}")
+          required = {
+              "orbitops/web/static/index.html",
+              "orbitops/web/static/app.css",
+              "orbitops/web/static/app.js",
+              "orbitops/web/static/favicon.svg",
+          }
+          with ZipFile(wheels[0]) as archive:
+              missing = required - set(archive.namelist())
+          if missing:
+              raise SystemExit(f"wheel is missing Web Lab assets: {sorted(missing)}")
+          PY

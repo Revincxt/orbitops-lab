@@ -58,6 +58,7 @@ from orbitops.solvers import (
     GreedyValueSolver,
     LocalSearchSolver,
     QLearningSolver,
+    QPolicyOnlySolver,
     RandomFeasibleSolver,
     Solver,
     SolverConfig,
@@ -92,6 +93,7 @@ __all__ = [
     "ObservationTask",
     "QLearningConfig",
     "QLearningSolver",
+    "QPolicyOnlySolver",
     "RandomFeasibleSolver",
     "ReportSelection",
     "ResourceState",
@@ -136,4 +138,4 @@ __all__ = [
     "write_benchmark_html_from_json",
 ]
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.2.0"

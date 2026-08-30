@@ -17,6 +17,12 @@ def test_visual_report_is_self_contained_accessible_and_replay_verified(tmp_path
     assert selection.scenario_id == "test-benchmark-tiny-medium-000"
     assert "Algorithm ranking" in rendered
     assert "Performance by difficulty" in rendered
+    assert "Paired comparisons" in rendered
+    assert "Value ratio mean [scenario-block 95% CI]" in rendered
+    assert "Excluded (both failed)" in rendered
+    assert "Normalized value gap [scenario-block 95% CI]" in rendered
+    assert "excluded, not ties" in rendered
+    assert "jointly failed cells tie" not in rendered
     assert "Search convergence" in rendered
     assert "Representative schedule" in rendered
     assert "Replay matches stored metrics" in rendered

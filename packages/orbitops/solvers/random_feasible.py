@@ -15,6 +15,7 @@ class RandomFeasibleSolver(BaseSolver):
 
     def solve(self, scenario: Scenario) -> SolveResult:
         started_at = perf_counter()
+        deadline_at = self._deadline_at(started_at)
         rng = random.Random(self.config.seed)
         schedule = empty_schedule(scenario, self.name, self.config.seed)
         tasks = list(scenario.tasks)
@@ -23,7 +24,12 @@ class RandomFeasibleSolver(BaseSolver):
         for task in tasks:
             if self._time_limit_reached(started_at):
                 break
-            candidates = feasible_insertions(scenario, schedule, task)
+            candidates = feasible_insertions(
+                scenario,
+                schedule,
+                task,
+                deadline_at=deadline_at,
+            )
             if candidates:
                 schedule = rng.choice(candidates).schedule
 

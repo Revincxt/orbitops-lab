@@ -83,6 +83,7 @@ def test_solvers_command_lists_stable_names() -> None:
         "greedy-value",
         "local-search",
         "q-learning",
+        "q-policy-only",
         "random-feasible",
     ]
 
@@ -110,7 +111,11 @@ def test_train_and_apply_policy_commands_round_trip_artifacts(tmp_path: Path) ->
     summary = json.loads(train_result.stdout)
     assert summary["scenario_id"] == "demo-001"
     assert summary["episodes_completed"] == 12
-    assert summary["total_value"] == 226.0
+    assert 1 <= summary["selected_checkpoint_episode"] <= 12
+    assert summary["policy_checkpoints_evaluated"] == 12
+    assert summary["hybrid_metrics"]["total_value"] == 226.0
+    assert summary["hybrid_result_mode"] == "greedy-incumbent-plus-training"
+    assert "total_value" not in summary
     assert model_path.is_file()
     assert training_result_path.is_file()
 
@@ -130,6 +135,29 @@ def test_train_and_apply_policy_commands_round_trip_artifacts(tmp_path: Path) ->
     replay = json.loads(replay_path.read_text(encoding="utf-8"))
     assert replay["validation"]["is_feasible"] is True
     assert replay["schedule"]["metadata"]["policy_replay"] is True
+    assert summary["policy_metrics"] == replay["metrics"]
+
+
+def test_train_does_not_export_an_unevaluated_timeout_fallback(tmp_path: Path) -> None:
+    model_path = tmp_path / "unevaluated-policy.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "train",
+            str(SCENARIO_PATH),
+            "--model-output",
+            str(model_path),
+            "--episodes",
+            "100",
+            "--time-limit",
+            "0.000001",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "before any policy checkpoint replay completed" in result.stderr
+    assert not model_path.exists()
 
 
 def test_schema_command_exports_policy_contract() -> None:
@@ -139,6 +167,8 @@ def test_schema_command_exports_policy_contract() -> None:
     schema = json.loads(result.stdout)
     assert schema["title"] == "LinearQPolicy"
     assert schema["properties"]["algorithm"]["const"] == "linear-q-learning"
+    assert "selected_checkpoint_episode" in schema["required"]
+    assert "evaluated_checkpoints" in schema["required"]
 
 
 def test_solve_command_returns_validated_result() -> None:
@@ -219,7 +249,7 @@ evaluation_budget = 20
 
     result = runner.invoke(
         app,
-        ["benchmark", str(config_path), "--output", str(output_dir)],
+        ["benchmark", str(config_path), "--output", str(output_dir), "--workers", "2"],
     )
 
     assert result.exit_code == 0
@@ -228,10 +258,20 @@ evaluation_budget = 20
     assert payload["run_count"] == 2
     assert payload["failed_runs"] == 0
     assert len(payload["reproducibility_fingerprint"]) == 64
+    assert payload["workers"] == 2
+    assert payload["resume"] is False
+    assert Path(payload["checkpoint_dir"]).is_dir()
     assert (output_dir / "report.json").is_file()
     assert (output_dir / "report.html").is_file()
     assert (output_dir / "summary.csv").is_file()
+    assert (output_dir / "comparisons.csv").is_file()
     assert (output_dir / "manifest.json").is_file()
+
+    verify_result = runner.invoke(app, ["benchmark-verify", str(output_dir)])
+    assert verify_result.exit_code == 0
+    verify_payload = json.loads(verify_result.stdout)
+    assert verify_payload["valid"] is True
+    assert verify_payload["benchmark_id"] == "cli-smoke"
 
     custom_report = tmp_path / "custom-report.html"
     report_result = runner.invoke(

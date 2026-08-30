@@ -43,8 +43,8 @@ All eleven committed features are normalized to `[0, 1]`:
 | `storage_efficiency` | One minus task storage cost over the scenario maximum. |
 | `slew_efficiency` | One minus incremental slew over the scenario horizon. |
 | `remaining_fraction` | Tasks not yet attempted over total task count. |
-| `energy_headroom` | Simulated final energy over capacity after the action. |
-| `storage_headroom` | Remaining storage capacity after the action. |
+| `plan_end_energy_headroom` | Energy over capacity at the end of the candidate plan, before any later horizon recharge. |
+| `plan_end_storage_headroom` | Remaining storage capacity at the end of the candidate plan. |
 
 The scalar shaped reward is
 
@@ -55,9 +55,13 @@ task value / total scenario value
 ```
 
 This reward guides temporal-difference learning; it does not replace the
-project's authoritative lexicographic objective. Completed episodes are ranked
-with `ObjectiveScore`, and the final result retains the deterministic
-`greedy-insertion` schedule unless a learned episode is objectively better.
+project's authoritative lexicographic objective. The exploratory schedule from
+each completed episode is reported as a training diagnostic, but it is not a
+pure-policy evaluation. The backward-compatible `q-learning` hybrid retains the
+deterministic `greedy-insertion` schedule unless either a completed exploratory
+episode or a completed policy-checkpoint replay is objectively better.
+`q-policy-only` instead returns the best eligible greedily replayed checkpoint
+with no incumbent fallback.
 
 Weights use the standard one-step update:
 
@@ -82,6 +86,12 @@ orbitops train scenarios/examples/demo.json \
   --episodes 250
 ```
 
+The command summary reports `policy_metrics` for the exported pure-policy
+checkpoint and `hybrid_metrics` for the greedy-backed training result. They are
+intentionally separate: the exported model can score differently from the
+hybrid incumbent. When `--result-output` is set, that file contains the hybrid
+result and identifies its returned-solution mode in schedule metadata.
+
 Replay the saved policy:
 
 ```bash
@@ -99,18 +109,64 @@ orbitops solve scenarios/examples/demo.json \
   --evaluation-budget 250
 ```
 
-The JSON policy records the feature names and weights, training hyperparameters,
-seed, completed episodes, transition count, scenario ID, and SHA-256 fingerprint
-of the complete scenario. Replay refuses a different ID, modified scenario, or
-unsupported feature contract instead of silently applying an incompatible
-model.
+For a clean policy-versus-heuristic comparison, replace the solver with
+`q-policy-only`. The hybrid and pure-policy modes share training code but report
+their `algorithm_variant` and `returned_solution_mode` explicitly.
+
+After every completed episode, the current weights are greedily replayed from an
+empty schedule with exploration disabled. Only a replay that reaches a terminal
+state before the shared deadline is eligible for selection. The exported
+weights are the best of all eligible episode checkpoints under the authoritative
+objective, with deterministic schedule tie-breaking. The JSON policy records
+the selected episode and number of evaluated checkpoints in addition to the
+feature names and weights, training hyperparameters, seed, completed episodes,
+transition count, scenario ID, and SHA-256 fingerprint.
+
+Schedule metadata keeps the selection evidence explicit:
+
+- `training_trace` contains the realized **exploratory episode schedule**
+  objective, epsilon, and TD error. It is not a pure-policy curve.
+- `policy_checkpoint_trace` contains the deterministic objective for every
+  completed checkpoint replay.
+- `policy_convergence` contains only improvements in the best pure-policy
+  checkpoint, and is the convergence trace published by `q-policy-only`.
+- `selected_checkpoint_episode`, `policy_checkpoints_evaluated`, and
+  `policy_checkpoint_selection_complete` describe which checkpoint was
+  exported and whether every completed episode was evaluated.
+
+The recorded `policy_checkpoint_metrics` must equal a subsequent unrestricted
+replay. Replay refuses a different ID, modified scenario, or unsupported feature
+contract instead of silently applying an incompatible model. It also rejects an
+incomplete timeout artifact for which no checkpoint replay was evaluated.
+
+One absolute monotonic deadline covers greedy initialization, feasible-action
+enumeration, the temporal-difference loop, and checkpoint replay. If it expires
+during a checkpoint replay, that partial schedule is not eligible for policy
+selection; timeout and selection-completeness metadata make the interruption
+visible. `apply-policy` can also receive the same absolute deadline contract
+through the Python API and then reports whether replay completed.
+If `q-policy-only` times out before its first checkpoint replay completes, it
+returns a feasible empty schedule labeled `no-complete-policy-checkpoint` rather
+than presenting zero weights or the hybrid incumbent as a selected policy.
+
+## Policy artifact compatibility
+
+Policy schema v2 is intentionally breaking. The two resource-headroom features
+now describe state at the end of the candidate plan; v1 weights were trained
+against horizon-projected resource state after later recharge. Because each
+weight is attached to a feature's semantics, there is no safe weight-only
+migration from v1 to v2. A v1 artifact must be retrained with this release on its
+original scenario. The committed v1 schema is retained as an archival contract,
+but the current policy loader rejects v1 artifacts instead of relabeling them.
 
 ## Evidence and comparison boundary
 
-`evaluation_budget` means complete training episodes for `q-learning`; local
+`evaluation_budget` means requested training episodes for both Q-learning modes;
+under a deadline, fewer episodes or checkpoint replays may complete. Local
 search and genetic search count unique decoded genomes. Equal numeric budgets
 therefore control work within each solver but are not identical units of
-algorithmic effort. Runtime and transition counts must accompany comparisons.
+algorithmic effort. Runtime, transition counts, and evaluated-checkpoint counts
+must accompany comparisons.
 
 The committed smoke campaign exercises reproducibility and integration:
 

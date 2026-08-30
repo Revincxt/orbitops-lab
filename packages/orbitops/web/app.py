@@ -75,6 +75,8 @@ class LabApplication:
                 "task_count": len(scenario.tasks),
                 "horizon_start_s": scenario.horizon_start_s,
                 "horizon_end_s": scenario.horizon_end_s,
+                "research_question": scenario.metadata.get("research_question"),
+                "geometry_note": scenario.metadata.get("geometry_note"),
             }
             for scenario in self._scenarios.values()
         ]

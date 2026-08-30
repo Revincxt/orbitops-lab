@@ -28,13 +28,28 @@ class Solver(Protocol):
 class BaseSolver(ABC):
     name: str
 
-    def __init__(self, config: SolverConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: SolverConfig | None = None,
+        *,
+        deadline_at: float | None = None,
+    ) -> None:
         self.config = config or SolverConfig()
+        self._inherited_deadline_at = deadline_at
+
+    def _deadline_at(self, started_at: float) -> float | None:
+        own_deadline = (
+            started_at + self.config.time_limit_s if self.config.time_limit_s is not None else None
+        )
+        if own_deadline is None:
+            return self._inherited_deadline_at
+        if self._inherited_deadline_at is None:
+            return own_deadline
+        return min(own_deadline, self._inherited_deadline_at)
 
     def _time_limit_reached(self, started_at: float) -> bool:
-        if self.config.time_limit_s is None:
-            return False
-        return perf_counter() - started_at >= self.config.time_limit_s
+        deadline_at = self._deadline_at(started_at)
+        return deadline_at is not None and perf_counter() >= deadline_at
 
     @abstractmethod
     def solve(self, scenario: Scenario) -> SolveResult:

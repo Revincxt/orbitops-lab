@@ -32,6 +32,7 @@ class BruteForceSolver(BaseSolver):
             )
 
         started_at = perf_counter()
+        deadline_at = self._deadline_at(started_at)
         stats = SearchStats()
         initial = empty_schedule(scenario, self.name, self.config.seed)
         initial_validation = validate_schedule(scenario, initial)
@@ -66,6 +67,7 @@ class BruteForceSolver(BaseSolver):
                     schedule,
                     task,
                     validation=validation,
+                    deadline_at=deadline_at,
                 ):
                     stats.feasible_extensions += 1
                     visit(
