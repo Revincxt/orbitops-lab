@@ -37,4 +37,23 @@ jobs:
       - run: node --check packages/orbitops/web/static/app.js
       - run: uv run python scripts/build_pages.py --output site
       - run: uv build
-      - run: unzip -l dist/*.whl | rg 'orbitops/web/static/(index.html|app.css|app.js)'
+      - name: Inspect packaged Web Lab assets
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheels = tuple(Path("dist").glob("*.whl"))
+          if len(wheels) != 1:
+              raise SystemExit(f"expected one wheel, found {len(wheels)}")
+          required = {
+              "orbitops/web/static/index.html",
+              "orbitops/web/static/app.css",
+              "orbitops/web/static/app.js",
+              "orbitops/web/static/favicon.svg",
+          }
+          with ZipFile(wheels[0]) as archive:
+              missing = required - set(archive.namelist())
+          if missing:
+              raise SystemExit(f"wheel is missing Web Lab assets: {sorted(missing)}")
+          PY
