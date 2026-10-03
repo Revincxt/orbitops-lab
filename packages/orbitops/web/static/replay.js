@@ -70,6 +70,15 @@ window.OrbitReplay = Object.freeze({
     const halfHorizontal = Math.atan(Math.tan(halfVertical) * aspect);
     return radius / Math.sin(Math.min(halfVertical, halfHorizontal)) * padding;
   },
+  flatMapRange(halfWidth, halfHeight, altitude, pitch, verticalFov, aspect, padding = 1.06) {
+    // Fit a tilted geographic map and its source-altitude envelope in both axes.
+    const vertical = Math.tan(verticalFov / 2);
+    const horizontal = vertical * aspect;
+    const sin = Math.sin(pitch), cos = Math.cos(pitch);
+    return Math.max(halfWidth / horizontal + halfHeight * cos + altitude * sin,
+      halfHeight * sin / vertical + halfHeight * cos,
+      (halfHeight * sin + altitude * cos) / vertical - halfHeight * cos + altitude * sin) * padding;
+  },
   referencePayload(archive, plan) {
     return {
       mode: "reference", scenario: archive.scenario, replay: archive.replay,

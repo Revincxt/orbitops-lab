@@ -172,6 +172,11 @@ input { font-family: var(--mono); }
 .orbit-loader { width: 30px; height: 30px; border: 1px solid #35556a; border-top-color: var(--accent); border-radius: 50%; }
 .viewport-coordinate { position: absolute; top: 17px; left: 18px; display: grid; gap: 5px; pointer-events: none; font: 8px var(--mono); color: var(--subtle); letter-spacing: .8px; }
 .viewport-coordinate strong { color: var(--muted); font-size: 9px; font-weight: 400; letter-spacing: 0; }
+.viewport-coordinate > span, .viewport-coordinate > strong { width: max-content; padding: 2px 4px; border-radius: 2px; background: #0c1722c9; }
+.map-projections { display: flex; gap: 2px; width: max-content; padding: 3px; border: 1px solid #314555; border-radius: 4px; background: #0c1722e8; pointer-events: auto; margin-bottom: 3px; }
+.map-projections button { min-width: 36px; padding: 4px 6px; border: 1px solid transparent; border-radius: 2px; background: transparent; color: #a2b4c4; font: 8px var(--mono); }
+.map-projections button[aria-pressed="true"] { background: #1a4056; border-color: #4087a8; color: #bce9ff; }
+.map-projections button:hover:enabled { color: var(--ink); border-color: var(--accent); }
 .globe-overlay { position: absolute; right: 17px; top: 17px; display: flex; flex-direction: column; gap: 6px; pointer-events: none; color: var(--muted); font-size: 9px; }
 .globe-overlay i { display: inline-block; width: 5px; height: 5px; background: var(--accent); border-radius: 50%; margin-right: 5px; }
 .globe-overlay span + span i { background: var(--peach); }

@@ -139,6 +139,19 @@ when an overview viewport is resized. A north-reset compass reflects the current
 camera heading instead of showing a static orientation indicator. Small/short
 map viewports compact the satellite readout to keep the globe accessible.
 
+The map's upper-left projection controls switch between the native Cesium 3D
+globe, tilted 2.5D unfolded map (Columbus View), and 2D geographic map. All views
+share the same source positions, task selection, layers and replay clock; a
+projection change does not restart or pause playback. 2.5D retains orbital
+height above the projected map; 2D flattens that height spatially while the
+source altitude remains available in the satellite readout. Switching releases
+camera tracking and fits an overview. Focus and follow work in every view;
+2D follow centres on the source sub-satellite position without a 3D camera
+transform. World-map framing accounts for both viewport axes and source
+altitudes, including after pane expansion or resize. Controls are disabled
+during the short transition and when only the offline 2D schematic is available.
+Reduced-motion preferences use instantaneous view changes.
+
 ## EOS-Bench reference data
 
 `data/eos-bench/reference.json` is a pinned derivative of six public source files

@@ -26,6 +26,8 @@ const state = {
   selectedSatelliteId: null,
   geometrySelectionKey: null,
   cameraMode: "overview",
+  viewMode: "3d",
+  viewTransition: false,
   orbitEmphasis: false,
 };
 const deployment = window.ORBITOPS_DEPLOYMENT || { mode: "api" };
@@ -1024,7 +1026,7 @@ function renderGlobeFallback(scenario, scheduledIds) {
   if (state.currentPayload?.replay) addFallbackOrbits(map);
   elements.globe.replaceChildren(map);
   elements.globe.dataset.engine = "fallback";
-  document.querySelector(".view-tag").textContent = "2D";
+  updateMapViewControls();
   elements.globeLoading.classList.add("is-hidden");
   updateReplayVisuals();
 }
@@ -1047,7 +1049,7 @@ function updateGlobeLayers() {
 }
 
 function fitMissionView(duration = 0) {
-  if (!state.globe || !state.cameraHome) return;
+  if (!state.globe || !state.cameraHome || state.viewTransition) return;
   const Cesium = window.Cesium;
   const viewer = state.globe;
   const home = state.cameraHome;
@@ -1055,17 +1057,29 @@ function fitMissionView(duration = 0) {
   state.cameraMode = "overview";
   state.orbitEmphasis = false;
   viewer.resize();
-  const range = Math.max(1400000, window.OrbitReplay.fitRange(home.missionCenter.radius, viewer.camera.frustum.fovy, viewer.camera.frustum.aspectRatio, home.global ? 1.035 : 1.12));
-  if (home.global) {
+  const aspect = elements.globe.clientWidth / Math.max(1, elements.globe.clientHeight);
+  if (home.global && state.viewMode === "2d") {
+    viewer.camera.flyTo({destination: Cesium.Rectangle.MAX_VALUE, duration,
+      orientation: {heading: 0, pitch: -Cesium.Math.PI_OVER_TWO, roll: 0}});
+  } else if (home.global && state.viewMode === "2.5d") {
+    const edge = viewer.scene.mapProjection.project(Cesium.Cartographic.fromDegrees(180, 90));
+    const altitude = home.missionCenter.radius - Cesium.Ellipsoid.WGS84.maximumRadius;
+    const pitch = Cesium.Math.toRadians(55);
+    const range = window.OrbitReplay.flatMapRange(edge.x, edge.y, altitude, pitch, viewer.camera.frustum.fovy, aspect);
+    viewer.camera.flyTo({destination: new Cesium.Cartesian3(0, -range * Math.cos(pitch), range * Math.sin(pitch)),
+      orientation: {heading: 0, pitch: -pitch, roll: 0}, convert: false, duration});
+  } else if (home.global) {
+    const range = Math.max(1400000, window.OrbitReplay.fitRange(home.missionCenter.radius, viewer.camera.frustum.fovy, aspect, 1.035));
     viewer.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees(home.longitudeCenter, home.latitudeCenter, range - Cesium.Ellipsoid.WGS84.maximumRadius),
       orientation: { heading: 0, pitch: -Cesium.Math.PI_OVER_TWO, roll: 0 },
       duration,
     });
   } else {
+    const range = Math.max(1400000, window.OrbitReplay.fitRange(home.missionCenter.radius, viewer.camera.frustum.fovy || Cesium.Math.PI_OVER_THREE, aspect, 1.12));
     viewer.camera.flyToBoundingSphere(home.missionCenter, {
       duration,
-      offset: new Cesium.HeadingPitchRange(Cesium.Math.toRadians(-18), Cesium.Math.toRadians(-68), range),
+      offset: new Cesium.HeadingPitchRange(state.viewMode === "3d" ? Cesium.Math.toRadians(-18) : 0, Cesium.Math.toRadians(state.viewMode === "2d" ? -90 : -68), range),
     });
   }
   viewer.scene.requestRender();
@@ -1128,8 +1142,9 @@ function renderMissionGlobe(scenario, result) {
         homeButton: false,
         infoBox: false,
         navigationHelpButton: false,
-        scene3DOnly: true,
+        scene3DOnly: false,
         sceneModePicker: false,
+        mapMode2D: Cesium.MapMode2D.ROTATE,
         selectionIndicator: false,
         timeline: false,
         shouldAnimate: false,
@@ -1138,6 +1153,7 @@ function renderMissionGlobe(scenario, result) {
       });
       state.globe.imageryLayers.add(primaryImagery);
       bindGlobePicking(state.globe, Cesium);
+      bindMapViewEvents(state.globe);
       primaryImagery.imageryProvider.errorEvent.addEventListener(() => {
         if (!state.imageryFallbackActive && state.globe) {
           primaryImagery.show = false;
@@ -1244,7 +1260,7 @@ function renderMissionGlobe(scenario, result) {
     fitMissionView();
     viewer.scene.requestRender();
     elements.globe.dataset.engine = "cesium";
-    document.querySelector(".view-tag").textContent = "3D";
+    updateMapViewControls();
     updateGlobeLayers();
     elements.globeLoading.classList.add("is-hidden");
   } catch (error) {

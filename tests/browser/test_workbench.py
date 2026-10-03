@@ -519,6 +519,8 @@ def test_map_expansion_and_satellite_keyboard_selection_preserve_single_screen(
     assert page.locator("#orbit-hud").is_visible()
     assert page.locator("#camera-focus").is_disabled()
     assert page.locator("#camera-follow").is_disabled()
+    assert page.locator("#view-2d").get_attribute("aria-pressed") == "true"
+    assert page.locator(".map-projections button:disabled").count() == 3
     marker = page.locator('.map-satellite[data-satellite-id="ALOS-2_39766"]')
     marker.focus()
     marker.press("Enter")
@@ -533,4 +535,27 @@ def test_map_expansion_and_satellite_keyboard_selection_preserve_single_screen(
     assert_single_screen(page)
     page.locator("#expand-map").click()
     assert page.locator(".analysis-dock").is_visible()
+    assert_single_screen(page)
+
+
+@pytest.mark.parametrize("aspect", [3.2, 1, 0.5])
+def test_tilted_map_camera_range_contains_world_and_source_altitudes(
+    page: Any, lab_url: str, aspect: float
+) -> None:
+    reference_ready(page, lab_url)
+    points = page.evaluate(
+        """aspect => {
+      const a = 20037508, b = 10018754, h = 876536;
+      const pitch = 55 * Math.PI / 180, fovy = Math.PI / 3;
+      const distance = OrbitReplay.flatMapRange(a, b, h, pitch, fovy, aspect);
+      return [-a,a].flatMap(x => [-b,b].flatMap(y => [0,h].map(z => ({
+        horizontal:Math.abs(x) / ((distance + y * Math.cos(pitch) - z * Math.sin(pitch))
+          * Math.tan(fovy / 2) * aspect),
+        vertical:Math.abs(y * Math.sin(pitch) + z * Math.cos(pitch))
+          / ((distance + y * Math.cos(pitch) - z * Math.sin(pitch)) * Math.tan(fovy / 2))
+      }))));
+    }""",
+        aspect,
+    )
+    assert all(0 < point["horizontal"] < 1 and 0 < point["vertical"] < 1 for point in points)
     assert_single_screen(page)

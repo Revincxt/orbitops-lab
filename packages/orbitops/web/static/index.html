@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://cesium.com">
   <link rel="preconnect" href="https://gibs.earthdata.nasa.gov">
   <link id="cesium-styles" rel="preload" as="style" href="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Widgets/widgets.css">
-  <link rel="stylesheet" href="./app.css?v=0.4.0">
+  <link rel="stylesheet" href="./app.css?v=0.5.0">
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -80,7 +80,7 @@
           <div class="globe-frame">
             <div id="mission-globe" role="img" aria-label="Interactive three-dimensional mission geometry"></div>
             <div id="globe-loading" class="globe-loading" aria-live="polite"><span class="orbit-loader" aria-hidden="true"></span><span>Preparing mission geometry</span></div>
-            <div class="viewport-coordinate"><span id="camera-mode">MISSION CONTEXT</span><strong id="globe-coordinate">WGS84 / GEODETIC</strong></div>
+            <div class="viewport-coordinate"><div id="map-projections" class="map-projections" role="group" aria-label="Map projection"><button id="view-3d" data-view="3d" type="button" aria-pressed="true" title="3D · globe with orbital altitude" disabled>3D</button><button id="view-2_5d" data-view="2.5d" type="button" aria-pressed="false" title="2.5D · tilted unfolded map with orbital altitude (Columbus View)" disabled>2.5D</button><button id="view-2d" data-view="2d" type="button" aria-pressed="false" title="2D · unfolded geographic map; altitude is not represented spatially" disabled>2D</button></div><span id="camera-mode">MISSION CONTEXT</span><strong id="globe-coordinate">WGS84 / GEODETIC</strong></div>
             <div class="globe-overlay"><span><i></i>Planned</span><span class="state-observing"><i></i>Observing</span><span class="state-completed"><i></i>Completed</span><span class="state-unassigned"><i></i>Unassigned</span></div>
             <div id="orbit-hud" class="orbit-hud" hidden>
               <div class="satellite-readout"><i id="satellite-swatch" aria-hidden="true"></i><div><small>SELECTED SATELLITE · SOURCE REPLAY</small><strong id="satellite-name">Select a satellite</strong></div><div class="orbit-telemetry"><span title="Display-interpolated altitude above the WGS84 ellipsoid, not telemetry"><b id="satellite-altitude">— km</b> ALT</span><span title="Orbital period recorded in source CZML"><b id="satellite-period">— min</b> PERIOD</span></div></div>
@@ -133,8 +133,8 @@
   <script src="./deployment-config.js?v=0.2.0"></script>
   <script src="./cesium-config.js?v=0.2.0"></script>
   <script id="cesium-engine" src="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Cesium.js" async></script>
-  <script src="./replay.js?v=0.4.0" defer></script>
-  <script src="./mission.js?v=0.4.0" defer></script>
-  <script src="./app.js?v=0.4.0" defer></script>
+  <script src="./replay.js?v=0.5.0" defer></script>
+  <script src="./mission.js?v=0.5.0" defer></script>
+  <script src="./app.js?v=0.5.0" defer></script>
 </body>
 </html>

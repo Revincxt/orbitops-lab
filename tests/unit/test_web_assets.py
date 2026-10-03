@@ -12,6 +12,8 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     assert 'id="resource-chart"' in html
     assert 'id="learning-chart"' in html
     assert 'id="mission-globe"' in html
+    assert 'aria-label="Map projection"' in html
+    assert all(f'id="{view}"' in html for view in ["view-3d", "view-2_5d", "view-2d"])
     assert 'id="comparison-body"' in html
     assert 'id="unscheduled-list"' in html
     assert 'aria-label="Run provenance"' in html
@@ -21,10 +23,10 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     assert "Constrained satellite scheduling laboratory" in html
     assert "Schedule the orbit" not in html
     assert 'src="./deployment-config.js?v=0.2.0"' in html
-    assert 'src="./app.js?v=0.4.0"' in html
-    assert 'src="./replay.js?v=0.4.0"' in html
-    assert 'src="./mission.js?v=0.4.0"' in html
-    assert 'href="./app.css?v=0.4.0"' in html
+    assert 'src="./app.js?v=0.5.0"' in html
+    assert 'src="./replay.js?v=0.5.0"' in html
+    assert 'src="./mission.js?v=0.5.0"' in html
+    assert 'href="./app.css?v=0.5.0"' in html
     assert 'href="./favicon.svg?v=0.2.0"' in html
 
 
@@ -37,6 +39,8 @@ def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     assert "createElementNS" in script
     assert "replaceChildren" in script
     assert "new Cesium.Viewer" in script
+    assert "scene3DOnly: false" in script
+    assert "Cesium.MapMode2D.ROTATE" in script
     assert "BlueMarble_ShadedRelief/default" in script
     assert "NaturalEarthII" in script
     assert "WebMercatorTilingScheme" in script

@@ -410,7 +410,7 @@ function setupReferenceGlobe(viewer, Cesium) {
   state.cameraHome = {missionCenter: new Cesium.BoundingSphere(Cesium.Cartesian3.ZERO, Cesium.Ellipsoid.WGS84.maximumRadius + altitude), global: true, longitudeCenter: 105, latitudeCenter: 20};
   fitMissionView();
   elements.globe.dataset.engine = "cesium";
-  document.querySelector(".view-tag").textContent = "3D";
+  updateMapViewControls();
   elements.globeLoading.classList.add("is-hidden");
   updateGlobeLayers();
   updateReplayVisuals();
@@ -455,6 +455,7 @@ function updateCesiumReplay(active) {
         entity.billboard.width = entity.billboard.height = selected ? 30 : 22;
         entity.point.show = selected;
         entity.label.show = selected || state.layers.satelliteLabels;
+        entity.label.distanceDisplayCondition = new Cesium.DistanceDisplayCondition(0, selected ? Infinity : 55000000);
       }
     });
     if (changed) {
@@ -480,6 +481,7 @@ function updateCesiumReplay(active) {
     if (!viewer.entities.getById(id)) viewer.entities.add({id, polyline: {positions: new Cesium.PositionPropertyArray([position, target]), width: 2, arcType: Cesium.ArcType.NONE, material: Cesium.Color.fromCssColorString("#f7d074")}});
     viewer.entities.getById(id).show = state.layers.rays;
   });
+  updatePlanarFollow();
   viewer.scene.requestRender();
 }
 
@@ -546,7 +548,7 @@ function updateFallbackReplay(active) {
 function releaseCameraTracking() {
   if (!state.globe || !window.Cesium) return;
   state.globe.trackedEntity = undefined;
-  state.globe.camera.lookAtTransform(window.Cesium.Matrix4.IDENTITY);
+  if (!state.viewTransition) state.globe.camera.lookAtTransform(window.Cesium.Matrix4.IDENTITY);
 }
 
 function selectSatellite(id) {
@@ -562,13 +564,14 @@ function updateOrbitHud() {
   const reference = state.currentPayload?.mode === "reference";
   document.getElementById("orbit-hud").hidden = !reference;
   const orbit = state.currentPayload?.replay?.orbits.find((item) => item.satellite_id === state.selectedSatelliteId);
-  const available = Boolean(orbit && state.globe?.entities.getById(`satellite-${orbit.satellite_id}`));
+  const available = Boolean(!state.viewTransition && orbit && state.globe?.entities.getById(`satellite-${orbit.satellite_id}`));
   document.getElementById("camera-focus").disabled = !available;
   document.getElementById("camera-follow").disabled = !available;
-  document.getElementById("north-view").disabled = !state.globe;
-  document.getElementById("camera-overview").disabled = !state.globe;
+  document.getElementById("north-view").disabled = !state.globe || state.viewTransition;
+  document.getElementById("camera-overview").disabled = !state.globe || state.viewTransition;
+  document.getElementById("reset-view").disabled = state.viewTransition;
   for (const mode of ["overview", "focus", "follow"]) document.getElementById(`camera-${mode}`).setAttribute("aria-pressed", String(state.cameraMode === mode));
-  textField("camera-mode", state.globe ? `${state.cameraMode.toUpperCase()} · WGS84` : "2D · SOURCE SAMPLES");
+  textField("camera-mode", state.viewTransition ? "SWITCHING VIEW…" : state.globe ? `${state.cameraMode.toUpperCase()} · WGS84` : "2D · SOURCE SAMPLES");
   if (!reference) return;
   textField("satellite-name", orbit ? satelliteName(orbit.satellite_id) : "Select a satellite");
   document.getElementById("satellite-name").title = orbit?.satellite_id || "Pick a satellite symbol or select an assigned task";
@@ -591,15 +594,15 @@ function cameraMotionDuration() {
 function focusSelectedSatellite() {
   const viewer = state.globe;
   const Cesium = window.Cesium;
-  if (!viewer || !Cesium) return;
+  if (!viewer || !Cesium || state.viewTransition) return;
   const position = state.orbitPositions.get(state.selectedSatelliteId)?.getValue(viewer.clock.currentTime);
   if (!position) return;
   releaseCameraTracking();
   state.cameraMode = "focus";
   state.orbitEmphasis = true;
-  const range = window.OrbitReplay.fitRange(1000000, viewer.camera.frustum.fovy, viewer.camera.frustum.aspectRatio, 1.1);
+  const range = window.OrbitReplay.fitRange(1000000, viewer.camera.frustum.fovy || Cesium.Math.PI_OVER_THREE, elements.globe.clientWidth / Math.max(1, elements.globe.clientHeight), 1.1);
   viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(position, 1000000), {
-    duration: cameraMotionDuration(), offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-65), range),
+    duration: cameraMotionDuration(), offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(state.viewMode === "2d" ? -90 : -65), range),
   });
   viewer.scene.requestRender();
   updateOrbitHud();
@@ -607,14 +610,33 @@ function focusSelectedSatellite() {
 }
 
 function followSelectedSatellite() {
+  if (state.viewTransition) return;
   const viewer = state.globe;
   const entity = viewer?.entities.getById(`satellite-${state.selectedSatelliteId}`);
   if (!entity || !entity.position.getValue(viewer.clock.currentTime)) return;
   state.cameraMode = "follow";
   state.orbitEmphasis = true;
-  if (viewer.trackedEntity !== entity) viewer.trackedEntity = entity;
+  viewer.camera.cancelFlight();
+  if (state.viewMode === "2d") {
+    // In 2D, track the source sub-satellite position without an ENU camera transform.
+    // Native EntityView retains a 3D local offset that can move the whole map offscreen.
+    releaseCameraTracking();
+    updatePlanarFollow();
+  } else if (viewer.trackedEntity !== entity) viewer.trackedEntity = entity;
   viewer.scene.requestRender();
   updateOrbitHud();
+}
+
+function updatePlanarFollow() {
+  const viewer = state.globe;
+  if (!viewer || state.viewTransition || state.viewMode !== "2d" || state.cameraMode !== "follow") return;
+  const Cesium = window.Cesium;
+  const position = state.orbitPositions.get(state.selectedSatelliteId)?.getValue(viewer.clock.currentTime);
+  if (!position) return;
+  const target = Cesium.Cartographic.fromCartesian(position);
+  const height = Math.max(15000, viewer.camera.positionCartographic.height);
+  viewer.camera.setView({destination: Cesium.Cartesian3.fromRadians(target.longitude, target.latitude, height),
+    orientation: {heading: 0, pitch: -Cesium.Math.PI_OVER_TWO, roll: 0}});
 }
 
 function pickedMissionObject(viewer, point) {
@@ -633,6 +655,7 @@ function pickedMissionObject(viewer, point) {
 function bindGlobePicking(viewer, Cesium) {
   const tooltip = document.getElementById("globe-hover");
   const inspect = (point, focus = false) => {
+    if (state.viewTransition) return;
     const picked = pickedMissionObject(viewer, point);
     if (!picked) return;
     if (picked.kind === "task") selectTarget(picked.id);
@@ -644,7 +667,7 @@ function bindGlobePicking(viewer, Cesium) {
   let lastPick = 0;
   let hoverTimer;
   const hover = (point) => {
-    if (viewer.isDestroyed()) return;
+    if (viewer.isDestroyed() || state.viewTransition) return;
     lastPick = performance.now();
     const picked = pickedMissionObject(viewer, point);
     tooltip.hidden = !picked;
@@ -675,7 +698,54 @@ function bindGlobePicking(viewer, Cesium) {
   });
 }
 
+const MAP_VIEWS = {"3d": {label: "3D", method: "morphTo3D"}, "2.5d": {label: "2.5D", method: "morphToColumbusView"}, "2d": {label: "2D", method: "morphTo2D"}};
+
+function updateMapViewControls() {
+  const viewer = state.globe;
+  if (viewer && !state.viewTransition) {
+    state.viewMode = viewer.scene.mode === window.Cesium.SceneMode.SCENE2D ? "2d" : viewer.scene.mode === window.Cesium.SceneMode.COLUMBUS_VIEW ? "2.5d" : "3d";
+  } else if (!viewer) {
+    state.viewMode = "2d";
+    state.viewTransition = false;
+  }
+  elements.globe.dataset.viewMode = state.viewTransition ? "morphing" : state.viewMode;
+  elements.globe.setAttribute("aria-busy", String(state.viewTransition));
+  document.querySelector(".view-tag").textContent = state.viewTransition ? "…" : MAP_VIEWS[state.viewMode].label;
+  for (const button of document.querySelectorAll(".map-projections button")) {
+    button.setAttribute("aria-pressed", String(button.dataset.view === state.viewMode));
+    button.disabled = !viewer || state.viewTransition;
+  }
+  document.getElementById("map-projections").title = viewer ? "Native Cesium scene views · same source data and replay clock" : "2D schematic fallback · 3D engine unavailable";
+}
+
+function bindMapViewEvents(viewer) {
+  viewer.scene.morphStart.addEventListener(() => {
+    state.viewTransition = true;
+    document.getElementById("globe-hover").hidden = true;
+    updateMapViewControls();
+    updateOrbitHud();
+  });
+  viewer.scene.morphComplete.addEventListener(() => {
+    state.viewTransition = false;
+    updateMapViewControls();
+    fitMissionView();
+  });
+  updateMapViewControls();
+}
+
+function setMapViewMode(mode) {
+  const viewer = state.globe;
+  if (!viewer || state.viewTransition || !MAP_VIEWS[mode] || mode === state.viewMode) return;
+  viewer.camera.cancelFlight();
+  releaseCameraTracking();
+  state.cameraMode = "overview";
+  state.orbitEmphasis = false;
+  viewer.scene[MAP_VIEWS[mode].method](cameraMotionDuration());
+  viewer.scene.requestRender();
+}
+
 function bindOrbitControls() {
+  for (const button of document.querySelectorAll(".map-projections button")) button.addEventListener("click", () => setMapViewMode(button.dataset.view));
   document.getElementById("camera-overview").addEventListener("click", () => fitMissionView(cameraMotionDuration()));
   document.getElementById("camera-focus").addEventListener("click", focusSelectedSatellite);
   document.getElementById("camera-follow").addEventListener("click", () => {
