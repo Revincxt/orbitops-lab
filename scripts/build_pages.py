@@ -325,6 +325,7 @@ def build_dataset(application: LabApplication) -> dict[str, Any]:
         "solvers": solvers,
         "runs": runs,
         "omissions": omissions,
+        "reference": application.reference.export(),
     }
 
 
@@ -362,7 +363,7 @@ def build_pages(output_dir: Path) -> None:
         )
         (staging / "deployment-config.js").write_text(deployment_config, encoding="utf-8")
         (staging / "pages-data.json").write_text(
-            json.dumps(dataset, ensure_ascii=False, indent=2) + "\n",
+            json.dumps(dataset, ensure_ascii=False, separators=(",", ":")) + "\n",
             encoding="utf-8",
         )
         (staging / ARTIFACT_MARKER).write_text(ARTIFACT_MARKER_CONTENT, encoding="utf-8")

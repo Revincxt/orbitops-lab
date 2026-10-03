@@ -15,6 +15,8 @@ from orbitops.solvers import advanced_solvers, available_solvers, baseline_solve
 from orbitops.solvers.branch_and_bound import BranchAndBoundSolver
 from orbitops.solvers.brute_force import BruteForceSolver
 from orbitops.solvers.registry import get_solver
+from orbitops.web.evaluation import evaluation_metrics
+from orbitops.web.reference import ReferenceArchive
 
 STATIC_DIR = Path(__file__).with_name("static")
 MAX_REQUEST_BYTES = 64 * 1024
@@ -39,7 +41,7 @@ class WebResponse:
         return cls(
             status=status,
             content_type="application/json; charset=utf-8",
-            body=(json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode(),
+            body=(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n").encode(),
         )
 
 
@@ -50,6 +52,9 @@ class LabApplication:
         self.scenario_dir = Path(scenario_dir)
         self.static_dir = Path(static_dir)
         self._scenarios = self._load_scenarios()
+        self.reference = ReferenceArchive(
+            self.scenario_dir.parent / "data" / "eos-bench" / "reference.json"
+        )
 
     def _load_scenarios(self) -> dict[str, Scenario]:
         if not self.scenario_dir.is_dir():
@@ -124,6 +129,7 @@ class LabApplication:
             "scenario": scenario.model_dump(mode="json"),
             "result": payload,
             "convergence": convergence,
+            "evaluation": evaluation_metrics(scenario, result),
         }
 
     def _solve(self, body: bytes) -> WebResponse:
@@ -170,6 +176,15 @@ class LabApplication:
         body: bytes = b"",
     ) -> WebResponse:
         route = path.split("?", 1)[0]
+        if method == "GET" and route == "/api/reference":
+            return WebResponse.json(200, self.reference.catalog())
+        if method == "GET" and route == "/api/reference/data":
+            return WebResponse.json(200, self.reference.export())
+        if method == "GET" and route.startswith("/api/reference/runs/"):
+            try:
+                return WebResponse.json(200, self.reference.payload(unquote(route.split("/")[-1])))
+            except ValueError as exc:
+                return WebResponse.json(404, {"error": str(exc)})
         if method == "GET" and route == "/api/health":
             return WebResponse.json(
                 200,
@@ -191,6 +206,9 @@ class LabApplication:
             "/": ("index.html", "text/html; charset=utf-8"),
             "/app.css": ("app.css", "text/css; charset=utf-8"),
             "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+            "/replay.js": ("replay.js", "text/javascript; charset=utf-8"),
+            "/mission.js": ("mission.js", "text/javascript; charset=utf-8"),
+            "/favicon.svg": ("favicon.svg", "image/svg+xml"),
             "/cesium-config.js": ("cesium-config.js", "text/javascript; charset=utf-8"),
             "/deployment-config.js": (
                 "deployment-config.js",

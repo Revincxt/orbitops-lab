@@ -21,8 +21,10 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     assert "Constrained satellite scheduling laboratory" in html
     assert "Schedule the orbit" not in html
     assert 'src="./deployment-config.js?v=0.2.0"' in html
-    assert 'src="./app.js?v=0.2.0"' in html
-    assert 'href="./app.css?v=0.2.0"' in html
+    assert 'src="./app.js?v=0.3.0"' in html
+    assert 'src="./replay.js?v=0.3.0"' in html
+    assert 'src="./mission.js?v=0.3.0"' in html
+    assert 'href="./app.css?v=0.3.0"' in html
     assert 'href="./favicon.svg?v=0.2.0"' in html
 
 
@@ -59,11 +61,11 @@ def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     assert "state.solvers.forEach" in script
 
 
-def test_web_lab_styles_are_responsive_and_use_warm_lavender_palette() -> None:
+def test_web_lab_styles_use_a_fixed_viewport_engineering_workspace() -> None:
     stylesheet = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
 
-    assert "--lavender:" in stylesheet
-    assert "--peach:" in stylesheet
+    assert "color-scheme: dark" in stylesheet
+    assert "--accent:" in stylesheet
     assert "--canvas:" in stylesheet
     assert ".globe-card" in stylesheet
     assert ".window-bar" in stylesheet
@@ -71,7 +73,12 @@ def test_web_lab_styles_are_responsive_and_use_warm_lavender_palette() -> None:
     assert ".comparison-table" in stylesheet
     assert ".audit-grid" in stylesheet
     assert ".run-record" in stylesheet
-    assert ".visual-pair > .visual-block" in stylesheet
+    assert ".center-workspace" in stylesheet
+    assert ".analysis-dock" in stylesheet
+    assert "height: 100dvh" in stylesheet
+    assert "overscroll-behavior: none" in stylesheet
+    assert "overflow-y: auto" not in stylesheet
+    assert "overflow-x: auto" not in stylesheet
     assert "min-width: 0" in stylesheet
     assert "@media (max-width: 640px)" in stylesheet
     assert ":focus-visible" in stylesheet

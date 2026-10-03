@@ -134,6 +134,7 @@ def test_static_and_scenario_routes_are_fixed_and_safe(tmp_path: Path) -> None:
     cesium_config = application.dispatch("GET", "/cesium-config.js")
     deployment_config = application.dispatch("GET", "/deployment-config.js")
     social_card = application.dispatch("GET", "/orbitops-social-card.jpg")
+    favicon = application.dispatch("GET", "/favicon.svg?v=0.2.0")
     scenario = application.dispatch("GET", "/api/scenarios/demo-001")
     missing_scenario = application.dispatch("GET", "/api/scenarios/unknown")
     traversal = application.dispatch("GET", "/../pyproject.toml")
@@ -147,6 +148,7 @@ def test_static_and_scenario_routes_are_fixed_and_safe(tmp_path: Path) -> None:
         == cesium_config.status
         == deployment_config.status
         == social_card.status
+        == favicon.status
         == 200
     )
     assert homepage.content_type.startswith("text/html")
@@ -155,6 +157,7 @@ def test_static_and_scenario_routes_are_fixed_and_safe(tmp_path: Path) -> None:
     assert cesium_config.content_type.startswith("text/javascript")
     assert deployment_config.content_type.startswith("text/javascript")
     assert social_card.content_type == "image/jpeg"
+    assert favicon.content_type == "image/svg+xml"
     assert payload(scenario)["scenario_id"] == "demo-001"
     assert missing_scenario.status == traversal.status == wrong_method.status == 404
     assert missing_asset.status == 404
