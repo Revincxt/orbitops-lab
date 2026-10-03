@@ -39,8 +39,14 @@
 .target-row[data-state="Unassigned"] .target-dot, .map-marker[data-state="Unassigned"] circle { fill: var(--danger); border-color: var(--danger); }
 .target-row[data-state="Observing"] .target-state { color: #f7d074; }
 .target-row[data-state="Completed"] .target-state { color: var(--sage); }
-.map-orbit { fill: none; stroke: #53798d; stroke-width: 1; opacity: .6; }
-.map-satellite { fill: #dceaf7; stroke: #101820; stroke-width: 1; }
+.map-orbit { fill: none; stroke-width: 1.1; opacity: .65; pointer-events: none; }
+.map-orbit.is-dimmed { opacity: .25; }
+.map-orbit.is-selected { stroke-width: 2; opacity: .95; }
+.map-track-future { stroke-dasharray: 5 4; opacity: .7; }
+.map-satellite { cursor: pointer; }
+.map-satellite path { fill: currentColor; stroke: #07141f; stroke-width: 1.2; }
+.map-satellite.is-selected path { stroke: #fff; stroke-width: 1.5; }
+.satellite-label { fill: currentColor; font: 600 8px var(--mono); paint-order: stroke; stroke: #08131e; stroke-width: 2.8; stroke-linejoin: round; pointer-events: none; }
 .map-ray { stroke: #f7d074; stroke-width: 1.5; opacity: .9; }
 .time-cursor { stroke: #f7d074; stroke-width: 1; stroke-dasharray: 3 2; pointer-events: none; }
 .task-bar[data-state="Completed"] { fill: var(--sage); }
@@ -155,7 +161,7 @@ input { font-family: var(--mono); }
 .tool-button { background: transparent; border: 1px solid transparent; border-radius: 3px; padding: 4px 7px; color: var(--subtle); font-size: 9px; }
 .tool-button[aria-pressed="true"] { color: var(--muted); background: #1a2530; border-color: #2b3c4c; }
 .tool-button:hover { color: var(--ink); }
-.globe-frame { flex: 1; min-height: 0; position: relative; overflow: hidden; background: radial-gradient(ellipse at 50% 60%, #122331 0%, #0c1118 70%); }
+.globe-frame { flex: 1; min-height: 0; position: relative; overflow: hidden; container-type: size; background: radial-gradient(ellipse at 50% 60%, #122331 0%, #0c1118 70%); }
 #mission-globe { position: absolute; inset: 0; }
 #mission-globe .cesium-viewer, #mission-globe .cesium-viewer-cesiumWidgetContainer, #mission-globe .cesium-widget, #mission-globe canvas { width: 100%; height: 100%; }
 .cesium-viewer-bottom { left: 10px !important; bottom: 4px !important; max-width: calc(100% - 130px); font-size: 8px !important; opacity: .5; }
@@ -313,6 +319,49 @@ kbd { border: 1px solid var(--line-strong); border-radius: 2px; padding: 0 3px; 
 .map-marker.is-selected circle { stroke: #fff; stroke-width: 2; }
 .map-marker text { font-size: 8px; fill: #b6c9d8; paint-order: stroke; stroke: #101c27; stroke-width: 3; stroke-linejoin: round; }
 .map-caption { fill: var(--subtle); font: 7px var(--mono); }
+.orbit-hud { position: absolute; left: 14px; bottom: 27px; z-index: 2; width: 292px; max-width: calc(100% - 74px); border: 1px solid #314555; border-radius: 5px; background: #0c1722e8; box-shadow: 0 3px 14px #0003; }
+.satellite-readout { display: flex; align-items: center; gap: 8px; padding: 9px 10px 8px; min-width: 0; }
+#satellite-swatch { width: 5px; height: 24px; border-radius: 2px; flex-shrink: 0; }
+.satellite-readout > div { min-width: 0; }
+.satellite-readout small { display: block; color: var(--muted); font: 6px var(--mono); letter-spacing: .65px; }
+.satellite-readout strong { display: block; font: 600 10px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px; color: #dceafa; }
+.orbit-telemetry { margin-left: auto; flex-shrink: 0; display: grid; gap: 3px; }
+.orbit-telemetry span { color: var(--muted); font: 6px var(--mono); text-align: right; white-space: nowrap; }
+.orbit-telemetry b { color: #c4d8e6; font-size: 8px; font-weight: 400; }
+.orbit-camera { display: flex; padding: 0 8px 7px; gap: 4px; }
+.orbit-camera button { flex: 1; border: 1px solid #2c4152; background: #16232f; border-radius: 3px; color: #a2b4c4; font-size: 8px; padding: 4px 3px; }
+.orbit-camera button[aria-pressed="true"] { background: #1a4056; border-color: #4087a8; color: #bce9ff; }
+.orbit-camera button:hover:enabled { border-color: var(--accent); color: var(--ink); }
+.orbit-legend { display: flex; align-items: center; gap: 12px; border-top: 1px solid #263746; padding: 5px 10px; font: 7px var(--mono); color: #93aabb; pointer-events: none; }
+.orbit-legend > span::before { content: ""; display: inline-block; width: 17px; border-top: 1px solid #93aabb; margin: 0 5px 2px 0; }
+.orbit-legend .orbit-future::before { border-top-style: dashed; }
+.orbit-legend small { margin-left: auto; font-size: 6px; color: #748b9d; }
+.viewport-compass { position: absolute; bottom: 24px; right: 14px; display: grid; gap: 5px; justify-items: center; width: 40px; background: transparent; border: 0; padding: 0; color: var(--muted); z-index: 2; }
+.compass-needle { width: 29px; height: 29px; display: grid; place-items: center; border: 1px solid #405363; border-radius: 50%; font: 600 9px var(--mono); color: #c1deea; background: #0c1722d9; }
+.compass-needle::before { content: ""; position: absolute; top: -3px; width: 4px; height: 7px; background: var(--accent); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.viewport-compass small { font: 7px var(--mono); }
+.globe-hover { position: absolute; pointer-events: none; z-index: 4; max-width: 280px; padding: 7px 9px; background: #0c1722f5; border: 1px solid #40596b; border-radius: 4px; color: #cce2f0; font: 8px var(--mono); box-shadow: 0 3px 10px #0004; }
+.shell[data-map-expanded="true"] .center-workspace { grid-template-rows: minmax(0, 1fr); }
+.shell[data-map-expanded="true"] .analysis-dock { display: none; }
+@container (max-width: 480px) or (max-height: 260px) {
+  .orbit-hud { width: 224px; }
+  .satellite-readout { padding: 5px 7px; gap: 5px; }
+  .satellite-readout small, .orbit-telemetry, .orbit-legend { display: none; }
+  .satellite-readout strong { font-size: 8px; margin-top: 0; }
+  #satellite-swatch { height: 10px; }
+  .orbit-camera { padding: 0 5px 5px; }
+}
+@media (max-width: 640px), (max-height: 720px) {
+  .orbit-hud { left: 8px; bottom: 22px; width: 248px; }
+  .satellite-readout { padding: 6px 8px; gap: 6px; }
+  .satellite-readout small { font-size: 5px; letter-spacing: .3px; }
+  .satellite-readout strong { font-size: 8px; }
+  .orbit-legend { gap: 8px; padding: 4px 8px; font-size: 6px; }
+  .orbit-camera { padding-bottom: 5px; }
+  .viewport-coordinate { left: 10px; top: 10px; }
+  .globe-overlay { top: 10px; right: 10px; font-size: 8px; gap: 4px; }
+  .viewport-compass { right: 9px; bottom: 22px; }
+}
 @media (max-width: 1300px) {
   .shell { --config-width: 224px; --inspector-width: 254px; }
   .metric-grid dd { font-size: 22px; }

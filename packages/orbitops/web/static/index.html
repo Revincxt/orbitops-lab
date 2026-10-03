@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://cesium.com">
   <link rel="preconnect" href="https://gibs.earthdata.nasa.gov">
   <link id="cesium-styles" rel="preload" as="style" href="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Widgets/widgets.css">
-  <link rel="stylesheet" href="./app.css?v=0.3.0">
+  <link rel="stylesheet" href="./app.css?v=0.4.0">
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -76,13 +76,19 @@
       </aside>
       <section id="results" class="center-workspace" aria-label="Mission workspace">
         <article class="globe-card" aria-labelledby="globe-title">
-          <div class="viewport-toolbar"><div class="viewport-title"><span class="live-dot"></span><h2 id="globe-title">Mission geometry</h2><span class="view-tag">3D</span></div><div class="viewport-tools"><button id="toggle-targets" class="tool-button" type="button" aria-pressed="true">Targets</button><button id="toggle-track" class="tool-button" type="button" aria-pressed="true">Orbit</button><button id="toggle-rays" class="tool-button" type="button" aria-pressed="true">Links</button><button id="toggle-labels" class="tool-button" type="button" aria-pressed="false">Labels</button><button id="reset-view" class="icon-button" type="button" title="Fit mission to view" aria-label="Fit mission to view"><svg><use href="#i-reset"/></svg></button></div></div>
+          <div class="viewport-toolbar"><div class="viewport-title"><span class="live-dot"></span><h2 id="globe-title">Mission geometry</h2><span class="view-tag">3D</span></div><div class="viewport-tools"><button id="toggle-targets" class="tool-button" type="button" aria-pressed="true">Targets</button><button id="toggle-track" class="tool-button" type="button" aria-pressed="true" title="Source orbit samples: solid past, dashed future">Orbit</button><button id="toggle-rays" class="tool-button" type="button" aria-pressed="true">Links</button><button id="toggle-labels" class="tool-button" type="button" aria-pressed="false" title="Target IDs appear when zoomed in; selected target stays labelled">Labels</button><button id="reset-view" class="icon-button" type="button" title="Fit mission to view" aria-label="Fit mission to view"><svg><use href="#i-reset"/></svg></button><button id="expand-map" class="icon-button" type="button" title="Expand map pane" aria-label="Expand map pane" aria-expanded="false" aria-controls="mission-globe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5"/></svg></button></div></div>
           <div class="globe-frame">
             <div id="mission-globe" role="img" aria-label="Interactive three-dimensional mission geometry"></div>
             <div id="globe-loading" class="globe-loading" aria-live="polite"><span class="orbit-loader" aria-hidden="true"></span><span>Preparing mission geometry</span></div>
-            <div class="viewport-coordinate"><span>MISSION CONTEXT</span><strong id="globe-coordinate">WGS84 / GEODETIC</strong></div>
+            <div class="viewport-coordinate"><span id="camera-mode">MISSION CONTEXT</span><strong id="globe-coordinate">WGS84 / GEODETIC</strong></div>
             <div class="globe-overlay"><span><i></i>Planned</span><span class="state-observing"><i></i>Observing</span><span class="state-completed"><i></i>Completed</span><span class="state-unassigned"><i></i>Unassigned</span></div>
-            <div class="viewport-axis" aria-hidden="true"><span class="axis-y">N</span><span class="axis-x">E</span><span class="axis-origin"></span></div>
+            <div id="orbit-hud" class="orbit-hud" hidden>
+              <div class="satellite-readout"><i id="satellite-swatch" aria-hidden="true"></i><div><small>SELECTED SATELLITE · SOURCE REPLAY</small><strong id="satellite-name">Select a satellite</strong></div><div class="orbit-telemetry"><span title="Display-interpolated altitude above the WGS84 ellipsoid, not telemetry"><b id="satellite-altitude">— km</b> ALT</span><span title="Orbital period recorded in source CZML"><b id="satellite-period">— min</b> PERIOD</span></div></div>
+              <div class="orbit-camera" role="group" aria-label="Satellite camera controls"><button id="camera-overview" type="button" aria-pressed="true">Overview</button><button id="camera-focus" type="button" aria-pressed="false" disabled>Focus</button><button id="camera-follow" type="button" aria-pressed="false" disabled>Follow</button><button id="toggle-sat-labels" type="button" aria-pressed="true" title="Toggle satellite names">Sat IDs</button></div>
+              <div class="orbit-legend"><span class="orbit-past">Past</span><span class="orbit-future">Future</span><small id="orbit-span">One-period window</small></div>
+            </div>
+            <div id="globe-hover" class="globe-hover" role="tooltip" hidden></div>
+            <button id="north-view" class="viewport-compass" type="button" title="Face north" aria-label="Face north" disabled><span class="compass-needle" aria-hidden="true">N</span><small id="camera-heading">0°</small></button>
           </div>
           <div class="globe-footer"><p><strong id="globe-targets">— targets</strong><span id="globe-sequence">Awaiting schedule</span></p><small id="geometry-source">CesiumJS · NASA GIBS</small></div>
           <div class="replay-bar" aria-label="Mission playback"><div class="replay-controls"><button id="replay-play" type="button" class="page-button" aria-label="Play mission replay" aria-pressed="false">▶</button><button id="replay-reset" type="button" class="page-button" aria-label="Reset mission replay">↤</button><time id="replay-time">T+00:00:00</time><span id="replay-progress">0 completed</span><label class="speed-label"><span>Speed</span><select id="replay-speed" aria-label="Replay speed"><option value="1">1×</option><option value="30">30×</option><option value="60" selected>60×</option><option value="300">300×</option><option value="900">900×</option></select></label></div><input id="replay-scrub" type="range" min="0" max="1" step="0.1" value="0" aria-label="Mission replay time"></div>
@@ -127,8 +133,8 @@
   <script src="./deployment-config.js?v=0.2.0"></script>
   <script src="./cesium-config.js?v=0.2.0"></script>
   <script id="cesium-engine" src="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Cesium.js" async></script>
-  <script src="./replay.js?v=0.3.0" defer></script>
-  <script src="./mission.js?v=0.3.0" defer></script>
-  <script src="./app.js?v=0.3.0" defer></script>
+  <script src="./replay.js?v=0.4.0" defer></script>
+  <script src="./mission.js?v=0.4.0" defer></script>
+  <script src="./app.js?v=0.4.0" defer></script>
 </body>
 </html>

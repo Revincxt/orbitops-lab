@@ -9,7 +9,7 @@ function timeLabel(seconds) {
 }
 
 function taskState(taskId) {
-  const task = state.currentPayload?.scenario.tasks.find((item) => item.task_id === taskId);
+  const task = state.taskById.get(taskId);
   return window.OrbitReplay.taskState(state.replay.time, state.assignments.get(taskId), task?.visibility_windows);
 }
 
@@ -29,6 +29,12 @@ function filteredTasks(scenario) {
 }
 
 function configureReplay(payload) {
+  releaseCameraTracking();
+  state.cameraMode = "overview";
+  state.orbitEmphasis = false;
+  if (!payload.replay?.orbits.some((orbit) => orbit.satellite_id === state.selectedSatelliteId)) state.selectedSatelliteId = null;
+  document.getElementById("globe-hover").hidden = true;
+  document.getElementById("orbit-hud").hidden = payload.mode !== "reference";
   state.replay.playing = false;
   state.replay.time = payload.scenario.horizon_start_s;
   state.replay.lastFrame = 0;
@@ -117,6 +123,7 @@ function updateReplayVisuals() {
   }
   if (state.globe) updateCesiumReplay(active);
   else if (payload.replay) updateFallbackReplay(active);
+  updateOrbitHud();
   if (document.getElementById("target-filter").value === "active") renderTargetCatalog();
 }
 
@@ -313,31 +320,104 @@ function renderSourceDiagnostics() {
   elements.learning.replaceChildren(root);
 }
 
+const ORBIT_PALETTE = ["#79cfff", "#f4c078", "#a6d68b", "#c9a5f4", "#79d8ca", "#f09ea9", "#87acf5", "#e1d286", "#83c6a7", "#e1a3d0", "#abcee6", "#e3ad7d", "#b8bfef", "#8dd3e5", "#d5dc95", "#dc9ea2", "#a8d0c2", "#bea7db", "#a8bdf0", "#e8c59b"];
+
+function orbitColor(id) {
+  const index = state.currentPayload?.replay?.orbits.findIndex((orbit) => orbit.satellite_id === id) ?? -1;
+  return ORBIT_PALETTE[Math.max(0, index) % ORBIT_PALETTE.length];
+}
+
+function satelliteName(id) {
+  return id.replace(/_\d+$/, "").replaceAll("_", " ");
+}
+
+function satelliteAltitude(orbit) {
+  const position = state.globe && state.orbitPositions.get(orbit.satellite_id)?.getValue(state.globe.clock.currentTime);
+  return position ? window.Cesium.Cartographic.fromCartesian(position).height : window.OrbitReplay.point(orbit.samples, state.replay.time)[2];
+}
+
+function satelliteGlyph() {
+  // A screen-space engineering symbol, not a physical spacecraft/attitude model.
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 40;
+  const context = canvas.getContext("2d");
+  context.translate(20, 20);
+  context.rotate(-Math.PI / 7);
+  context.strokeStyle = "#08111a";
+  context.lineWidth = 2;
+  context.fillStyle = "#fff";
+  for (const x of [-17, 7]) {
+    context.fillRect(x, -7, 10, 14);
+    context.strokeRect(x, -7, 10, 14);
+    context.beginPath();
+    context.moveTo(x + 5, -7); context.lineTo(x + 5, 7);
+    context.moveTo(x, 0); context.lineTo(x + 10, 0);
+    context.stroke();
+  }
+  context.fillRect(-5, -10, 10, 20);
+  context.strokeRect(-5, -10, 10, 20);
+  return canvas;
+}
+
 function setupReferenceGlobe(viewer, Cesium) {
   const payload = state.currentPayload;
   const epoch = Cesium.JulianDate.fromIso8601(payload.scenario.epoch_utc);
-  viewer.clock.currentTime = epoch;
+  viewer.clock.startTime = Cesium.JulianDate.clone(epoch);
+  viewer.clock.stopTime = Cesium.JulianDate.addSeconds(epoch, payload.scenario.horizon_end_s, new Cesium.JulianDate());
+  viewer.clock.currentTime = Cesium.JulianDate.addSeconds(epoch, state.replay.time, new Cesium.JulianDate());
+  viewer.clock.clockRange = Cesium.ClockRange.CLAMPED;
+  viewer.clock.shouldAnimate = false;
+  const symbol = satelliteGlyph();
   payload.replay.orbits.forEach((orbit, index) => {
     const position = new Cesium.SampledPositionProperty();
     orbit.samples.forEach(([time, lon, lat, altitude]) => position.addSample(Cesium.JulianDate.addSeconds(epoch, time, new Cesium.JulianDate()), Cesium.Cartesian3.fromDegrees(lon, lat, altitude)));
     position.setInterpolationOptions({interpolationDegree: 1, interpolationAlgorithm: Cesium.LinearApproximation});
     state.orbitPositions.set(orbit.satellite_id, position);
-    const color = Cesium.Color.fromHsl((index * 0.618) % 1, 0.55, 0.65);
-    viewer.entities.add({id: `orbit-${orbit.satellite_id}`, position, path: {show: state.layers.track, leadTime: 0, trailTime: orbit.period_s, resolution: 30, width: 1.25, material: color.withAlpha(0.65)}});
-    viewer.entities.add({id: `satellite-${orbit.satellite_id}`, position, point: {pixelSize: 6, color, outlineColor: Cesium.Color.WHITE, outlineWidth: 1}, label: {show: false, text: orbit.satellite_id, font: "10px sans-serif", fillColor: color, pixelOffset: new Cesium.Cartesian2(0, -15)}});
+    const color = Cesium.Color.fromCssColorString(ORBIT_PALETTE[index % ORBIT_PALETTE.length]);
+    const styles = {};
+    for (const [name, alpha] of [["normal", .65], ["selected", .95], ["dimmed", .28]]) {
+      styles[name] = {
+        past: new Cesium.PolylineGlowMaterialProperty({color: color.withAlpha(alpha), glowPower: .08}),
+        future: new Cesium.PolylineDashMaterialProperty({color: color.withAlpha(alpha * .75), dashLength: 14}),
+      };
+    }
+    state.orbitStyles.set(orbit.satellite_id, styles);
+    const bounds = windowForOrbit(orbit);
+    viewer.entities.add({id: `orbit-${orbit.satellite_id}`, position,
+      path: {show: state.layers.track && bounds.past > 0, leadTime: 0, trailTime: bounds.past, resolution: 15, width: 1.4, material: styles.normal.past}});
+    viewer.entities.add({id: `orbit-preview-${orbit.satellite_id}`, position,
+      path: {show: state.layers.track && bounds.future > 0, leadTime: bounds.future, trailTime: 0, resolution: 15, width: 1.4, material: styles.normal.future}});
+    viewer.entities.add({id: `satellite-${orbit.satellite_id}`, name: orbit.satellite_id, position,
+      viewFrom: new Cesium.Cartesian3(-1800000, -1800000, 1600000),
+      billboard: {image: symbol, width: 22, height: 22, color, disableDepthTestDistance: 0,
+        scaleByDistance: new Cesium.NearFarScalar(500000, 1.3, 50000000, .75)},
+      point: {show: false, pixelSize: 23, color: color.withAlpha(.15), outlineColor: color, outlineWidth: 1, disableDepthTestDistance: 0},
+      label: {show: state.layers.satelliteLabels, text: satelliteName(orbit.satellite_id), font: "500 11px sans-serif", fillColor: color,
+        showBackground: true, backgroundColor: Cesium.Color.fromCssColorString("#0a1420").withAlpha(.8),
+        backgroundPadding: new Cesium.Cartesian2(5, 3), horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+        pixelOffset: new Cesium.Cartesian2(14, -10), disableDepthTestDistance: 0,
+        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 55000000)}});
   });
   payload.scenario.tasks.forEach((task) => {
     viewer.entities.add({id: `target-${task.task_id}`, name: task.task_id, position: Cesium.Cartesian3.fromDegrees(task.target.longitude_deg, task.target.latitude_deg, task.target.altitude_m),
-      point: {pixelSize: 5, color: Cesium.Color.fromCssColorString(stateColor(task.task_id)), outlineWidth: 0},
-      label: {show: state.layers.labels || task.task_id === state.selectedTaskId, text: task.task_id, font: "11px sans-serif", fillColor: Cesium.Color.WHITE, pixelOffset: new Cesium.Cartesian2(8, -10)}});
+      point: {pixelSize: 4, color: Cesium.Color.fromCssColorString(stateColor(task.task_id)).withAlpha(.85), outlineColor: Cesium.Color.fromCssColorString("#102333"), outlineWidth: .5, disableDepthTestDistance: 0},
+      label: {show: state.layers.labels || task.task_id === state.selectedTaskId, text: task.task_id, font: "600 11px sans-serif", fillColor: Cesium.Color.WHITE,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE, outlineColor: Cesium.Color.fromCssColorString("#08111a"), outlineWidth: 3,
+        pixelOffset: new Cesium.Cartesian2(9, -13), disableDepthTestDistance: 0,
+        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, task.task_id === state.selectedTaskId ? Infinity : 3500000)}});
   });
-  state.cameraHome = {missionCenter: new Cesium.BoundingSphere(Cesium.Cartesian3.ZERO, 7100000), global: true, longitudeCenter: 30, latitudeCenter: 10};
+  const altitude = Math.max(...payload.replay.orbits.map((orbit) => Math.max(...orbit.samples.map((sample) => sample[3]))));
+  state.cameraHome = {missionCenter: new Cesium.BoundingSphere(Cesium.Cartesian3.ZERO, Cesium.Ellipsoid.WGS84.maximumRadius + altitude), global: true, longitudeCenter: 105, latitudeCenter: 20};
   fitMissionView();
   elements.globe.dataset.engine = "cesium";
   document.querySelector(".view-tag").textContent = "3D";
   elements.globeLoading.classList.add("is-hidden");
   updateGlobeLayers();
   updateReplayVisuals();
+}
+
+function windowForOrbit(orbit) {
+  return window.OrbitReplay.orbitWindow(orbit.samples, state.replay.time, orbit.period_s);
 }
 
 function updateCesiumReplay(active) {
@@ -347,13 +427,48 @@ function updateCesiumReplay(active) {
   if (payload.scenario.epoch_utc) viewer.clock.currentTime = Cesium.JulianDate.addSeconds(Cesium.JulianDate.fromIso8601(payload.scenario.epoch_utc), state.replay.time, new Cesium.JulianDate());
   payload.scenario.tasks.forEach((task) => {
     const entity = viewer.entities.getById(`target-${task.task_id}`);
-    if (entity?.point) entity.point.color = Cesium.Color.fromCssColorString(stateColor(task.task_id));
+    const current = taskState(task.task_id);
+    if (entity?.point && state.entityTaskStates.get(task.task_id) !== current) {
+      entity.point.color = Cesium.Color.fromCssColorString(stateColor(task.task_id)).withAlpha(.85);
+      state.entityTaskStates.set(task.task_id, current);
+    }
   });
-  const selectedSatellite = state.assignments.get(state.selectedTaskId)?.satellite_id;
-  for (const entity of viewer.entities.values) {
-    if (entity.id.startsWith("satellite-") && entity.label) entity.label.show = entity.id === `satellite-${selectedSatellite}` || state.layers.labels;
-    if (entity.id.startsWith("satellite-") && entity.point) entity.point.pixelSize = entity.id === `satellite-${selectedSatellite}` ? 10 : 6;
-    if (entity.id.startsWith("orbit-") && entity.path) entity.path.width = entity.id === `orbit-${selectedSatellite}` ? 2.5 : 1.25;
+  if (payload.replay) {
+    const selectionKey = `${state.selectedSatelliteId}:${state.selectedTaskId}:${state.layers.labels}:${state.layers.satelliteLabels}:${state.orbitEmphasis}`;
+    const changed = selectionKey !== state.geometrySelectionKey;
+    payload.replay.orbits.forEach((orbit) => {
+      const bounds = windowForOrbit(orbit);
+      const selected = orbit.satellite_id === state.selectedSatelliteId;
+      const past = viewer.entities.getById(`orbit-${orbit.satellite_id}`)?.path;
+      const future = viewer.entities.getById(`orbit-preview-${orbit.satellite_id}`)?.path;
+      if (!past || !future) return;
+      past.trailTime = bounds.past;
+      future.leadTime = bounds.future;
+      past.show = state.layers.track && bounds.past > 0;
+      future.show = state.layers.track && bounds.future > 0;
+      if (changed) {
+        const styles = state.orbitStyles.get(orbit.satellite_id)[selected ? "selected" : state.selectedSatelliteId && state.orbitEmphasis ? "dimmed" : "normal"];
+        past.material = styles.past;
+        future.material = styles.future;
+        past.width = future.width = selected ? 2.5 : 1.4;
+        const entity = viewer.entities.getById(`satellite-${orbit.satellite_id}`);
+        entity.billboard.width = entity.billboard.height = selected ? 30 : 22;
+        entity.point.show = selected;
+        entity.label.show = selected || state.layers.satelliteLabels;
+      }
+    });
+    if (changed) {
+      payload.scenario.tasks.forEach((task) => {
+        const entity = viewer.entities.getById(`target-${task.task_id}`);
+        const selected = task.task_id === state.selectedTaskId;
+        entity.point.pixelSize = selected ? 10 : 4;
+        entity.point.outlineWidth = selected ? 2 : .5;
+        entity.label.show = selected || state.layers.labels;
+        entity.label.distanceDisplayCondition = new Cesium.DistanceDisplayCondition(0, selected ? Infinity : 3500000);
+      });
+      state.geometrySelectionKey = selectionKey;
+      if (state.cameraMode === "follow") followSelectedSatellite();
+    }
   }
   const activeIds = new Set(active.map((assignment) => `ray-${assignment.task_id}`));
   viewer.entities.values.filter((entity) => entity.id.startsWith("ray-") && !activeIds.has(entity.id)).forEach((entity) => viewer.entities.remove(entity));
@@ -371,8 +486,19 @@ function updateCesiumReplay(active) {
 function addFallbackOrbits(map) {
   const group = svgElement("g", {class: "fallback-orbits"});
   state.currentPayload.replay.orbits.forEach((orbit) => {
-    group.append(svgElement("g", {class: "map-orbit", "data-satellite-id": orbit.satellite_id}));
-    group.append(svgElement("circle", {class: "map-satellite", "data-satellite-id": orbit.satellite_id, r: 3}));
+    const track = svgElement("g", {class: "map-orbit", "data-satellite-id": orbit.satellite_id});
+    track.style.stroke = orbitColor(orbit.satellite_id);
+    group.append(track);
+    const marker = svgElement("g", {class: "map-satellite", "data-satellite-id": orbit.satellite_id, role: "button", tabindex: "0", "aria-label": `Inspect satellite ${orbit.satellite_id}`});
+    marker.style.color = orbitColor(orbit.satellite_id);
+    marker.append(svgElement("path", {d: "M-8-3H-3V-5H3V-3H8V3H3V5H-3V3H-8Z"}));
+    marker.append(svgElement("title", {}, orbit.satellite_id));
+    marker.append(svgElement("text", {x: 11, y: -7, class: "satellite-label"}, satelliteName(orbit.satellite_id)));
+    marker.addEventListener("click", () => selectSatellite(orbit.satellite_id));
+    marker.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectSatellite(orbit.satellite_id); }
+    });
+    group.append(marker);
   });
   map.append(group);
   map.append(svgElement("g", {class: "fallback-rays"}));
@@ -387,19 +513,20 @@ function updateFallbackReplay(active) {
     const [x, y] = project(point[0], point[1]);
     positions.set(orbit.satellite_id, [x, y]);
     const marker = document.querySelector(`.map-satellite[data-satellite-id="${CSS.escape(orbit.satellite_id)}"]`);
-    marker?.setAttribute("cx", x);
-    marker?.setAttribute("cy", y);
+    marker?.setAttribute("transform", `translate(${x},${y})`);
+    const selected = orbit.satellite_id === state.selectedSatelliteId;
+    marker?.classList.toggle("is-selected", selected);
+    marker?.setAttribute("aria-pressed", String(selected));
+    if (marker) marker.querySelector("text").style.display = selected || state.layers.satelliteLabels ? "" : "none";
     const group = document.querySelector(`.map-orbit[data-satellite-id="${CSS.escape(orbit.satellite_id)}"]`);
     if (!group) return;
     group.style.display = state.layers.track ? "" : "none";
-    const end = window.OrbitReplay.sampleIndex(orbit.samples, state.replay.time);
-    const start = window.OrbitReplay.sampleIndex(orbit.samples, Math.max(0, state.replay.time - orbit.period_s));
-    const segments = [[]];
-    orbit.samples.slice(start, end + 1).forEach((sample, index, samples) => {
-      if (index && Math.abs(sample[1] - samples[index - 1][1]) > 180) segments.push([]);
-      segments.at(-1).push(project(sample[1], sample[2]).join(","));
-    });
-    group.replaceChildren(...segments.map((points) => svgElement("polyline", {points: points.join(" ")})));
+    group.classList.toggle("is-selected", selected);
+    group.classList.toggle("is-dimmed", Boolean(state.selectedSatelliteId && state.orbitEmphasis && !selected));
+    const bounds = windowForOrbit(orbit);
+    const paths = [["past", bounds.start, state.replay.time], ["future", state.replay.time, bounds.end]].flatMap(([kind, start, end]) =>
+      window.OrbitReplay.trackSegments(orbit.samples, start, end).map((segment) => svgElement("polyline", {class: `map-track-${kind}`, points: segment.map((sample) => project(sample[1], sample[2]).join(",")).join(" ")})));
+    group.replaceChildren(...paths);
   });
   const rays = document.querySelector(".fallback-rays");
   if (!rays) return;
@@ -414,6 +541,179 @@ function updateFallbackReplay(active) {
     ray.style.display = state.layers.rays ? "" : "none";
     return [ray];
   }));
+}
+
+function releaseCameraTracking() {
+  if (!state.globe || !window.Cesium) return;
+  state.globe.trackedEntity = undefined;
+  state.globe.camera.lookAtTransform(window.Cesium.Matrix4.IDENTITY);
+}
+
+function selectSatellite(id) {
+  if (!state.currentPayload?.replay?.orbits.some((orbit) => orbit.satellite_id === id)) return;
+  state.selectedSatelliteId = id;
+  state.orbitEmphasis = true;
+  updateReplayVisuals();
+  renderWorkloads();
+  if (!document.getElementById("pane-timeline").hidden) renderGantt(state.currentPayload.scenario, state.currentPayload.result);
+}
+
+function updateOrbitHud() {
+  const reference = state.currentPayload?.mode === "reference";
+  document.getElementById("orbit-hud").hidden = !reference;
+  const orbit = state.currentPayload?.replay?.orbits.find((item) => item.satellite_id === state.selectedSatelliteId);
+  const available = Boolean(orbit && state.globe?.entities.getById(`satellite-${orbit.satellite_id}`));
+  document.getElementById("camera-focus").disabled = !available;
+  document.getElementById("camera-follow").disabled = !available;
+  document.getElementById("north-view").disabled = !state.globe;
+  document.getElementById("camera-overview").disabled = !state.globe;
+  for (const mode of ["overview", "focus", "follow"]) document.getElementById(`camera-${mode}`).setAttribute("aria-pressed", String(state.cameraMode === mode));
+  textField("camera-mode", state.globe ? `${state.cameraMode.toUpperCase()} · WGS84` : "2D · SOURCE SAMPLES");
+  if (!reference) return;
+  textField("satellite-name", orbit ? satelliteName(orbit.satellite_id) : "Select a satellite");
+  document.getElementById("satellite-name").title = orbit?.satellite_id || "Pick a satellite symbol or select an assigned task";
+  document.getElementById("satellite-swatch").style.backgroundColor = orbit ? orbitColor(orbit.satellite_id) : "#596777";
+  if (orbit) {
+    textField("satellite-altitude", `${(satelliteAltitude(orbit) / 1000).toFixed(1)} km`);
+    textField("satellite-period", `${(orbit.period_s / 60).toFixed(1)} min`);
+    textField("orbit-span", `${(Math.min(orbit.period_s, orbit.samples.at(-1)[0] - orbit.samples[0][0]) / 60).toFixed(1)} min window`);
+  } else {
+    textField("satellite-altitude", "— km");
+    textField("satellite-period", "— min");
+    textField("orbit-span", "One-period window");
+  }
+}
+
+function cameraMotionDuration() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : .65;
+}
+
+function focusSelectedSatellite() {
+  const viewer = state.globe;
+  const Cesium = window.Cesium;
+  if (!viewer || !Cesium) return;
+  const position = state.orbitPositions.get(state.selectedSatelliteId)?.getValue(viewer.clock.currentTime);
+  if (!position) return;
+  releaseCameraTracking();
+  state.cameraMode = "focus";
+  state.orbitEmphasis = true;
+  const range = window.OrbitReplay.fitRange(1000000, viewer.camera.frustum.fovy, viewer.camera.frustum.aspectRatio, 1.1);
+  viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(position, 1000000), {
+    duration: cameraMotionDuration(), offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-65), range),
+  });
+  viewer.scene.requestRender();
+  updateOrbitHud();
+  updateReplayVisuals();
+}
+
+function followSelectedSatellite() {
+  const viewer = state.globe;
+  const entity = viewer?.entities.getById(`satellite-${state.selectedSatelliteId}`);
+  if (!entity || !entity.position.getValue(viewer.clock.currentTime)) return;
+  state.cameraMode = "follow";
+  state.orbitEmphasis = true;
+  if (viewer.trackedEntity !== entity) viewer.trackedEntity = entity;
+  viewer.scene.requestRender();
+  updateOrbitHud();
+}
+
+function pickedMissionObject(viewer, point) {
+  const first = viewer.scene.pick(point)?.id;
+  // Observation links/paths can share a pixel with their satellite symbol.
+  // Prefer the actual symbol there, without disabling depth testing.
+  const satellite = typeof first?.id === "string" && !first.billboard && (first.id.startsWith("orbit-") || first.id.startsWith("ray-"))
+    ? viewer.scene.drillPick(point, 5).find((hit) => hit.id?.billboard)?.id : null;
+  const id = (satellite || first)?.id;
+  if (typeof id !== "string") return null;
+  for (const prefix of ["target-", "ray-"]) if (id.startsWith(prefix)) return {kind: "task", id: id.slice(prefix.length)};
+  for (const prefix of ["satellite-", "orbit-preview-", "orbit-"]) if (id.startsWith(prefix)) return {kind: "satellite", id: id.slice(prefix.length)};
+  return null;
+}
+
+function bindGlobePicking(viewer, Cesium) {
+  const tooltip = document.getElementById("globe-hover");
+  const inspect = (point, focus = false) => {
+    const picked = pickedMissionObject(viewer, point);
+    if (!picked) return;
+    if (picked.kind === "task") selectTarget(picked.id);
+    else selectSatellite(picked.id);
+    if (focus && state.currentPayload?.mode === "reference") focusSelectedSatellite();
+  };
+  viewer.screenSpaceEventHandler.setInputAction((event) => inspect(event.position), Cesium.ScreenSpaceEventType.LEFT_CLICK);
+  viewer.screenSpaceEventHandler.setInputAction((event) => inspect(event.position, true), Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+  let lastPick = 0;
+  let hoverTimer;
+  const hover = (point) => {
+    if (viewer.isDestroyed()) return;
+    lastPick = performance.now();
+    const picked = pickedMissionObject(viewer, point);
+    tooltip.hidden = !picked;
+    viewer.canvas.style.cursor = picked ? "pointer" : "grab";
+    if (!picked) return;
+    if (picked.kind === "task") tooltip.textContent = `${picked.id} · ${taskState(picked.id)} · click to inspect`;
+    else {
+      const orbit = state.currentPayload?.replay?.orbits.find((item) => item.satellite_id === picked.id);
+      if (!orbit) { tooltip.hidden = true; return; }
+      tooltip.textContent = `${satelliteName(picked.id)} · ${(satelliteAltitude(orbit) / 1000).toFixed(1)} km · double-click to focus`;
+    }
+    tooltip.style.left = `${Math.max(8, Math.min(elements.globe.clientWidth - 288, point.x + 15))}px`;
+    tooltip.style.top = `${Math.max(8, Math.min(elements.globe.clientHeight - 36, point.y + 15))}px`;
+  };
+  viewer.screenSpaceEventHandler.setInputAction((event) => {
+    clearTimeout(hoverTimer);
+    const point = Cesium.Cartesian2.clone(event.endPosition);
+    hoverTimer = setTimeout(() => hover(point), Math.max(0, 80 - (performance.now() - lastPick)));
+  }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+  viewer.canvas.addEventListener("mouseleave", () => { clearTimeout(hoverTimer); tooltip.hidden = true; });
+  viewer.camera.percentageChanged = .01;
+  viewer.camera.changed.addEventListener(() => {
+    const heading = Cesium.Math.toDegrees(viewer.camera.heading);
+    document.querySelector(".compass-needle").style.transform = `rotate(${-heading}deg)`;
+    document.getElementById("camera-heading").textContent = `${Math.round(heading) % 360}°`;
+    clearTimeout(hoverTimer);
+    tooltip.hidden = true;
+  });
+}
+
+function bindOrbitControls() {
+  document.getElementById("camera-overview").addEventListener("click", () => fitMissionView(cameraMotionDuration()));
+  document.getElementById("camera-focus").addEventListener("click", focusSelectedSatellite);
+  document.getElementById("camera-follow").addEventListener("click", () => {
+    if (state.cameraMode === "follow") {
+      releaseCameraTracking();
+      state.cameraMode = "focus";
+      updateOrbitHud();
+    } else {
+      followSelectedSatellite();
+      updateReplayVisuals();
+    }
+  });
+  document.getElementById("toggle-sat-labels").addEventListener("click", (event) => {
+    state.layers.satelliteLabels = !state.layers.satelliteLabels;
+    event.currentTarget.setAttribute("aria-pressed", String(state.layers.satelliteLabels));
+    updateReplayVisuals();
+  });
+  document.getElementById("north-view").addEventListener("click", () => {
+    if (!state.globe) return;
+    const viewer = state.globe;
+    releaseCameraTracking();
+    if (state.cameraMode === "follow") state.cameraMode = "focus";
+    viewer.camera.setView({orientation: {heading: 0, pitch: viewer.camera.pitch, roll: 0}});
+    viewer.scene.requestRender();
+    updateOrbitHud();
+  });
+  document.getElementById("expand-map").addEventListener("click", (event) => {
+    const expanded = event.currentTarget.getAttribute("aria-expanded") !== "true";
+    event.currentTarget.setAttribute("aria-expanded", String(expanded));
+    event.currentTarget.setAttribute("aria-label", expanded ? "Restore analysis dock" : "Expand map pane");
+    event.currentTarget.title = expanded ? "Restore analysis dock" : "Expand map pane";
+    elements.shell.dataset.mapExpanded = String(expanded);
+    requestAnimationFrame(() => {
+      state.globe?.resize();
+      if (state.cameraMode === "overview") fitMissionView();
+      refreshPanels();
+    });
+  });
 }
 
 function bindMissionControls() {
@@ -432,11 +732,13 @@ function bindMissionControls() {
   document.getElementById("replay-reset").addEventListener("click", () => setReplayTime(state.currentPayload?.scenario.horizon_start_s || 0, true));
   document.getElementById("replay-scrub").addEventListener("input", (event) => setReplayTime(event.target.value, true));
   document.getElementById("replay-speed").addEventListener("change", (event) => { state.replay.speed = Number(event.target.value); });
+  bindOrbitControls();
   document.addEventListener("visibilitychange", () => { if (document.hidden) pauseReplay(); });
   for (const id of ["target-search", "target-filter", "satellite-filter"]) {
     document.getElementById(id).addEventListener(id === "target-search" ? "input" : "change", () => {
       state.pages.target = 0;
       state.pages.timeline = 0;
+      if (id === "satellite-filter" && document.getElementById(id).value !== "all") selectSatellite(document.getElementById(id).value);
       refreshPanels();
     });
   }

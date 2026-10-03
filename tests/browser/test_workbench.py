@@ -469,3 +469,68 @@ def test_static_reference_mode_uses_the_same_archive_without_api_calls(
     assert page.locator("#metric-tasks").inner_text() == "492/500"
     assert not requests
     assert_single_screen(page)
+
+
+@pytest.mark.parametrize("time", [0, 0.1, 14400, 43199.9, 43200])
+def test_reference_orbit_windows_are_present_at_start_and_stay_inside_source(
+    page: Any, lab_url: str, time: float
+) -> None:
+    reference_ready(page, lab_url)
+    page.evaluate("time => setReplayTime(time, true)", time)
+    windows = page.evaluate("""() => state.currentPayload.replay.orbits.map(orbit => ({
+      ...windowForOrbit(orbit), period: orbit.period_s,
+      segments: OrbitReplay.trackSegments(
+        orbit.samples, windowForOrbit(orbit).start, windowForOrbit(orbit).end)
+    }))""")
+    assert len(windows) == 20
+    for bounds in windows:
+        assert 0 <= bounds["start"] <= time <= bounds["end"] <= 43200
+        assert bounds["past"] + bounds["future"] == pytest.approx(bounds["period"])
+        assert bounds["segments"]
+    assert page.locator(".map-orbit polyline").count() >= 20
+    if time == 0:
+        assert page.locator(".map-track-past").count() == 0
+        assert page.locator(".map-track-future").count() >= 20
+    elif time == 43200:
+        assert page.locator(".map-track-future").count() == 0
+    assert_single_screen(page)
+
+
+def test_orbit_segments_split_at_date_line_without_losing_the_short_arc(
+    page: Any, lab_url: str
+) -> None:
+    reference_ready(page, lab_url)
+    segments = page.evaluate("""() => OrbitReplay.trackSegments(
+      [[0, 179, 10, 500000], [30, -179, 12, 500000]], 0, 30)
+    """)
+    assert len(segments) == 2
+    assert segments[0][-1] == [15, 180, 11, 500000]
+    assert segments[1][0] == [15, -180, 11, 500000]
+    for segment in segments:
+        assert abs(segment[0][1] - segment[-1][1]) <= 1
+
+
+@pytest.mark.parametrize(("width", "height"), [(1440, 900), (800, 600), (375, 667)])
+def test_map_expansion_and_satellite_keyboard_selection_preserve_single_screen(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    assert page.locator("#orbit-hud").is_visible()
+    assert page.locator("#camera-focus").is_disabled()
+    assert page.locator("#camera-follow").is_disabled()
+    marker = page.locator('.map-satellite[data-satellite-id="ALOS-2_39766"]')
+    marker.focus()
+    marker.press("Enter")
+    assert page.locator("#satellite-name").get_attribute("title") == "ALOS-2_39766"
+    assert marker.get_attribute("aria-pressed") == "true"
+    page.locator("#toggle-sat-labels").click()
+    assert page.locator(".satellite-label:visible").count() == 1
+    before = page.locator("#mission-globe").bounding_box()["height"]
+    page.locator("#expand-map").click()
+    assert page.locator(".analysis-dock").is_hidden()
+    assert page.locator("#mission-globe").bounding_box()["height"] > before
+    assert_single_screen(page)
+    page.locator("#expand-map").click()
+    assert page.locator(".analysis-dock").is_visible()
+    assert_single_screen(page)

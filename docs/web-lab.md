@@ -79,7 +79,7 @@ inspector. The interface renders:
   validation issues, search effort, and exact-search proof status.
 - **3D mission geometry:** WGS84 targets and selection highlighting. Reference
   mode uses retained source Orekit position samples, moving satellites,
-  one-period trailing paths and observation links only during actual task
+  one-period paths and observation links only during actual task
   intervals. Local synthetic scenarios have no orbit data: only target
   coordinates and an explicitly labelled plan sequence are shown. Invented
   satellite positions and arbitrary coverage circles are not displayed.
@@ -114,6 +114,30 @@ seconds. Catalog, map, timeline cursor and task details share half-open interval
 semantics: observing at start, completed at end. Planned completion metrics stay
 separate from the playback-completed count. Task search, status and satellite
 filters keep large scenes reachable without scrollbars.
+
+The orbit display uses a bounded one-period window, shifted inside the source
+sample horizon at its ends. Past trajectory is solid; future sampled trajectory
+is dashed. Tracks are visible even when paused at the initial epoch. These are
+source-replay samples, not a new orbit prediction or a closed ellipse invented
+from orbital elements. The 2D fallback splits lines at the date line with
+interpolated seam endpoints, rather than connecting them across the map.
+
+Satellites have screen-space engineering symbols and colour-matched names,
+tracks and selection halos. Symbols do not represent physical scale or attitude.
+Click a satellite/track to select it, or double-click to focus. The map readout
+shows display-interpolated WGS84 ellipsoid altitude and the source orbital period.
+Overview, Focus and Follow are explicit camera modes; selecting a task links the
+associated satellite without automatically flying the camera. Overview and the fit button release
+tracking. Target IDs are distance-limited to avoid labelling all 500 targets at
+global scale; the selected target stays labelled. Depth testing stays enabled
+for targets, satellite symbols and labels, so the far side is occluded.
+
+The map can temporarily expand within the centre workspace while the two side
+panels remain available; restore returns the analysis dock. Camera framing
+accounts for both viewport axes and all retained orbital altitudes, and refits
+when an overview viewport is resized. A north-reset compass reflects the current
+camera heading instead of showing a static orientation indicator. Small/short
+map viewports compact the satellite readout to keep the globe accessible.
 
 ## EOS-Bench reference data
 
@@ -201,7 +225,7 @@ Pydantic contract; other JSON artifacts are ignored.
 ## Cesium integration
 
 The lab loads the official CesiumJS 1.143 browser build from `cesium.com` and
-renders NASA's Blue Marble shaded-relief and bathymetry layer through the public
+renders NASA's Blue Marble shaded-relief layer through the public
 GIBS Web Mercator service (`GoogleMapsCompatible_Level8`). Cesium's bundled
 Natural Earth II tiles remain underneath as a token-free raster fallback.
 Scenario coordinates stay in the browser and are
@@ -259,3 +283,14 @@ ORBITOPS_BROWSER_TESTS=1 pytest tests/browser
 
 Chrome is used by default. Set `ORBITOPS_BROWSER_EXECUTABLE` to test another
 Chromium executable. These checks are skipped in the normal Python suite.
+
+Real WebGL checks run against the official Cesium engine rather than a mocked
+renderer. They verify initial-epoch tracks, exact source-sample positions,
+canvas picking, focus/follow, end-of-horizon bounds, responsive framing, map
+expansion and clearing geometry when switching to a local scenario. NASA
+imagery is deliberately blocked to check the Natural Earth fallback. The
+official Cesium CDN must be reachable:
+
+```bash
+ORBITOPS_GLOBE_TESTS=1 pytest tests/browser/test_globe.py
+```

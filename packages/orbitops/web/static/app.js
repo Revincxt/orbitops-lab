@@ -14,12 +14,19 @@ const state = {
   selectedTaskId: null,
   busy: false,
   pages: {},
-  layers: { targets: true, track: true, rays: true, labels: false },
+  layers: { targets: true, track: true, rays: true, labels: false, satelliteLabels: true },
   cameraHome: null,
   lastRequest: null,
   assignments: new Map(),
+  taskById: new Map(),
   replay: { time: 0, playing: false, speed: 60, lastFrame: 0, lastPaint: 0 },
   orbitPositions: new Map(),
+  orbitStyles: new Map(),
+  entityTaskStates: new Map(),
+  selectedSatelliteId: null,
+  geometrySelectionKey: null,
+  cameraMode: "overview",
+  orbitEmphasis: false,
 };
 const deployment = window.ORBITOPS_DEPLOYMENT || { mode: "api" };
 const staticDeployment = deployment.mode === "static";
@@ -205,6 +212,14 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
   if (!task) return;
   state.selectedTaskId = taskId;
   const assignment = payload.result.validation.simulation?.tasks.find((item) => item.task_id === taskId);
+  if (payload.mode === "reference") {
+    state.selectedSatelliteId = assignment?.satellite_id || null;
+    if (reveal) state.orbitEmphasis = true;
+    if (!assignment && state.cameraMode === "follow") {
+      releaseCameraTracking();
+      state.cameraMode = "focus";
+    }
+  }
   if (seek && assignment) setReplayTime(assignment.start_s, true);
   textField("selected-name", task.target.name);
   textField("selected-id", task.task_id);
@@ -223,9 +238,12 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
       const entity = state.globe.entities.getById(`target-${candidate.task_id}`);
       if (entity?.point) {
         const selected = candidate.task_id === taskId;
-        entity.point.pixelSize = selected ? 12 : 6;
-        entity.point.outlineWidth = selected ? 3 : 1;
-        if (entity.label) entity.label.show = selected || state.layers.labels;
+        entity.point.pixelSize = selected ? 10 : payload.mode === "reference" ? 4 : 6;
+        entity.point.outlineWidth = selected ? 2 : .5;
+        if (entity.label) {
+          entity.label.show = selected || state.layers.labels;
+          entity.label.distanceDisplayCondition = new window.Cesium.DistanceDisplayCondition(0, selected || payload.mode !== "reference" ? Infinity : 3500000);
+        }
       }
     });
     state.globe.scene.requestRender();
@@ -255,6 +273,7 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
   renderTargetCatalog();
   if (!document.getElementById("pane-timeline").hidden) renderGantt(payload.scenario, payload.result);
   if (payload.mode === "reference") renderWorkloads();
+  updateReplayVisuals();
 }
 
 function refreshPanels() {
@@ -1032,12 +1051,15 @@ function fitMissionView(duration = 0) {
   const Cesium = window.Cesium;
   const viewer = state.globe;
   const home = state.cameraHome;
+  releaseCameraTracking();
+  state.cameraMode = "overview";
+  state.orbitEmphasis = false;
   viewer.resize();
-  const range = Math.max(1400000, home.missionCenter.radius / Math.sin(viewer.camera.frustum.fovy / 2) * 1.12);
+  const range = Math.max(1400000, window.OrbitReplay.fitRange(home.missionCenter.radius, viewer.camera.frustum.fovy, viewer.camera.frustum.aspectRatio, home.global ? 1.035 : 1.12));
   if (home.global) {
     viewer.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees(home.longitudeCenter, home.latitudeCenter, range - Cesium.Ellipsoid.WGS84.maximumRadius),
-      orientation: { heading: Cesium.Math.toRadians(-18), pitch: -Cesium.Math.PI_OVER_TWO, roll: 0 },
+      orientation: { heading: 0, pitch: -Cesium.Math.PI_OVER_TWO, roll: 0 },
       duration,
     });
   } else {
@@ -1047,6 +1069,7 @@ function fitMissionView(duration = 0) {
     });
   }
   viewer.scene.requestRender();
+  updateReplayVisuals();
 }
 
 function naturalEarthLayer(Cesium) {
@@ -1057,25 +1080,25 @@ function naturalEarthLayer(Cesium) {
     credit: new Cesium.Credit("Natural Earth II · CesiumJS"),
   });
   return new Cesium.ImageryLayer(provider, {
-    brightness: 1.08,
-    contrast: 1.08,
-    saturation: 1.08,
-    gamma: 1.04,
+    brightness: 1.02,
+    contrast: 1.04,
+    saturation: .95,
+    gamma: 1.02,
   });
 }
 
 function nasaBlueMarbleLayer(Cesium) {
   const provider = new Cesium.UrlTemplateImageryProvider({
-    url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg",
+    url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg",
     tilingScheme: new Cesium.WebMercatorTilingScheme(),
     maximumLevel: 8,
     credit: new Cesium.Credit("NASA Earth Observatory · GIBS"),
   });
   return new Cesium.ImageryLayer(provider, {
-    brightness: 1.18,
-    contrast: 1.08,
-    saturation: 1.12,
-    gamma: 1.08,
+    brightness: 1.06,
+    contrast: 1.06,
+    saturation: .98,
+    gamma: 1.02,
   });
 }
 
@@ -1111,12 +1134,10 @@ function renderMissionGlobe(scenario, result) {
         timeline: false,
         shouldAnimate: false,
         requestRenderMode: true,
+        maximumRenderTimeChange: Infinity,
       });
       state.globe.imageryLayers.add(primaryImagery);
-      state.globe.screenSpaceEventHandler.setInputAction((click) => {
-        const picked = state.globe.scene.pick(click.position);
-        if (picked?.id?.id?.startsWith("target-")) selectTarget(picked.id.id.slice(7));
-      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+      bindGlobePicking(state.globe, Cesium);
       primaryImagery.imageryProvider.errorEvent.addEventListener(() => {
         if (!state.imageryFallbackActive && state.globe) {
           primaryImagery.show = false;
@@ -1132,19 +1153,25 @@ function renderMissionGlobe(scenario, result) {
           elements.globe.dataset.imageryReady = "true";
         }
       });
-      state.globe.scene.backgroundColor = Cesium.Color.fromCssColorString("#0c1118");
+      state.globe.scene.backgroundColor = Cesium.Color.fromCssColorString("#080d14");
       state.globe.scene.globe.baseColor = Cesium.Color.fromCssColorString("#263a49");
       state.globe.scene.globe.enableLighting = false;
       state.globe.scene.globe.showGroundAtmosphere = true;
       state.globe.scene.skyBox.show = false;
       state.globe.scene.sun.show = false;
       state.globe.scene.moon.show = false;
-      state.globe.resolutionScale = Math.min(1.25, window.devicePixelRatio || 1);
+      state.globe.useBrowserRecommendedResolution = false;
+      state.globe.resolutionScale = Math.min(2, window.devicePixelRatio || 1) / (window.devicePixelRatio || 1);
+      state.globe.scene.screenSpaceCameraController.minimumZoomDistance = 15000;
     }
 
     const viewer = state.globe;
+    releaseCameraTracking();
     viewer.entities.removeAll();
     state.orbitPositions.clear();
+    state.orbitStyles.clear();
+    state.entityTaskStates.clear();
+    state.geometrySelectionKey = null;
     if (state.currentPayload.mode === "reference") {
       setupReferenceGlobe(viewer, Cesium);
       return;
@@ -1233,6 +1260,7 @@ function renderResult(payload) {
   const { scenario, result, convergence } = payload;
   const previousScenarioId = state.currentPayload?.scenario.scenario_id;
   state.currentPayload = payload;
+  state.taskById = new Map(scenario.tasks.map((task) => [task.task_id, task]));
   state.assignments = new Map((result.validation.simulation?.tasks || []).map((task) => [task.task_id, task]));
   configureReplay(payload);
   if (previousScenarioId !== scenario.scenario_id) {
@@ -1451,6 +1479,15 @@ const resizeObserver = new ResizeObserver(() => {
   resizeFrame = requestAnimationFrame(refreshPanels);
 });
 for (const host of [elements.timeline, elements.resources, elements.learning, elements.targetList, elements.unscheduledList, elements.validationList, document.querySelector(".comparison-table-host")]) resizeObserver.observe(host);
+let globeResizeFrame;
+const globeResizeObserver = new ResizeObserver(() => {
+  cancelAnimationFrame(globeResizeFrame);
+  globeResizeFrame = requestAnimationFrame(() => {
+    state.globe?.resize();
+    if (state.cameraMode === "overview") fitMissionView();
+  });
+});
+globeResizeObserver.observe(elements.globe);
 document.getElementById("cesium-engine").addEventListener("load", () => {
   if (state.currentPayload && !state.globe) {
     renderMissionGlobe(state.currentPayload.scenario, state.currentPayload.result);

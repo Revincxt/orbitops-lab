@@ -33,6 +33,43 @@ window.OrbitReplay = Object.freeze({
     const delta = ((b[1] - a[1] + 540) % 360) - 180;
     return [((a[1] + delta * fraction + 540) % 360) - 180, a[2] + (b[2] - a[2]) * fraction, a[3] + (b[3] - a[3]) * fraction];
   },
+  orbitWindow(samples, time, period) {
+    const first = samples[0][0];
+    const last = samples.at(-1)[0];
+    const width = Math.min(last - first, Math.max(0, Number(period) || 0));
+    const cursor = Math.max(first, Math.min(last, time));
+    const start = Math.max(first, Math.min(last - width, cursor - width / 2));
+    const end = start + width;
+    return {start, end, past: cursor - start, future: end - cursor};
+  },
+  trackSegments(samples, start, end) {
+    start = Math.max(samples[0][0], start);
+    end = Math.min(samples.at(-1)[0], end);
+    if (end <= start) return [];
+    const points = [[start, ...this.point(samples, start)],
+      ...samples.slice(this.sampleIndex(samples, start) + 1, this.sampleIndex(samples, end) + 1)];
+    if (points.at(-1)[0] !== end) points.push([end, ...this.point(samples, end)]);
+    const segments = [[]];
+    points.forEach((point, index) => {
+      const previous = points[index - 1];
+      if (previous && Math.abs(point[1] - previous[1]) > 180) {
+        const unwrapped = point[1] + (previous[1] > 0 ? 360 : -360);
+        const edge = previous[1] > 0 ? 180 : -180;
+        const fraction = (edge - previous[1]) / (unwrapped - previous[1]);
+        const crossing = [previous[0] + (point[0] - previous[0]) * fraction, edge,
+          previous[2] + (point[2] - previous[2]) * fraction, previous[3] + (point[3] - previous[3]) * fraction];
+        segments.at(-1).push(crossing);
+        segments.push([[crossing[0], -edge, crossing[2], crossing[3]]]);
+      }
+      segments.at(-1).push(point);
+    });
+    return segments.filter((segment) => segment.length > 1);
+  },
+  fitRange(radius, verticalFov, aspect, padding = 1.035) {
+    const halfVertical = verticalFov / 2;
+    const halfHorizontal = Math.atan(Math.tan(halfVertical) * aspect);
+    return radius / Math.sin(Math.min(halfVertical, halfHorizontal)) * padding;
+  },
   referencePayload(archive, plan) {
     return {
       mode: "reference", scenario: archive.scenario, replay: archive.replay,
