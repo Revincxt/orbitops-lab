@@ -111,7 +111,7 @@ def test_analysis_views_fit_without_scrolling(
     page.set_viewport_size({"width": width, "height": height})
     ready(page, lab_url)
     assert page.locator("#mission-globe").get_attribute("data-engine") == "fallback"
-    for name in ["timeline", "comparison", "audit", "learning"]:
+    for name in ["timeline", "comparison"]:
         page.locator(f"#tab-{name}").click()
         page.wait_for_timeout(80)
         assert page.locator(f"#pane-{name}").is_visible()
@@ -120,7 +120,7 @@ def test_analysis_views_fit_without_scrolling(
     page.mouse.wheel(0, 800)
     assert_single_screen(page)
     if width <= 1000:
-        page.locator("#toggle-config").click()
+        page.locator("#workspace-tasks").click()
     page.wait_for_timeout(80)
     assert page.locator("#run-button").is_visible()
     assert page.evaluate("""() => {
@@ -128,11 +128,11 @@ def test_analysis_views_fit_without_scrolling(
       return [...document.querySelectorAll('.target-row')].every(row =>
         row.getBoundingClientRect().bottom <= container.bottom + 1);
     }""")
-    page.locator("#toggle-inspector").click()
     if width <= 1000:
+        page.locator("#workspace-summary").click()
         assert page.locator("#inspector").is_visible()
         assert not page.locator("#experiment").is_visible()
-        page.keyboard.press("Escape")
+        page.locator("#workspace-map").click()
         assert not page.locator("#inspector").is_visible()
 
 
@@ -151,8 +151,7 @@ def collect_pages(page: Any, name: str, selector: str) -> set[str]:
 def reference_ready(page: Any, url: str) -> None:
     page.goto(url, wait_until="domcontentloaded")
     page.wait_for_function(
-        "document.getElementById('mission-id').textContent === 'eos-s1-20-500' "
-        "&& document.getElementById('metric-feasible').textContent === 'N/A'"
+        "state.currentPayload?.scenario.scenario_id === 'eos-s1-20-500' && !state.busy"
     )
 
 
@@ -167,11 +166,11 @@ def test_reference_views_keep_all_data_reachable_without_scrolling(
     reference_ready(page, lab_url)
     assert page.locator(".map-satellite").count() == 20
     assert page.locator(".map-marker").count() == 500
-    for name in ["timeline", "comparison", "audit", "learning"]:
+    for name in ["timeline", "comparison"]:
         page.locator(f"#tab-{name}").click()
         assert_single_screen(page)
     if width <= 1000:
-        page.locator("#toggle-config").click()
+        page.locator("#workspace-tasks").click()
     page.locator("#target-search").fill("M500")
     assert page.locator(".target-row").count() == 1
     page.locator(".target-row").click()
@@ -190,9 +189,9 @@ def test_reference_half_open_task_states_utc_and_no_local_solves(page: Any, lab_
         ),
     )
     reference_ready(page, lab_url)
-    assert page.locator("#metric-value").inner_text() == "2816"
-    assert page.locator("#metric-tasks").inner_text() == "488/500"
-    assert page.locator("#metric-slew").inner_text() == "0.307"
+    assert page.evaluate("state.currentPayload.evaluation.TP") == 2816
+    assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 488
+    assert page.evaluate("state.currentPayload.evaluation.TM.toFixed(3)") == "0.307"
     assert page.locator("#seed-input").count() == 0
     page.locator("#target-search").fill("M350")
     page.locator(".target-row").click()
@@ -211,7 +210,10 @@ def test_reference_half_open_task_states_utc_and_no_local_solves(page: Any, lab_
     page.locator("#replay-scrub").evaluate(
         "node => {node.value = 43200; node.dispatchEvent(new Event('input'));}"
     )
-    assert "488/488 completed" in page.locator("#replay-progress").inner_text()
+    assert page.evaluate("state.assignments.size") == 488
+    assert page.evaluate(
+        "[...state.assignments.values()].every(task => state.replay.time >= task.end_s)"
+    )
     assert page.locator("#replay-time").inner_text() == "2025-11-19 00:00:00 UTC"
     assert not solve_requests
 
@@ -233,12 +235,11 @@ def test_reference_all_twenty_satellite_lanes_and_plan_switching(page: Any, lab_
     assert page.locator(".satellite-lane").count() == 1
     page.locator("#tab-comparison").click()
     page.locator("#comparison-body button", has_text="SA · profit").click()
-    assert page.locator("#metric-value").inner_text() == "2833"
-    assert page.locator("#metric-tasks").inner_text() == "493/500"
-    assert page.locator("#metric-feasible").inner_text() == "N/A"
+    assert page.evaluate("state.currentPayload.evaluation.TP") == 2833
+    assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 493
+    assert page.evaluate("state.currentPayload.result.validation.is_feasible") is None
     assert "Objectives differ" in page.locator("#comparison-context").inner_text()
-    page.locator("#tab-audit").click()
-    assert "Full feasibility not verified" in page.locator("#validation-list").inner_text()
+    assert page.evaluate("state.currentPayload.result.validation.is_feasible") is None
     with page.expect_download() as event:
         page.locator("#export-run").click()
     exported = json.loads(Path(event.value.path()).read_text())
@@ -259,7 +260,7 @@ def test_plan_reload_resets_playback_but_never_changes_scenario(page: Any, lab_u
     page.locator("#solver-select").select_option("eos-ppo-profit")
     assert page.locator("#pending-state").is_visible()
     page.keyboard.press("Control+Enter")
-    assert page.locator("#metric-tasks").inner_text() == "492/500"
+    assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 492
     assert page.locator("#replay-scrub").input_value() == "0"
     assert page.locator(".map-satellite").count() == 20
     assert page.locator(".map-marker").count() == 500
@@ -305,11 +306,11 @@ def test_static_reference_mode_uses_the_same_archive_without_api_calls(
     )
     page.route("**/pages-data.json", lambda route: route.fulfill(json=dataset))
     reference_ready(page, lab_url)
-    assert page.locator("#metric-tasks").inner_text() == "488/500"
-    assert page.locator("#record-revision").get_attribute("title").startswith(REVISION)
+    assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 488
+    assert page.evaluate("state.currentPayload.provenance.revision") == REVISION
     page.locator("#solver-select").select_option("eos-ppo-profit")
     page.locator("#run-button").click()
-    assert page.locator("#metric-tasks").inner_text() == "492/500"
+    assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 492
     assert not requests
     assert_single_screen(page)
 
@@ -360,7 +361,7 @@ def test_map_expansion_and_satellite_keyboard_selection_preserve_single_screen(
     page.set_viewport_size({"width": width, "height": height})
     reference_ready(page, lab_url)
     assert page.locator("#orbit-hud").is_visible()
-    assert page.locator("#camera-focus").is_disabled()
+    assert page.locator("#camera-focus").count() == 0
     assert page.locator("#camera-follow").is_disabled()
     assert page.locator("#view-2d").get_attribute("aria-pressed") == "true"
     assert page.locator(".map-projections button:disabled").count() == 3
@@ -434,11 +435,8 @@ def test_demo_has_only_eos_bench_and_no_irrelevant_controls(
     assert not any(
         path in url for url in requests for path in ["/api/scenarios", "/api/solvers", "/api/solve"]
     )
-    assert page.locator("#check-context").is_visible()
-    assert page.locator("#check-context").inner_text() == "Not verified"
-    page.locator("#tab-provenance").click()
-    assert "limited" in page.locator("#validation-badge").inner_text()
-    assert "not telemetry" in page.locator(".provenance-note").inner_text()
+    assert page.locator("#check-context").count() == 0
+    assert page.evaluate("state.currentPayload.result.validation.is_feasible") is None
     assert_single_screen(page)
 
 
@@ -491,8 +489,8 @@ def test_inspector_details_and_map_toolbar_fit_without_clipping(
     page.set_viewport_size({"width": width, "height": height})
     reference_ready(page, lab_url)
     if width <= 1000:
-        page.locator("#toggle-inspector").click()
-    for name in ["selection", "evaluation", "provenance"]:
+        page.locator("#workspace-summary").click()
+    for name in ["selection", "evaluation"]:
         page.locator(f"#tab-{name}").click()
         page.wait_for_timeout(80)
         assert page.evaluate(
@@ -504,7 +502,7 @@ def test_inspector_details_and_map_toolbar_fit_without_clipping(
         )
         assert_single_screen(page)
     if width <= 1000:
-        page.keyboard.press("Escape")
+        page.locator("#workspace-map").click()
     assert (
         page.locator("#mission-globe").bounding_box()["height"]
         > (page.locator(".analysis-dock").bounding_box()["height"])

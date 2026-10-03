@@ -35,35 +35,18 @@ const elements = {
   button: document.getElementById("run-button"),
   status: document.getElementById("status"),
   results: document.getElementById("results"),
-  value: document.getElementById("metric-value"),
-  tasks: document.getElementById("metric-tasks"),
-  slew: document.getElementById("metric-slew"),
-  feasible: document.getElementById("metric-feasible"),
   timeline: document.getElementById("timeline-chart"),
   resources: document.getElementById("resource-chart"),
-  learning: document.getElementById("learning-chart"),
-  learningTitle: document.getElementById("learning-title"),
-  learningKicker: document.getElementById("learning-kicker"),
-  learningLegend: document.getElementById("learning-legend"),
   globe: document.getElementById("mission-globe"),
   globeLoading: document.getElementById("globe-loading"),
-  deploymentMode: document.getElementById("deployment-mode"),
   comparisonBody: document.getElementById("comparison-body"),
   comparisonContext: document.getElementById("comparison-context"),
   comparisonNote: document.getElementById("comparison-note"),
-  auditSummary: document.getElementById("audit-summary"),
-  auditMethodology: document.getElementById("audit-methodology"),
-  unscheduledList: document.getElementById("unscheduled-list"),
-  validationList: document.getElementById("validation-list"),
-  recordScenario: document.getElementById("record-scenario"),
-  recordMethod: document.getElementById("record-method"),
-  recordRevision: document.getElementById("record-revision"),
   shell: document.querySelector(".shell"),
   runLabel: document.getElementById("run-label"),
   statusIndicator: document.getElementById("status-indicator"),
   pending: document.getElementById("pending-state"),
   targetList: document.getElementById("target-list"),
-  validationBadge: document.getElementById("validation-badge"),
   export: document.getElementById("export-run"),
 };
 
@@ -104,16 +87,13 @@ function markConfigurationChanged() {
   elements.button.dataset.pending = String(dirty);
 }
 
-function setPanel(name, open) {
-  const key = name === "config" ? "configOpen" : "inspectorOpen";
-  elements.shell.dataset[key] = String(open);
-  document.getElementById(`toggle-${name}`).setAttribute("aria-expanded", String(open));
-  if (open && window.matchMedia("(max-width: 1000px)").matches) {
-    const other = name === "config" ? "inspector" : "config";
-    const otherKey = other === "config" ? "configOpen" : "inspectorOpen";
-    elements.shell.dataset[otherKey] = "false";
-    document.getElementById(`toggle-${other}`).setAttribute("aria-expanded", "false");
-  }
+function setWorkspaceView(view) {
+  elements.shell.dataset.workspaceView = view;
+  document.querySelectorAll(".workspace-nav button").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.workspaceView === view));
+  });
+  setLayersOpen(false);
+  refreshPanels();
 }
 
 function activateTab(button) {
@@ -196,7 +176,7 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
     if (reveal) state.orbitEmphasis = true;
     if (!assignment && state.cameraMode === "follow") {
       releaseCameraTracking();
-      state.cameraMode = "focus";
+      state.cameraMode = "manual";
     }
   }
   if (seek && assignment) setReplayTime(assignment.start_s, true);
@@ -228,7 +208,7 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
   document.querySelectorAll(".map-marker").forEach((marker) => marker.classList.toggle("is-selected", marker.dataset.taskId === taskId));
   if (reveal) {
     activateTab(document.getElementById("tab-selection"));
-    if (window.matchMedia("(max-width: 1000px)").matches) setPanel("inspector", true);
+    if (window.matchMedia("(max-width: 1000px)").matches) setWorkspaceView("summary");
   }
   if (reveal) {
     if (!filteredTasks(payload.scenario).some((candidate) => candidate.task_id === taskId)) {
@@ -259,10 +239,6 @@ function refreshPanels() {
   renderTargetCatalog();
   if (!document.getElementById("pane-timeline").hidden) renderGantt(payload.scenario, payload.result);
   if (!document.getElementById("pane-comparison").hidden) renderComparison(payload.scenario.scenario_id, payload.result.schedule.solver_name);
-  if (!document.getElementById("pane-audit").hidden) renderConstraintAudit(payload.scenario, payload.result, payload.constraint_audit);
-  if (!document.getElementById("pane-learning").hidden) {
-    renderSourceDiagnostics();
-  }
   if (elements.resources.clientHeight > 0) renderResources(payload.scenario, payload.result);
   state.globe?.resize();
 }
@@ -315,10 +291,6 @@ function populateSelect(select, items, valueKey, labelFactory) {
   }));
 }
 
-function runKey(scenarioId, solverName) {
-  return `${scenarioId}::${solverName}`;
-}
-
 function setBusy(busy, message) {
   state.busy = busy;
   elements.button.disabled = busy;
@@ -342,34 +314,6 @@ function appendCell(row, text, className = "") {
 
 function renderComparison() {
   renderReferenceComparison();
-}
-
-function auditItem(title, code, description, itemClass = "") {
-  const item = document.createElement("li");
-  if (itemClass) item.className = itemClass;
-  const heading = document.createElement("p");
-  const strong = document.createElement("strong");
-  strong.textContent = title;
-  const tag = document.createElement("code");
-  tag.textContent = code;
-  heading.append(strong, tag);
-  const detail = document.createElement("span");
-  detail.textContent = description;
-  item.title = `${title} · ${code}: ${description}`;
-  item.append(heading, detail);
-  return item;
-}
-
-function renderConstraintAudit() {
-  renderReferenceAudit();
-}
-
-function renderProvenance(payload) {
-  const revision = payload.provenance.revision;
-  textField("record-scenario", payload.scenario.scenario_id);
-  textField("record-method", payload.reference_plan.label);
-  textField("record-revision", revision.slice(0, 12));
-  elements.recordRevision.title = revision;
 }
 
 function renderGantt() {
@@ -613,22 +557,9 @@ function renderResult(payload) {
     state.selectedTaskId = result.validation.simulation?.tasks[0]?.task_id || scenario.tasks[0]?.task_id;
   }
   state.lastRequest = { scenario_id: scenario.scenario_id, solver_name: result.schedule.solver_name };
-  textField("metric-value", result.metrics.total_value.toFixed(0));
-  textField("metric-tasks", `${result.metrics.completed_tasks}/${scenario.tasks.length}`);
-  document.getElementById("metric-tasks").title = `TCR: ${(payload.evaluation.TCR * 100).toFixed(1)}%`;
   renderEvaluation(payload);
-  textField("metric-feasible", "N/A");
-  elements.feasible.classList.add("is-reference");
-  textField("check-context", "Not verified");
-  textField("validation-badge", result.validation.reference_consistent ? "Consistent · limited" : "Discrepancies");
-  elements.validationBadge.className = `validation-badge ${result.validation.reference_consistent ? "is-reference" : "is-fail"}`;
-  elements.validationBadge.title = "Source hashes and structural consistency only; no full physical feasibility certificate.";
-  textField("mission-name", `EOS-Bench · ${scenario.satellites.length} satellites · ${scenario.tasks.length} tasks`);
-  textField("mission-id", scenario.scenario_id);
-  textField("mission-horizon", `${((scenario.horizon_end_s - scenario.horizon_start_s) / 3600).toFixed(0)} h`);
   configureModeDetails(payload);
   elements.export.disabled = false;
-  renderProvenance(payload);
   renderMissionGlobe(scenario, result);
   selectTarget(state.selectedTaskId, false);
   refreshPanels();
@@ -642,7 +573,7 @@ async function runSolve() {
     const plan = state.referenceData.plans.find((item) => item.plan_id === elements.solver.value);
     if (!plan) throw new Error("Reference plan is unavailable.");
     renderResult(window.OrbitReplay.referencePayload(state.referenceData, plan));
-    if (window.matchMedia("(max-width: 1000px)").matches) setPanel("config", false);
+    if (window.matchMedia("(max-width: 1000px)").matches) setWorkspaceView("map");
     elements.status.textContent = `${plan.label} · Ready`;
   } catch (error) {
     setBusy(false);
@@ -691,12 +622,9 @@ elements.export.addEventListener("click", () => {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
-for (const name of ["config", "inspector"]) {
-  document.getElementById(`toggle-${name}`).addEventListener("click", () => {
-    const key = name === "config" ? "configOpen" : "inspectorOpen";
-    setPanel(name, elements.shell.dataset[key] !== "true");
-  });
-}
+document.querySelectorAll(".workspace-nav button").forEach((button) => {
+  button.addEventListener("click", () => setWorkspaceView(button.dataset.workspaceView));
+});
 for (const name of ["targets", "track", "rays", "labels"]) {
   document.getElementById(`toggle-${name}`).addEventListener("click", (event) => {
     state.layers[name] = !state.layers[name];
@@ -728,7 +656,7 @@ document.getElementById("reset-view").addEventListener("click", () => {
 bindTabs();
 bindMissionControls();
 bindPager("target", renderTargetCatalog);
-for (const name of ["timeline", "comparison", "unscheduled", "validation"]) bindPager(name, refreshPanels);
+for (const name of ["timeline", "comparison"]) bindPager(name, refreshPanels);
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !layerOptions.hidden) {
     event.preventDefault();
@@ -740,26 +668,14 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     runSolve();
   }
-  if (event.key === "Escape" && window.matchMedia("(max-width: 1000px)").matches) {
-    const openPanel = elements.shell.dataset.configOpen === "true" ? "config" : "inspector";
-    setPanel("config", false);
-    setPanel("inspector", false);
-    document.getElementById(`toggle-${openPanel}`).focus();
-  }
+
 });
-const narrowLayout = window.matchMedia("(max-width: 1000px)");
-function updateWorkspaceLayout() {
-  setPanel("config", !narrowLayout.matches);
-  setPanel("inspector", !narrowLayout.matches);
-}
-narrowLayout.addEventListener("change", updateWorkspaceLayout);
-updateWorkspaceLayout();
 let resizeFrame;
 const resizeObserver = new ResizeObserver(() => {
   cancelAnimationFrame(resizeFrame);
   resizeFrame = requestAnimationFrame(refreshPanels);
 });
-for (const host of [elements.timeline, elements.resources, elements.learning, elements.targetList, elements.unscheduledList, elements.validationList, document.querySelector(".comparison-table-host")]) resizeObserver.observe(host);
+for (const host of [elements.timeline, elements.resources, elements.targetList, document.querySelector(".comparison-table-host")]) resizeObserver.observe(host);
 let globeResizeFrame;
 const globeResizeObserver = new ResizeObserver(() => {
   cancelAnimationFrame(globeResizeFrame);

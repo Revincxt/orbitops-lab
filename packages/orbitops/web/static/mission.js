@@ -95,14 +95,9 @@ function updateReplayVisuals() {
   const payload = state.currentPayload;
   if (!payload) return;
   const time = state.replay.time;
-  let completed = 0;
-  const active = [];
-  for (const assignment of state.assignments.values()) {
-    if (time >= assignment.end_s) completed += 1;
-    else if (time >= assignment.start_s) active.push(assignment);
-  }
+  const active = [...state.assignments.values()].filter((assignment) =>
+    time >= assignment.start_s && time < assignment.end_s);
   textField("replay-time", window.OrbitReplay.utc(payload.scenario.epoch_utc, time, true));
-  textField("replay-progress", `${completed}/${state.assignments.size} completed · ${active.length} observing`);
   document.getElementById("replay-scrub").value = time;
   if (state.selectedTaskId) textField("selected-state", taskState(state.selectedTaskId));
   document.querySelectorAll(".target-row, .map-marker").forEach((node) => {
@@ -129,22 +124,16 @@ function stateColor(taskId) {
 }
 
 function configureModeDetails(payload) {
-  textField("deployment-mode", "Reference replay");
-  textField("geometry-source", "Orekit · sampled");
-  document.getElementById("geometry-source").title = `${payload.replay.model}; retained source samples, interpolated for display. Not telemetry or high-fidelity numerical propagation.`;
   document.querySelector(".slew-legend").hidden = true;
   textField("timeline-title", "Observation · UTC");
   const loads = Object.values(payload.reference_plan.workloads);
   textField("energy-readout", `${loads.filter((load) => load > 0).length}/${loads.length}`);
   textField("storage-readout", `${loads.reduce((a, b) => a + b, 0).toFixed(0)} s`);
-  textField("issues-title", "Source checks");
 }
 
 function renderEvaluation(payload) {
   const evaluation = payload.evaluation || {};
   const reference = payload.mode === "reference";
-  textField("metric-slew", evaluation.TM == null ? "—" : evaluation.TM.toFixed(3));
-  document.getElementById("metric-slew").title = "TM ↓ = (sum of task start delays + unassigned count × horizon) / (all task count × horizon). This is not an execution-completion statistic.";
   textField("metric-balance", evaluation.BD == null ? "N/A · single satellite" : evaluation.BD.toFixed(3));
   textField("metric-runtime", `${payload.result.runtime_s.toFixed(3)} s${reference ? " · source" : ""}`);
   textField("metric-motion", payload.result.metrics.total_slew_time_s == null ? "Not recorded" : `${payload.result.metrics.total_slew_time_s.toFixed(1)} s`);
@@ -188,20 +177,6 @@ function renderReferenceComparison() {
   elements.comparisonBody.replaceChildren(...rows);
   textField("comparison-context", "Objectives differ");
   textField("comparison-note", "Different objectives · no overall ranking. RT is source runtime.");
-}
-
-function renderReferenceAudit() {
-  const plan = state.currentPayload.reference_plan;
-  textField("audit-summary", `${plan.assignments.length} planned · ${plan.unassigned_tasks.length} unassigned · ${plan.checks.issues.length} discrepancies`);
-  const excluded = plan.unassigned_tasks.map((id) => auditItem(id, "source unassigned", "Not selected by the imported plan. A causal exclusion reason was not recorded; no reason is inferred."));
-  if (!excluded.length) excluded.push(auditItem("No unassigned tasks", "source partition", "Every source task has an assignment."));
-  const capacity = Math.max(1, Math.floor(elements.unscheduledList.clientHeight / 69));
-  elements.unscheduledList.replaceChildren(...pageItems("unscheduled", excluded, capacity));
-  const checks = [auditItem("Full feasibility not verified", "limited scope", `Not checked: ${plan.checks.not_checked.join(", ")}.`, "audit-warning")];
-  plan.checks.issues.forEach((issue) => checks.push(auditItem(issue.task_id || "Source reconciliation", issue.code, issue.message, "audit-error")));
-  plan.checks.checked.forEach((check) => checks.push(auditItem(check, "checked", "Checked against pinned source IDs, windows and plan data; not a full physical validation.", "audit-margin")));
-  elements.validationList.replaceChildren(...pageItems("validation", checks, Math.max(1, Math.floor(elements.validationList.clientHeight / 69))));
-  textField("audit-methodology", "Source consistency only · full physical feasibility not verified.");
 }
 
 function renderReferenceGantt() {
@@ -279,26 +254,6 @@ function renderWorkloads() {
     root.append(group);
   });
   elements.resources.replaceChildren(root);
-}
-
-function renderSourceDiagnostics() {
-  const payload = state.currentPayload;
-  textField("learning-title", "Reference data provenance");
-  textField("learning-kicker", "Source diagnostics");
-  elements.learningLegend.replaceChildren();
-  const width = Math.max(240, elements.learning.clientWidth);
-  const height = Math.max(80, elements.learning.clientHeight);
-  const root = chart(width, height, "Reference data provenance", "Pinned source commit and file hashes, retained source orbit samples, original visibility windows and limited verification scope.");
-  const records = [
-    `EOS-Bench @ ${payload.provenance.revision.slice(0, 12)} · ${payload.provenance.files.length} hash-verified files`,
-    `${payload.scenario.satellites.length} satellites · ${payload.scenario.tasks.length} tasks · ${payload.provenance.window_count} source windows`,
-    `Source Orekit Keplerian samples · stride ${payload.replay.sample_stride} · WGS84`,
-    "UTC epoch explicit · all task intervals half-open · no invented battery traces",
-    "Full feasibility not independently verified; see Constraint audit for scope",
-  ];
-  const lineHeight = Math.min(24, (height - 12) / records.length);
-  records.forEach((text, index) => root.append(svgElement("text", {x: 7, y: 12 + index * lineHeight, class: "chart-axis"}, text)));
-  elements.learning.replaceChildren(root);
 }
 
 const ORBIT_PALETTE = ["#79cfff", "#f4c078", "#a6d68b", "#c9a5f4", "#79d8ca", "#f09ea9", "#87acf5", "#e1d286", "#83c6a7", "#e1a3d0", "#abcee6", "#e3ad7d", "#b8bfef", "#8dd3e5", "#d5dc95", "#dc9ea2", "#a8d0c2", "#bea7db", "#a8bdf0", "#e8c59b"];
@@ -546,12 +501,11 @@ function updateOrbitHud() {
   document.getElementById("orbit-hud").hidden = !reference;
   const orbit = state.currentPayload?.replay?.orbits.find((item) => item.satellite_id === state.selectedSatelliteId);
   const available = Boolean(!state.viewTransition && orbit && state.globe?.entities.getById(`satellite-${orbit.satellite_id}`));
-  document.getElementById("camera-focus").disabled = !available;
   document.getElementById("camera-follow").disabled = !available;
   document.getElementById("north-view").disabled = !state.globe || state.viewTransition;
   document.getElementById("camera-overview").disabled = !state.globe || state.viewTransition;
   document.getElementById("reset-view").disabled = state.viewTransition;
-  for (const mode of ["overview", "focus", "follow"]) document.getElementById(`camera-${mode}`).setAttribute("aria-pressed", String(state.cameraMode === mode));
+  for (const mode of ["overview", "follow"]) document.getElementById(`camera-${mode}`).setAttribute("aria-pressed", String(state.cameraMode === mode));
   if (!reference) return;
   textField("satellite-name", orbit ? satelliteName(orbit.satellite_id) : "Select a satellite");
   document.getElementById("satellite-name").title = orbit?.satellite_id || "Pick a satellite symbol or select an assigned task";
@@ -578,7 +532,7 @@ function focusSelectedSatellite() {
   const position = state.orbitPositions.get(state.selectedSatelliteId)?.getValue(viewer.clock.currentTime);
   if (!position) return;
   releaseCameraTracking();
-  state.cameraMode = "focus";
+  state.cameraMode = "manual";
   state.orbitEmphasis = true;
   const range = window.OrbitReplay.fitRange(1000000, viewer.camera.frustum.fovy || Cesium.Math.PI_OVER_THREE, elements.globe.clientWidth / Math.max(1, elements.globe.clientHeight), 1.1);
   viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(position, 1000000), {
@@ -640,7 +594,7 @@ function bindGlobePicking(viewer, Cesium) {
     if (!picked) return;
     if (picked.kind === "task") selectTarget(picked.id);
     else selectSatellite(picked.id);
-    if (focus && state.currentPayload?.mode === "reference") focusSelectedSatellite();
+    if (focus) focusSelectedSatellite();
   };
   viewer.screenSpaceEventHandler.setInputAction((event) => inspect(event.position), Cesium.ScreenSpaceEventType.LEFT_CLICK);
   viewer.screenSpaceEventHandler.setInputAction((event) => inspect(event.position, true), Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
@@ -726,11 +680,10 @@ function setMapViewMode(mode) {
 function bindOrbitControls() {
   for (const button of document.querySelectorAll(".map-projections button")) button.addEventListener("click", () => setMapViewMode(button.dataset.view));
   document.getElementById("camera-overview").addEventListener("click", () => fitMissionView(cameraMotionDuration()));
-  document.getElementById("camera-focus").addEventListener("click", focusSelectedSatellite);
   document.getElementById("camera-follow").addEventListener("click", () => {
     if (state.cameraMode === "follow") {
       releaseCameraTracking();
-      state.cameraMode = "focus";
+      state.cameraMode = "manual";
       updateOrbitHud();
     } else {
       followSelectedSatellite();
@@ -746,7 +699,7 @@ function bindOrbitControls() {
     if (!state.globe) return;
     const viewer = state.globe;
     releaseCameraTracking();
-    if (state.cameraMode === "follow") state.cameraMode = "focus";
+    if (state.cameraMode === "follow") state.cameraMode = "manual";
     viewer.camera.setView({orientation: {heading: 0, pitch: viewer.camera.pitch, roll: 0}});
     viewer.scene.requestRender();
     updateOrbitHud();

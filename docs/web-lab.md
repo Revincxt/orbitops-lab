@@ -48,14 +48,15 @@ synthetic scenario.
 
 The fixed-viewport engineering workspace keeps configuration, mission geometry,
 and output inspection visible together. The page and its panels do not scroll:
-target catalogs, timeline rows, solver comparisons, exclusions, and validator
-issues use height-aware pagination. On narrow screens the side panels become
-exclusive drawers, opened from the header and dismissed with Escape.
+target catalogs, timeline rows and plan comparisons use height-aware pagination.
+Desktop side panels are fixed; there are no collapse controls. On narrow screens
+a compact Map / Tasks / Results navigation switches between full-width views.
 
 The left panel selects one of the four reference plans and contains the
 paginated target catalog. The centre prioritizes the orbit view, with a compact
-analysis dock below it. The right panel shows four primary metrics, target
-details and satellite workload. Projection controls live in the map toolbar;
+analysis dock below it. The right panel shows target details and satellite
+workload, without the former four primary metric cards. Projection controls live
+in the map toolbar;
 layer switches are grouped in a dismissible menu.
 
 Changing a plan marks the current output as pending until Load plan is pressed.
@@ -70,14 +71,13 @@ The analysis dock contains:
   windows, paginated across all 20 satellite lanes.
 - **Comparison:** TP/TCR/TM/BD, original runtime, check scope and objectives for
   all four plans; different objectives are not collapsed into one ranking.
-- **Audit:** unassigned tasks, source consistency checks and verification gaps.
-- **Data:** pinned file hashes and source provenance.
 
-The inspector keeps TP, planned task count, TM and full feasibility visible.
-N/A remains explicitly labelled Not verified. Additional metrics and the run
-record are separate tabs. Runtime explanations, source-model details and
-validation caveats do not repeat across the main workspace. Source attribution,
-revision and verification scope remain accessible in Run record and Data.
+The inspector has only Selection and Metrics tabs. Audit, Data and Run record
+views have been removed. The top scenario-summary strip and the live
+completed/observing text are also absent; playback retains its timestamp,
+scrubber, speed and play/reset controls. Source attribution, revision, hashes and
+verification scope remain in the exported reference JSON. Removing their panels
+does not change the archive, recomputed metrics or limited validation scope.
 Satellite workload bars support mouse and keyboard selection.
 
 Selecting a target in the catalog, Gantt, or map updates the same inspector and
@@ -105,9 +105,10 @@ interpolated seam endpoints, rather than connecting them across the map.
 
 Satellites have screen-space engineering symbols and colour-matched names,
 tracks and selection halos. Symbols do not represent physical scale or attitude.
-Click a satellite/track to select it, or double-click to focus. The map readout
+Click a satellite/track to select it; double-click to focus the camera on it.
+There is no separate Focus button. The map readout
 shows display-interpolated WGS84 ellipsoid altitude and the source orbital period.
-Overview, Focus and Follow are explicit camera modes; selecting a task links the
+Overview and Follow are explicit camera modes; selecting a task links the
 associated satellite without automatically flying the camera. Overview and the fit button release
 tracking. Target IDs are distance-limited to avoid labelling all 500 targets at
 global scale; the selected target stays labelled. Depth testing stays enabled
@@ -126,7 +127,7 @@ share the same source positions, task selection, layers and replay clock; a
 projection change does not restart or pause playback. 2.5D retains orbital
 height above the projected map; 2D flattens that height spatially while the
 source altitude remains available in the satellite readout. Switching releases
-camera tracking and fits an overview. Focus and follow work in every view;
+camera tracking and fits an overview. Follow works in every view;
 2D follow centres on the source sub-satellite position without a 3D camera
 transform. World-map framing accounts for both viewport axes and source
 altitudes, including after pane expansion or resize. Controls are disabled
@@ -156,8 +157,9 @@ against source metrics. ID validity, uniqueness, horizon, required duration,
 containing source windows, per-satellite observation overlap and task partition
 are also checked. **These checks are not full feasibility validation.** Attitude
 transitions, per-orbit resource budgets, sensor geometry, battery dynamics and
-downlink are not independently verified. The UI therefore reports full
-feasibility as N/A, never PASS. Unrecorded seeds, budgets and causal exclusion
+downlink are not independently verified. The exported payload therefore reports
+full feasibility as null, never PASS; comparison rows explicitly report limited
+scope. Unrecorded seeds, budgets and causal exclusion
 reasons remain unrecorded; no energy/storage trace is fabricated.
 
 The EOS figures are simulation benchmarks, not operational telemetry. The source
@@ -278,7 +280,7 @@ Chromium executable. These checks are skipped in the normal Python suite.
 
 Real WebGL checks run against the official Cesium engine rather than a mocked
 renderer. They verify initial-epoch tracks, exact source-sample positions,
-canvas picking, focus/follow, end-of-horizon bounds, responsive framing, map
+canvas picking, double-click focus, follow, end-of-horizon bounds, responsive framing, map
 expansion and retaining source geometry when changing reference plans. NASA
 imagery is deliberately blocked to check the Natural Earth fallback. The
 official Cesium CDN must be reachable:

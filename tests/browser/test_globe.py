@@ -122,7 +122,9 @@ def test_real_globe_has_startup_tracks_symbols_and_unmodified_source_positions(
     assert_single_screen(globe_page)
 
 
-def test_satellite_canvas_picking_focus_follow_and_source_horizon(globe_page: Any) -> None:
+def test_satellite_canvas_picking_double_click_focus_follow_and_source_horizon(
+    globe_page: Any,
+) -> None:
     candidate = globe_page.wait_for_function(
         """() => {
       const viewer = state.globe;
@@ -150,11 +152,16 @@ def test_satellite_canvas_picking_focus_follow_and_source_horizon(globe_page: An
     globe_page.wait_for_function("!document.getElementById('globe-hover').hidden")
     globe_page.mouse.click(candidate["x"], candidate["y"])
     assert globe_page.locator("#satellite-name").get_attribute("title") == candidate["id"]
-    globe_page.locator("#camera-focus").click()
-    globe_page.wait_for_function("state.cameraMode === 'focus'")
+    assert globe_page.locator("#camera-focus").count() == 0
+    before_selection = globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)")
+    globe_page.mouse.dblclick(candidate["x"], candidate["y"])
     globe_page.wait_for_timeout(750)
+    assert globe_page.evaluate("!state.globe.trackedEntity && state.cameraMode === 'manual'")
+    assert (
+        globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)")
+        != before_selection
+    )
     SCREENSHOTS.mkdir(parents=True, exist_ok=True)
-    globe_page.screenshot(path=str(SCREENSHOTS / "geometry-focus.png"))
     globe_page.locator("#camera-follow").click()
     globe_page.wait_for_function(
         "state.globe.trackedEntity?.id === 'satellite-' + state.selectedSatelliteId"
@@ -283,15 +290,13 @@ def test_unfolded_scene_preserves_source_replay_and_fits_after_expansion(
 
 
 @pytest.mark.parametrize(("selector", "mode"), [("#view-2d", "2d"), ("#view-2_5d", "2.5d")])
-def test_planar_focus_and_follow_keep_the_selected_satellite_in_view(
+def test_planar_follow_keeps_the_selected_satellite_in_view(
     globe_page: Any, selector: str, mode: str
 ) -> None:
     globe_page.locator(selector).click()
     globe_page.wait_for_function(
         "mode => state.viewMode === mode && !state.viewTransition", arg=mode
     )
-    globe_page.locator("#camera-focus").click()
-    globe_page.wait_for_timeout(800)
     globe_page.locator("#camera-follow").click()
     for time in [1800, 2730, 43199]:
         globe_page.evaluate("time => setReplayTime(time,true)", time)
@@ -374,6 +379,12 @@ def test_satellites_remain_pickable_on_unfolded_maps(globe_page: Any, selector: 
     assert globe_page.evaluate("""() => state.globe.entities.getById(
       'satellite-' + state.selectedSatelliteId).label.distanceDisplayCondition.getValue().far
     """) == float("inf")
+    before = globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)")
+    globe_page.mouse.dblclick(candidate["x"], candidate["y"])
+    globe_page.wait_for_function("state.cameraMode === 'manual' && !state.globe.trackedEntity")
+    globe_page.wait_for_timeout(750)
+    assert globe_page.locator("#camera-focus").count() == 0
+    assert globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)") != before
     assert_single_screen(globe_page)
 
 
@@ -388,6 +399,6 @@ def test_loading_another_plan_during_a_view_transition_keeps_the_scene_healthy(
         "&& !state.viewTransition"
     )
     assert globe_page.evaluate("state.viewMode") == "2d"
-    assert globe_page.locator("#metric-tasks").inner_text() == "492/500"
+    assert globe_page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 492
     assert globe_page.evaluate("state.orbitPositions.size") == 20
     assert_single_screen(globe_page)
