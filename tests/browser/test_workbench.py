@@ -1,4 +1,4 @@
-"""Opt-in browser checks against the real local scheduling API.
+"""Opt-in browser checks against the single-scenario EOS-Bench demo.
 
 Install Playwright and run ORBITOPS_BROWSER_TESTS=1 pytest tests/browser.
 Chrome is used by default; ORBITOPS_BROWSER_EXECUTABLE can select another binary.
@@ -69,11 +69,7 @@ def page(browser: Any) -> Iterator[Any]:
 
 
 def ready(page: Any, url: str) -> None:
-    page.goto(url + "?mode=local", wait_until="domcontentloaded")
-    page.wait_for_function(
-        "document.getElementById('metric-feasible').textContent === 'PASS' "
-        "&& !document.getElementById('run-button').disabled"
-    )
+    reference_ready(page, url)
 
 
 def assert_single_screen(page: Any) -> None:
@@ -142,7 +138,7 @@ def test_analysis_views_fit_without_scrolling(
 
 def collect_pages(page: Any, name: str, selector: str) -> set[str]:
     seen: set[str] = set()
-    for _ in range(35):
+    for _ in range(70):
         seen.update(
             page.locator(selector).evaluate_all("nodes => nodes.map(node => node.dataset.taskId)")
         )
@@ -150,147 +146,6 @@ def collect_pages(page: Any, name: str, selector: str) -> set[str]:
             return seen
         page.locator(f"#{name}-next").click()
     raise AssertionError("pagination did not terminate")
-
-
-def test_all_thirty_targets_remain_reachable_and_selection_is_linked(
-    page: Any,
-    lab_url: str,
-) -> None:
-    ready(page, lab_url)
-    page.locator("#scenario-select").select_option("showcase-global-30")
-    page.locator("#solver-select").select_option("greedy-insertion")
-    assert page.locator("#pending-state").is_visible()
-    page.keyboard.press("Control+Enter")
-    page.wait_for_function(
-        "document.getElementById('mission-id').textContent === 'showcase-global-30'"
-    )
-    assert (
-        page.locator('#solver-select option[value="brute-force"]').get_attribute("disabled") == ""
-    )
-    assert (
-        page.locator('#solver-select option[value="branch-and-bound"]').get_attribute("disabled")
-        == ""
-    )
-    catalog = collect_pages(page, "target", ".target-row")
-    timeline = collect_pages(page, "timeline", ".timeline-row")
-    assert len(catalog) == len(timeline) == 30
-    assert catalog == timeline
-    target = page.locator(".target-row").first
-    task_id = target.get_attribute("data-task-id")
-    target.click()
-    assert page.locator("#selected-id").inner_text() == task_id
-    assert (
-        page.locator(f'.map-marker[data-task-id="{task_id}"]')
-        .get_attribute("class")
-        .endswith("is-selected")
-    )
-    row = page.locator(".timeline-row").last
-    row.focus()
-    row.press("Enter")
-    assert page.locator("#selected-id").inner_text() == row.get_attribute("data-task-id")
-    page.locator("#tab-timeline").focus()
-    page.keyboard.press("ArrowRight")
-    assert page.locator("#tab-comparison").get_attribute("aria-selected") == "true"
-    assert not page.locator("#pending-state").is_visible()
-    assert_single_screen(page)
-
-
-def test_result_export_busy_guard_layers_and_failure_recovery(page: Any, lab_url: str) -> None:
-    ready(page, lab_url)
-    page.locator("#toggle-targets").click()
-    assert page.locator(".map-marker").first.is_hidden()
-    page.locator("#toggle-targets").click()
-    page.locator("#toggle-track").click()
-    assert page.locator(".map-sequence").is_hidden()
-    page.locator("#toggle-track").click()
-    page.locator("#seed-input").fill("43")
-    assert page.locator("#pending-state").is_visible()
-    page.locator("#seed-input").fill("42")
-    assert not page.locator("#pending-state").is_visible()
-    with page.expect_download() as event:
-        page.locator("#export-run").click()
-    exported = json.loads(Path(event.value.path()).read_text())
-    assert exported["scenario"]["scenario_id"] == "showcase-resources-10"
-    assert exported["result"]["validation"]["is_feasible"] is True
-    held_requests: list[Any] = []
-    page.route("**/api/solve", lambda route: held_requests.append(route))
-    page.locator("#run-button").click()
-    assert page.locator("#run-button").is_disabled()
-    assert page.locator("#scenario-select").is_disabled()
-    page.keyboard.press("Control+Enter")
-    page.keyboard.press("Control+Enter")
-    assert len(held_requests) == 1
-    held_requests[0].fulfill(status=200, json=exported)
-    page.wait_for_function("!document.getElementById('run-button').disabled")
-    page.unroute("**/api/solve")
-    page.route(
-        "**/api/solve",
-        lambda route: route.fulfill(
-            status=500,
-            content_type="application/json",
-            body='{"error":"Controlled failure"}',
-        ),
-    )
-    page.locator("#run-button").click()
-    page.wait_for_function("document.getElementById('status').textContent === 'Controlled failure'")
-    assert page.locator("#run-button").is_enabled()
-    assert page.locator("#scenario-select").is_enabled()
-    assert page.locator("#metric-feasible").inner_text() == "PASS"
-    page.unroute("**/api/solve")
-    page.locator("#solver-select").select_option("greedy-insertion")
-    page.locator("#run-button").click()
-    page.wait_for_function(
-        "document.getElementById('record-method').textContent === 'greedy-insertion'"
-    )
-    assert page.locator("#metric-feasible").inner_text() == "PASS"
-    page.locator("#tab-comparison").click()
-    page.locator("#comparison-body button", has_text="q-learning").click()
-    assert page.locator("#record-method").inner_text() == "q-learning (hybrid)"
-    assert_single_screen(page)
-
-
-def test_pages_mode_preserves_recorded_budgets_and_all_comparison_rows(
-    page: Any,
-    lab_url: str,
-) -> None:
-    dataset = build_dataset(LabApplication(ROOT / "scenarios"))
-    api_requests: list[str] = []
-    page.on(
-        "request",
-        lambda request: api_requests.append(request.url) if "/api/" in request.url else None,
-    )
-    page.route(
-        "**/deployment-config.js*",
-        lambda route: route.fulfill(
-            content_type="text/javascript",
-            body='window.ORBITOPS_DEPLOYMENT = {mode: "static"};',
-        ),
-    )
-    page.route("**/pages-data.json", lambda route: route.fulfill(json=dataset))
-    ready(page, lab_url)
-    assert not api_requests
-    assert page.locator("#seed-input").is_disabled()
-    assert page.locator("#budget-input").is_disabled()
-    assert page.locator("#budget-input").input_value() == "120"
-    assert "precomputed" in page.locator("#deployment-mode").inner_text()
-    page.locator("#tab-comparison").click()
-    methods: set[str] = set()
-    for _ in range(12):
-        methods.update(page.locator("#comparison-body tr td:first-child").all_text_contents())
-        if page.locator("#comparison-next").is_disabled():
-            break
-        page.locator("#comparison-next").click()
-    assert len(methods) == len(dataset["solvers"]["solvers"])
-    page.locator("#solver-select").select_option("greedy-insertion")
-    page.locator("#run-button").click()
-    page.wait_for_function(
-        "document.getElementById('record-method').textContent === 'greedy-insertion'"
-    )
-    assert page.locator("#budget-input").input_value() == "250"
-    assert page.locator("#budget-input").is_disabled()
-    assert page.locator("#seed-input").is_disabled()
-    assert not api_requests
-    assert_single_screen(page)
 
 
 def reference_ready(page: Any, url: str) -> None:
@@ -335,11 +190,10 @@ def test_reference_half_open_task_states_utc_and_no_local_solves(page: Any, lab_
         ),
     )
     reference_ready(page, lab_url)
-    assert page.locator("#metric-value").inner_text() == "2816.0"
+    assert page.locator("#metric-value").inner_text() == "2816"
     assert page.locator("#metric-tasks").inner_text() == "488/500"
     assert page.locator("#metric-slew").inner_text() == "0.307"
-    assert page.locator("#seed-input").is_disabled()
-    assert page.locator("#seed-input").input_value() == ""
+    assert page.locator("#seed-input").count() == 0
     page.locator("#target-search").fill("M350")
     page.locator(".target-row").click()
     assert page.locator("#selected-state").text_content() == "Observing"
@@ -379,10 +233,10 @@ def test_reference_all_twenty_satellite_lanes_and_plan_switching(page: Any, lab_
     assert page.locator(".satellite-lane").count() == 1
     page.locator("#tab-comparison").click()
     page.locator("#comparison-body button", has_text="SA · profit").click()
-    assert page.locator("#metric-value").inner_text() == "2833.0"
+    assert page.locator("#metric-value").inner_text() == "2833"
     assert page.locator("#metric-tasks").inner_text() == "493/500"
     assert page.locator("#metric-feasible").inner_text() == "N/A"
-    assert "objectives differ" in page.locator("#comparison-context").inner_text()
+    assert "Objectives differ" in page.locator("#comparison-context").inner_text()
     page.locator("#tab-audit").click()
     assert "Full feasibility not verified" in page.locator("#validation-list").inner_text()
     with page.expect_download() as event:
@@ -393,9 +247,7 @@ def test_reference_all_twenty_satellite_lanes_and_plan_switching(page: Any, lab_
     assert_single_screen(page)
 
 
-def test_reference_switch_to_local_restores_solver_contract_and_paused_clock(
-    page: Any, lab_url: str
-) -> None:
+def test_plan_reload_resets_playback_but_never_changes_scenario(page: Any, lab_url: str) -> None:
     reference_ready(page, lab_url)
     page.locator("#replay-speed").select_option("900")
     page.locator("#replay-play").click()
@@ -404,16 +256,14 @@ def test_reference_switch_to_local_restores_solver_contract_and_paused_clock(
     paused = page.locator("#replay-scrub").input_value()
     page.wait_for_timeout(250)
     assert page.locator("#replay-scrub").input_value() == paused
-    page.locator("#scenario-select").select_option("showcase-resources-10")
-    assert page.locator("#seed-input").is_enabled()
-    assert page.locator("#seed-input").input_value() == "42"
-    page.locator("#solver-select").select_option("greedy-insertion")
-    page.locator("#run-button").click()
-    page.wait_for_function("document.getElementById('metric-feasible').textContent === 'PASS'")
-    assert page.locator(".map-satellite").count() == 0
-    assert page.locator(".map-ray").count() == 0
+    page.locator("#solver-select").select_option("eos-ppo-profit")
+    assert page.locator("#pending-state").is_visible()
+    page.keyboard.press("Control+Enter")
+    assert page.locator("#metric-tasks").inner_text() == "492/500"
     assert page.locator("#replay-scrub").input_value() == "0"
-    assert page.locator("#metric-balance").inner_text() == "N/A · single satellite"
+    assert page.locator(".map-satellite").count() == 20
+    assert page.locator(".map-marker").count() == 500
+    assert not page.locator("#pending-state").is_visible()
     assert_single_screen(page)
 
 
@@ -441,15 +291,8 @@ def test_static_reference_mode_uses_the_same_archive_without_api_calls(
 ) -> None:
     from scripts.import_eos_reference import REVISION
 
-    archive = json.loads((ROOT / "data" / "eos-bench" / "reference.json").read_text())
-    dataset = {
-        "metadata": {"seed": 42, "evaluation_budget": 250},
-        "scenarios": {"scenarios": []},
-        "solvers": {"solvers": []},
-        "runs": {},
-        "omissions": {},
-        "reference": archive,
-    }
+    dataset = build_dataset(LabApplication(ROOT / "scenarios"))
+    assert set(dataset) == {"metadata", "reference"}
     requests: list[str] = []
     page.on(
         "request", lambda request: requests.append(request.url) if "/api/" in request.url else None
@@ -526,7 +369,9 @@ def test_map_expansion_and_satellite_keyboard_selection_preserve_single_screen(
     marker.press("Enter")
     assert page.locator("#satellite-name").get_attribute("title") == "ALOS-2_39766"
     assert marker.get_attribute("aria-pressed") == "true"
+    page.locator("#toggle-layers").click()
     page.locator("#toggle-sat-labels").click()
+    page.keyboard.press("Escape")
     assert page.locator(".satellite-label:visible").count() == 1
     before = page.locator("#mission-globe").bounding_box()["height"]
     page.locator("#expand-map").click()
@@ -559,3 +404,142 @@ def test_tilted_map_camera_range_contains_world_and_source_altitudes(
     )
     assert all(0 < point["horizontal"] < 1 and 0 < point["vertical"] < 1 for point in points)
     assert_single_screen(page)
+
+
+@pytest.mark.parametrize("query", ["", "?mode=local", "?scenario=showcase-global-30"])
+def test_demo_has_only_eos_bench_and_no_irrelevant_controls(
+    page: Any, lab_url: str, query: str
+) -> None:
+    requests: list[str] = []
+    page.on("request", lambda request: requests.append(request.url))
+    reference_ready(page, lab_url + query)
+    for removed in [
+        "scenario-select",
+        "seed-input",
+        "budget-input",
+        "scenario-context",
+        "solver-description",
+        "model-note",
+        "runtime",
+        "globe-coordinate",
+    ]:
+        assert page.locator(f"#{removed}").count() == 0
+    assert page.locator("#solver-select option").count() == 4
+    assert all(
+        "eos-" in value
+        for value in page.locator("#solver-select option").evaluate_all(
+            "nodes => nodes.map(node => node.value)"
+        )
+    )
+    assert not any(
+        path in url for url in requests for path in ["/api/scenarios", "/api/solvers", "/api/solve"]
+    )
+    assert page.locator("#check-context").is_visible()
+    assert page.locator("#check-context").inner_text() == "Not verified"
+    page.locator("#tab-provenance").click()
+    assert "limited" in page.locator("#validation-badge").inner_text()
+    assert "not telemetry" in page.locator(".provenance-note").inner_text()
+    assert_single_screen(page)
+
+
+def test_all_reference_targets_remain_reachable_and_selection_is_linked(
+    page: Any, lab_url: str
+) -> None:
+    reference_ready(page, lab_url)
+    assert len(collect_pages(page, "target", ".target-row")) == 500
+    task = page.locator(".target-row").last
+    task_id = task.get_attribute("data-task-id")
+    task.click()
+    assert page.locator("#selected-id").inner_text() == task_id
+    assert "is-selected" in page.locator(f'.map-marker[data-task-id="{task_id}"]').get_attribute(
+        "class"
+    )
+    page.locator("#tab-timeline").focus()
+    page.keyboard.press("ArrowRight")
+    assert page.locator("#tab-comparison").get_attribute("aria-selected") == "true"
+
+
+def test_layer_menu_keyboard_dismissal_and_preserved_layer_controls(
+    page: Any, lab_url: str
+) -> None:
+    reference_ready(page, lab_url)
+    assert page.locator("#layer-options").is_hidden()
+    page.locator("#toggle-layers").focus()
+    page.keyboard.press("Enter")
+    assert page.locator("#layer-options").is_visible()
+    page.keyboard.press("Tab")
+    assert page.locator("#toggle-targets").evaluate("node => node === document.activeElement")
+    page.keyboard.press("Enter")
+    assert page.locator(".map-marker").first.is_hidden()
+    assert page.locator("#toggle-targets").get_attribute("aria-pressed") == "false"
+    page.locator("#toggle-targets").click()
+    page.locator("#toggle-track").click()
+    assert page.locator(".map-orbit").first.is_hidden()
+    page.locator("#toggle-track").click()
+    page.keyboard.press("Escape")
+    assert page.locator("#layer-options").is_hidden()
+    assert page.locator("#toggle-layers").evaluate("node => node === document.activeElement")
+    page.locator("#toggle-layers").click()
+    page.locator("#tab-comparison").click()
+    assert page.locator("#layer-options").is_hidden()
+
+
+@pytest.mark.parametrize(("width", "height"), [(1440, 900), (1024, 768), (800, 600), (375, 667)])
+def test_inspector_details_and_map_toolbar_fit_without_clipping(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    if width <= 1000:
+        page.locator("#toggle-inspector").click()
+    for name in ["selection", "evaluation", "provenance"]:
+        page.locator(f"#tab-{name}").click()
+        page.wait_for_timeout(80)
+        assert page.evaluate(
+            """name => {
+          const panel = document.getElementById('inspector-' + name);
+          return panel.scrollHeight <= panel.clientHeight + 1;
+        }""",
+            name,
+        )
+        assert_single_screen(page)
+    if width <= 1000:
+        page.keyboard.press("Escape")
+    assert (
+        page.locator("#mission-globe").bounding_box()["height"]
+        > (page.locator(".analysis-dock").bounding_box()["height"])
+    )
+    page.locator("#toggle-layers").click()
+    assert page.locator("#toggle-sat-labels").is_visible()
+    assert_single_screen(page)
+
+
+def test_missing_reference_archive_reports_error_without_local_fallback(
+    page: Any, lab_url: str
+) -> None:
+    requests: list[str] = []
+    page.on("request", lambda request: requests.append(request.url))
+    page.route("**/api/reference/data", lambda route: route.fulfill(body="null"))
+    page.goto(lab_url + "?mode=local", wait_until="domcontentloaded")
+    page.wait_for_function("document.getElementById('status').classList.contains('error')")
+    assert "EOS-Bench reference data is unavailable" in page.locator("#status").inner_text()
+    assert page.locator("#run-button").is_disabled()
+    assert page.locator("#solver-select").is_disabled()
+    assert page.locator("#export-run").is_disabled()
+    assert not any("/api/scenarios" in url or "/api/solve" in url for url in requests)
+
+
+def test_workload_selection_matches_satellite_highlight(page: Any, lab_url: str) -> None:
+    reference_ready(page, lab_url)
+    bar = page.locator(".workload-row").first
+    satellite = bar.get_attribute("data-satellite-id")
+    bar.focus()
+    bar.press("Enter")
+    assert page.locator("#satellite-name").get_attribute("title") == satellite
+    assert (
+        page.locator(f'.workload-row[data-satellite-id="{satellite}"]').get_attribute(
+            "aria-pressed"
+        )
+        == "true"
+    )
+    assert page.locator(".workload-bar.is-selected").count() == 1

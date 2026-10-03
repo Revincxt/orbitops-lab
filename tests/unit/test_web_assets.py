@@ -18,24 +18,36 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     assert 'id="unscheduled-list"' in html
     assert 'aria-label="Run provenance"' in html
     assert "Cesium.js" in html
-    assert "CesiumJS · NASA GIBS" in html
+    assert 'id="toggle-layers"' in html
+    assert 'aria-controls="layer-options"' in html
     assert "cesium-config.js" in html
-    assert "Constrained satellite scheduling laboratory" in html
+    assert "EOS-Bench" in html
+    assert all(
+        f'id="{removed}"' not in html
+        for removed in [
+            "scenario-select",
+            "seed-input",
+            "budget-input",
+            "scenario-context",
+            "model-note",
+        ]
+    )
     assert "Schedule the orbit" not in html
     assert 'src="./deployment-config.js?v=0.2.0"' in html
-    assert 'src="./app.js?v=0.5.0"' in html
-    assert 'src="./replay.js?v=0.5.0"' in html
-    assert 'src="./mission.js?v=0.5.0"' in html
-    assert 'href="./app.css?v=0.5.0"' in html
+    assert 'src="./app.js?v=0.6.0"' in html
+    assert 'src="./replay.js?v=0.6.0"' in html
+    assert 'src="./mission.js?v=0.6.0"' in html
+    assert 'href="./app.css?v=0.6.0"' in html
     assert 'href="./favicon.svg?v=0.2.0"' in html
 
 
 def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
 
-    assert 'api("/api/scenarios")' in script
-    assert 'api("/api/solvers")' in script
-    assert 'api("/api/solve"' in script
+    assert 'api("/api/reference/data")' in script
+    assert 'api("/api/scenarios")' not in script
+    assert 'api("/api/solvers")' not in script
+    assert 'api("/api/solve"' not in script
     assert "createElementNS" in script
     assert "replaceChildren" in script
     assert "new Cesium.Viewer" in script
@@ -45,7 +57,6 @@ def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     assert "NaturalEarthII" in script
     assert "WebMercatorTilingScheme" in script
     assert "GoogleMapsCompatible_Level8" in script
-    assert "training_trace" in script
     assert "visibility_windows" in script
     assert "innerHTML" not in script
     assert script.count("https://") == 1
@@ -55,14 +66,10 @@ def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     assert 'deployment.mode === "static"' in script
     assert "renderComparison" in script
     assert "renderConstraintAudit" in script
-    assert "circularLongitudeCenter" in script
-    assert "BoundingSphere.fromPoints" in script
-    assert 'if (solverName === "q-learning") return "hybrid"' in script
-    assert 'if (solverName === "q-policy-only") return "pure policy"' in script
-    assert "Episode schedule objective" in script
-    assert "Realized exploratory episode schedule objective" in script
-    assert "Policy objective" not in script
-    assert "state.solvers.forEach" in script
+    assert "sequence-local" not in script
+    assert "q-learning" not in script
+    assert "setLayersOpen" in script
+    assert "referencePayload" in script
 
 
 def test_web_lab_styles_use_a_fixed_viewport_engineering_workspace() -> None:
@@ -93,9 +100,8 @@ def test_github_pages_build_is_reproducible_and_uses_official_actions() -> None:
     builder = (project_root / "scripts" / "build_pages.py").read_text(encoding="utf-8")
     workflow = (project_root / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
 
-    assert "DEFAULT_SEED = 42" in builder
-    assert "DEFAULT_EVALUATION_BUDGET = 250" in builder
-    assert '"mode": "precomputed-reproducibility-artifact"' in builder
+    assert 'dispatch("POST", "/api/solve"' not in builder
+    assert '"mode": "eos-bench-reference-replay"' in builder
     assert "astral-sh/setup-uv@v9.0.0" in workflow
     assert "actions/configure-pages@v5" in workflow
     assert "actions/upload-pages-artifact@v4" in workflow

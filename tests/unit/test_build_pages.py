@@ -5,38 +5,34 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from orbitops.web import LabApplication
 
 from scripts import build_pages as pages
 
 
-def test_pages_budget_and_omission_profiles_are_explicit() -> None:
-    assert pages._evaluation_budget(3, stochastic=True) == 250
-    assert pages._evaluation_budget(10, stochastic=True) == 120
-    assert pages._evaluation_budget(18, stochastic=True) == 75
-    assert pages._evaluation_budget(30, stochastic=True) == 40
-    assert pages._evaluation_budget(30, stochastic=False) == 250
+def test_pages_artifact_contains_only_eos_bench_and_performs_no_solves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = LabApplication(pages.SCENARIO_DIR)
 
-    capability = pages._omission_reason(
-        {"task_count": 18},
-        {"solver_name": "branch-and-bound", "max_tasks": 16},
-    )
-    pages_profile = pages._omission_reason(
-        {"task_count": 10},
-        {"solver_name": "brute-force", "max_tasks": 10},
-    )
-    representative = pages._omission_reason(
-        {"task_count": 30},
-        {"solver_name": "greedy-value", "max_tasks": None},
-    )
+    def forbidden_dispatch(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("Demo generation must not request local catalogs or solve scenarios")
 
-    assert capability == {
-        "code": "solver_capability_limit",
-        "reason": "Method supports at most 16 tasks.",
-    }
-    assert pages_profile is not None
-    assert pages_profile["code"] == "pages_exact_profile_limit"
-    assert representative is not None
-    assert representative["code"] == "pages_representative_method_set"
+    monkeypatch.setattr(application, "dispatch", forbidden_dispatch)
+    dataset = pages.build_dataset(application)
+    assert set(dataset) == {"metadata", "reference"}
+    assert dataset["metadata"]["mode"] == "eos-bench-reference-replay"
+    assert dataset["reference"]["scenario"]["scenario_id"] == "eos-s1-20-500"
+    assert len(dataset["reference"]["plans"]) == 4
+
+
+def test_pages_build_fails_if_reference_archive_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = LabApplication(pages.SCENARIO_DIR)
+    monkeypatch.setattr(application.reference, "export", lambda: None)
+    with pytest.raises(RuntimeError, match="EOS-Bench reference data is unavailable"):
+        pages.build_dataset(application)
 
 
 def test_pages_builder_refuses_unmarked_nonempty_output(tmp_path: Path) -> None:

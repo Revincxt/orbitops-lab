@@ -1,9 +1,5 @@
 "use strict";
 
-function isReferenceScenario() {
-  return state.scenarios.find((item) => item.scenario_id === elements.scenario.value)?.mode === "reference";
-}
-
 function timeLabel(seconds) {
   return window.OrbitReplay.utc(state.currentPayload?.scenario.epoch_utc, seconds);
 }
@@ -133,33 +129,15 @@ function stateColor(taskId) {
 }
 
 function configureModeDetails(payload) {
-  const reference = payload.mode === "reference";
-  textField("workspace-mode", reference ? "20 SATELLITES · REFERENCE" : "SINGLE SATELLITE · LOCAL");
-  textField("deployment-mode", reference ? "EOS-Bench · source replay" : staticDeployment ? "GitHub Pages · precomputed runs" : "Local API execution");
-  textField("geometry-source", reference ? "Source Orekit · sampled replay" : "Target coordinates · no orbit data");
-  document.getElementById("geometry-source").title = reference ? `${payload.replay.model}; retained source samples, interpolated for display. Not telemetry or high-fidelity numerical propagation.` : "No orbital elements exist in this local scenario. Connecting target positions is a plan sequence, not a satellite trajectory.";
-  const note = document.getElementById("model-note");
-  note.replaceChildren(document.createTextNode(reference ? "EOS-Bench reference snapshot" : "Synthetic scheduling benchmark"));
-  const detail = document.createElement("span");
-  detail.textContent = reference ? `Pinned ${payload.provenance.revision.slice(0, 8)} · not telemetry` : "Synthetic access windows · no orbital propagation";
-  note.append(detail);
-  textField("toggle-track", reference ? "Orbit" : "Sequence");
-  elements.solver.closest("label").querySelector(".field-label").textContent = reference ? "REFERENCE PLAN" : "SOLVER";
-  document.querySelector(".run-hint").textContent = reference ? "Source → consistency check → replay" : "Solve → simulate → validate";
-  document.getElementById("toggle-rays").disabled = !reference;
-  document.querySelector(".slew-legend").hidden = reference;
-  textField("timeline-title", reference ? "Satellite observation lanes · UTC" : "Task windows · relative time");
-  textField("resources-title", reference ? "Satellite workload · seconds" : "Resource envelope");
-  document.querySelector(".resource-block .count-badge").textContent = reference ? "s" : "%";
-  document.querySelector(".resource-block .legend").replaceChildren(...legendItems(reference ? [["observation", "Source observation duration"]] : [["energy", "Energy left"], ["storage", "Storage used"]]));
-  document.getElementById("energy-readout").parentElement.firstChild.textContent = reference ? "ACTIVE SATELLITES" : "ENERGY";
-  document.getElementById("storage-readout").parentElement.firstChild.textContent = reference ? "OBSERVATION TIME" : "STORAGE";
-  if (reference) {
-    const loads = Object.values(payload.reference_plan.workloads);
-    textField("energy-readout", `${loads.filter((load) => load > 0).length}/${loads.length}`);
-    textField("storage-readout", `${loads.reduce((a, b) => a + b, 0).toFixed(0)} s`);
-  }
-  document.getElementById("issues-title").textContent = reference ? "Source checks and verification scope" : "Validator issues and margins";
+  textField("deployment-mode", "Reference replay");
+  textField("geometry-source", "Orekit · sampled");
+  document.getElementById("geometry-source").title = `${payload.replay.model}; retained source samples, interpolated for display. Not telemetry or high-fidelity numerical propagation.`;
+  document.querySelector(".slew-legend").hidden = true;
+  textField("timeline-title", "Observation · UTC");
+  const loads = Object.values(payload.reference_plan.workloads);
+  textField("energy-readout", `${loads.filter((load) => load > 0).length}/${loads.length}`);
+  textField("storage-readout", `${loads.reduce((a, b) => a + b, 0).toFixed(0)} s`);
+  textField("issues-title", "Source checks");
 }
 
 function renderEvaluation(payload) {
@@ -179,7 +157,7 @@ function setComparisonHeadings(labels) {
 }
 
 function renderReferenceComparison() {
-  setComparisonHeadings(["Plan", "TP ↑", "TCR ↑", "TM ↓", "Scope", "RT ↓", "BD ↑", "Objective", "Seed / budget"]);
+  setComparisonHeadings(["Plan", "TP ↑", "TCR ↑", "TM ↓", "Scope", "RT ↓", "BD ↑", "Objective"]);
   const tableHost = document.querySelector(".comparison-table-host");
   const capacity = Math.max(1, Math.floor((tableHost.clientHeight - 25) / 34));
   const plans = pageItems("comparison", state.referenceData.plans, capacity);
@@ -194,7 +172,7 @@ function renderReferenceComparison() {
     button.addEventListener("click", () => {
       elements.solver.value = plan.plan_id;
       renderResult(window.OrbitReplay.referencePayload(state.referenceData, plan));
-      elements.status.textContent = `Source plan: ${plan.label}. Objective configuration retained; no local solve performed.`;
+      elements.status.textContent = `${plan.label} · Ready`;
     });
     cell.append(button);
     const metrics = plan.recomputed_metrics;
@@ -205,12 +183,11 @@ function renderReferenceComparison() {
     appendCell(row, `${plan.source_metrics.RT.toFixed(1)}s`, "numeric");
     appendCell(row, metrics.BD.toFixed(3), "numeric");
     appendCell(row, plan.objective);
-    appendCell(row, "Not recorded", "budget-column");
     return row;
   });
   elements.comparisonBody.replaceChildren(...rows);
-  textField("comparison-context", "4 imported plans · objectives differ");
-  textField("comparison-note", "No overall ranking: objectives differ. RT is source solve time; seeds/budgets are not recorded. All reference checks are limited, not full feasibility certificates.");
+  textField("comparison-context", "Objectives differ");
+  textField("comparison-note", "Different objectives · no overall ranking. RT is source runtime.");
 }
 
 function renderReferenceAudit() {
@@ -224,7 +201,7 @@ function renderReferenceAudit() {
   plan.checks.issues.forEach((issue) => checks.push(auditItem(issue.task_id || "Source reconciliation", issue.code, issue.message, "audit-error")));
   plan.checks.checked.forEach((check) => checks.push(auditItem(check, "checked", "Checked against pinned source IDs, windows and plan data; not a full physical validation.", "audit-margin")));
   elements.validationList.replaceChildren(...pageItems("validation", checks, Math.max(1, Math.floor(elements.validationList.clientHeight / 69))));
-  textField("audit-methodology", "Source hashes and structural consistency checked. No independent certificate of attitude transitions, resource constraints, sensor geometry, battery dynamics or downlink.");
+  textField("audit-methodology", "Source consistency only · full physical feasibility not verified.");
 }
 
 function renderReferenceGantt() {
@@ -283,20 +260,24 @@ function renderWorkloads() {
   const {reference_plan: plan, scenario} = state.currentPayload;
   const width = Math.max(180, elements.resources.clientWidth);
   const height = Math.max(65, elements.resources.clientHeight);
-  const capacity = Math.max(2, Math.min(8, Math.floor((height - 22) / 19)));
-  const selected = state.assignments.get(state.selectedTaskId)?.satellite_id;
+  const capacity = Math.max(1, Math.min(scenario.satellites.length, Math.floor(height / 22)));
+  const selected = state.selectedSatelliteId;
   const sorted = scenario.satellites.map((satellite) => ({id: satellite.satellite_id, load: plan.workloads[satellite.satellite_id]})).sort((a, b) => b.load - a.load || a.id.localeCompare(b.id));
   const rows = sorted.slice(0, capacity);
   if (selected && !rows.some((row) => row.id === selected)) rows[rows.length - 1] = sorted.find((row) => row.id === selected);
   const maximum = Math.max(1, ...sorted.map((row) => row.load));
   const root = chart(width, height, "Satellite observation workload", "Highest-workload satellites plus the selected satellite. All satellites are available in the timeline. Source observation durations in seconds, not battery or storage traces.");
   rows.forEach((row, index) => {
-    const y = 4 + index * 19;
-    root.append(svgElement("text", {x: 0, y: y + 10, class: "chart-axis"}, row.id.split("_")[0].slice(0, 11)));
-    root.append(svgElement("rect", {x: 81, y, width: row.load / maximum * (width - 115), height: 11, rx: 1, class: `workload-bar${row.id === selected ? " is-selected" : ""}`}));
-    root.append(svgElement("text", {x: width - 1, y: y + 10, "text-anchor": "end", class: "chart-axis"}, `${row.load}s`));
+    const y = 5 + index * 22;
+    const group = svgElement("g", {class: "workload-row", role: "button", tabindex: 0, "aria-label": `${row.id}: ${row.load} seconds`, "aria-pressed": String(row.id === selected), "data-satellite-id": row.id});
+    group.append(svgElement("rect", {x: 0, y: y - 4, width, height: 22, fill: "transparent"}));
+    group.append(svgElement("text", {x: 0, y: y + 10, class: "chart-axis"}, row.id.split("_")[0].slice(0, 11)));
+    group.append(svgElement("rect", {x: 81, y, width: row.load / maximum * (width - 115), height: 11, rx: 1, class: `workload-bar${row.id === selected ? " is-selected" : ""}`}));
+    group.append(svgElement("text", {x: width - 1, y: y + 10, "text-anchor": "end", class: "chart-axis"}, `${row.load}`));
+    group.addEventListener("click", () => selectSatellite(row.id));
+    group.addEventListener("keydown", (event) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); selectSatellite(row.id); } });
+    root.append(group);
   });
-  root.append(svgElement("text", {x: 0, y: height - 3, class: "chart-axis"}, `Top ${capacity}${selected ? " + selection" : ""} · ${sorted.filter((row) => !row.load).length} idle satellites`));
   elements.resources.replaceChildren(root);
 }
 
@@ -571,7 +552,6 @@ function updateOrbitHud() {
   document.getElementById("camera-overview").disabled = !state.globe || state.viewTransition;
   document.getElementById("reset-view").disabled = state.viewTransition;
   for (const mode of ["overview", "focus", "follow"]) document.getElementById(`camera-${mode}`).setAttribute("aria-pressed", String(state.cameraMode === mode));
-  textField("camera-mode", state.viewTransition ? "SWITCHING VIEW…" : state.globe ? `${state.cameraMode.toUpperCase()} · WGS84` : "2D · SOURCE SAMPLES");
   if (!reference) return;
   textField("satellite-name", orbit ? satelliteName(orbit.satellite_id) : "Select a satellite");
   document.getElementById("satellite-name").title = orbit?.satellite_id || "Pick a satellite symbol or select an assigned task";
@@ -673,11 +653,11 @@ function bindGlobePicking(viewer, Cesium) {
     tooltip.hidden = !picked;
     viewer.canvas.style.cursor = picked ? "pointer" : "grab";
     if (!picked) return;
-    if (picked.kind === "task") tooltip.textContent = `${picked.id} · ${taskState(picked.id)} · click to inspect`;
+    if (picked.kind === "task") tooltip.textContent = `${picked.id} · ${taskState(picked.id)}`;
     else {
       const orbit = state.currentPayload?.replay?.orbits.find((item) => item.satellite_id === picked.id);
       if (!orbit) { tooltip.hidden = true; return; }
-      tooltip.textContent = `${satelliteName(picked.id)} · ${(satelliteAltitude(orbit) / 1000).toFixed(1)} km · double-click to focus`;
+      tooltip.textContent = `${satelliteName(picked.id)} · ${(satelliteAltitude(orbit) / 1000).toFixed(1)} km`;
     }
     tooltip.style.left = `${Math.max(8, Math.min(elements.globe.clientWidth - 288, point.x + 15))}px`;
     tooltip.style.top = `${Math.max(8, Math.min(elements.globe.clientHeight - 36, point.y + 15))}px`;
@@ -710,7 +690,6 @@ function updateMapViewControls() {
   }
   elements.globe.dataset.viewMode = state.viewTransition ? "morphing" : state.viewMode;
   elements.globe.setAttribute("aria-busy", String(state.viewTransition));
-  document.querySelector(".view-tag").textContent = state.viewTransition ? "…" : MAP_VIEWS[state.viewMode].label;
   for (const button of document.querySelectorAll(".map-projections button")) {
     button.setAttribute("aria-pressed", String(button.dataset.view === state.viewMode));
     button.disabled = !viewer || state.viewTransition;

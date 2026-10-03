@@ -72,15 +72,15 @@ python -m pip install -e '.[dev]'
 orbitops lab --scenarios scenarios
 ```
 
-Open `http://127.0.0.1:8000`. The Web Lab includes deterministic 6, 10, 18, and
-30-task showcase scenarios, method comparison, a 3D mission view, Gantt and
-resource envelopes, constraint audit, and learning curves.
+Open `http://127.0.0.1:8000`. The demo contains only the pinned EOS-Bench scenario:
+20 satellites, 500 tasks and four source plans. Its fixed-viewport engineering
+workspace provides 3D/2.5D/2D maps, playback, a satellite timeline, plan comparison
+and workload metrics. Source records and limited validation scope remain inspectable.
 
 The [GitHub Pages interface](https://revincxt.github.io/orbitops-lab/) provides a
-serverless reproducibility view. Its committed results use deterministic,
-size-aware budgets and report every actual seed, budget, stop reason, omission,
-and build provenance. Local execution remains the authoritative mode for
-arbitrary seeds, budgets, and new scenarios.
+serverless replay of the same archive; it does not generate local solver runs.
+Other synthetic scenarios remain available to Python CLI/benchmark tooling,
+not as demo scenes.
 
 The same domain core is available from the command line:
 

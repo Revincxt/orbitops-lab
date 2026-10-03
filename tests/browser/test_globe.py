@@ -181,7 +181,9 @@ def test_satellite_canvas_picking_focus_follow_and_source_horizon(globe_page: An
     globe_page.locator("#camera-overview").click()
     assert globe_page.evaluate("!state.globe.trackedEntity")
     assert globe_page.locator("#camera-overview").get_attribute("aria-pressed") == "true"
+    globe_page.locator("#toggle-layers").click()
     globe_page.locator("#toggle-track").click()
+    globe_page.keyboard.press("Escape")
     assert globe_page.evaluate(
         "state.globe.entities.values.filter(e=>e.path).every(e=>!e.path.show.getValue())"
     )
@@ -212,7 +214,7 @@ def test_globe_camera_refits_after_resize_and_map_expansion(
     assert_single_screen(globe_page)
 
 
-def test_local_mode_clears_satellite_tracking_and_reference_geometry(globe_page: Any) -> None:
+def test_plan_reload_clears_satellite_tracking_and_retains_source_geometry(globe_page: Any) -> None:
     globe_page.locator("#camera-follow").click()
     assert globe_page.evaluate("Boolean(state.globe.trackedEntity)")
     assert globe_page.evaluate("""() => state.currentPayload.replay.orbits
@@ -220,14 +222,15 @@ def test_local_mode_clears_satellite_tracking_and_reference_geometry(globe_page:
       .every(orbit => state.globe.entities.getById('orbit-preview-' + orbit.satellite_id)
         .path.material === state.orbitStyles.get(orbit.satellite_id).dimmed.future)
     """)
-    globe_page.locator("#scenario-select").select_option("showcase-resources-10")
-    globe_page.locator("#solver-select").select_option("greedy-insertion")
+    globe_page.locator("#solver-select").select_option("eos-ppo-profit")
     globe_page.locator("#run-button").click()
-    globe_page.wait_for_function("state.currentPayload.mode !== 'reference' && !state.busy")
-    assert globe_page.locator("#orbit-hud").is_hidden()
-    assert globe_page.evaluate("!state.globe.trackedEntity && state.orbitPositions.size === 0")
+    globe_page.wait_for_function(
+        "state.currentPayload.reference_plan.plan_id === 'eos-ppo-profit' && !state.busy"
+    )
+    assert globe_page.locator("#orbit-hud").is_visible()
+    assert globe_page.evaluate("!state.globe.trackedEntity && state.orbitPositions.size === 20")
     assert globe_page.evaluate(
-        "!state.globe.entities.values.some(e=>e.id.startsWith('satellite-') || e.path)"
+        "state.globe.entities.values.filter(e=>e.id.startsWith('satellite-')).length === 20"
     )
     assert_single_screen(globe_page)
 
@@ -321,24 +324,25 @@ def test_reduced_motion_and_switching_during_replay_preserve_the_clock(globe_pag
 
 
 @pytest.mark.parametrize(("selector", "mode"), [("#view-2d", "2d"), ("#view-2_5d", "2.5d")])
-def test_local_scenario_retains_planar_view_and_has_no_invented_orbits(
+def test_plan_reload_retains_planar_view_and_source_orbits(
     globe_page: Any, selector: str, mode: str
 ) -> None:
     globe_page.locator(selector).click()
     globe_page.wait_for_function(
         "mode => state.viewMode === mode && !state.viewTransition", arg=mode
     )
-    globe_page.locator("#scenario-select").select_option("showcase-resources-10")
-    globe_page.locator("#solver-select").select_option("greedy-insertion")
+    globe_page.locator("#solver-select").select_option("eos-sa-profit")
     globe_page.locator("#run-button").click()
-    globe_page.wait_for_function("state.currentPayload.mode !== 'reference' && !state.busy")
+    globe_page.wait_for_function(
+        "state.currentPayload.reference_plan.plan_id === 'eos-sa-profit' && !state.busy"
+    )
     assert globe_page.evaluate("state.viewMode") == mode
     assert globe_page.locator(selector).get_attribute("aria-pressed") == "true"
-    assert globe_page.evaluate("!state.globe.trackedEntity && state.orbitPositions.size === 0")
+    assert globe_page.evaluate("!state.globe.trackedEntity && state.orbitPositions.size === 20")
     assert globe_page.evaluate(
-        "!state.globe.entities.values.some(e=>e.id.startsWith('satellite-') || e.path)"
+        "state.globe.entities.values.filter(e=>e.id.startsWith('satellite-')).length === 20"
     )
-    assert globe_page.locator("#orbit-hud").is_hidden()
+    assert globe_page.locator("#orbit-hud").is_visible()
     assert_single_screen(globe_page)
 
 

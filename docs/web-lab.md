@@ -1,11 +1,10 @@
 # Interactive Web Lab
 
-The Web Lab turns the existing OrbitOps solvers and shared validator into a
-local interactive tool. It is intentionally a thin application layer: the web
-interface does not contain a second scheduler, simulator, or scoring model.
-Local solver results come from the same Python domain core used by the CLI,
-benchmarks, and tests. A separate, explicitly read-only EOS-Bench reference mode
-replays imported multi-satellite plans without passing them off as local solves.
+The demo is a read-only EOS-Bench mission workspace: one pinned 20-satellite,
+500-task scenario with four original source plans. It contains no scenario
+switcher, local solve controls, seed input or evaluation budget. Synthetic
+scenarios and OrbitOps solvers remain available through the Python CLI and API,
+but are not part of the demo or its static deployment.
 
 The presentation layer combines an interactive CesiumJS mission-context globe
 with framework-free SVG evidence charts. Cesium is responsible only for WGS84
@@ -34,19 +33,16 @@ operator decision.
 
 The hosted interface is available at
 `https://revincxt.github.io/orbitops-lab/`. GitHub Pages cannot execute the
-Python API, so the deployment workflow builds a static reproducibility artifact
-instead of pretending that the browser is solving schedules. It includes the
-committed 3-task regression cases and deterministic 6, 10, 18, and 30-task
-showcases. Seed 42 is fixed, while size-aware search budgets keep the artifact
-bounded. Every result reports its actual budget and build provenance; expensive
-or unsupported combinations are listed as explicit omissions. Scenario and
-solver controls select among recorded results, so seed and budget inputs remain
-read-only in hosted mode.
+Python API, so the workflow packages only the pinned EOS-Bench reference archive
+and the framework-free interface. `pages-data.json` contains metadata and the
+reference archive; no local catalogs, synthetic scenarios, precomputed local
+runs or omission manifest are included. Static generation performs no solves.
 
-Every push to `main` runs `scripts/build_pages.py`, packages the framework-free
-interface and its precomputed result dataset, and deploys the artifact through
-the repository's GitHub Pages workflow. Local API execution remains the correct
-path for arbitrary seeds, budgets, or additional scenarios.
+Every push to `main` runs `scripts/build_pages.py` and deploys through the
+repository's GitHub Pages workflow. The local demo fetches only
+`/api/reference/data`; both deployments use the same replay and metric code.
+If the archive is unavailable, startup reports an error without switching to a
+synthetic scenario.
 
 ## Interaction model
 
@@ -56,61 +52,46 @@ target catalogs, timeline rows, solver comparisons, exclusions, and validator
 issues use height-aware pagination. On narrow screens the side panels become
 exclusive drawers, opened from the header and dismissed with Escape.
 
-The configuration surface selects a committed Scenario JSON document, one of
-the eleven built-in solver modes, a deterministic seed, and an evaluation budget. The
-server solves the selected scenario synchronously, revalidates the schedule with
-the shared simulator, and returns one result payload for all views.
+The left panel selects one of the four reference plans and contains the
+paginated target catalog. The centre prioritizes the orbit view, with a compact
+analysis dock below it. The right panel shows four primary metrics, target
+details and satellite workload. Projection controls live in the map toolbar;
+layer switches are grouped in a dismissible menu.
 
-When the reference archive is present, the default view opens EOS-Bench's
-20-satellite, 500-task, 12-hour scenario with its balanced SA plan. Use
-`?mode=local` to open the ten-target resource-frontier showcase with Q-learning,
-or choose a local scenario in the existing scenario selector. Timeline,
-comparison, constraint audit, and diagnostics share
-one tabbed analysis dock. Primary metrics and resource state stay in the output
-inspector. The interface renders:
+Changing a plan marks the current output as pending until Load plan is pressed.
+Ctrl+Enter (Cmd+Enter on macOS) loads the selected plan. Comparison rows can also
+activate a source plan. Reloading resets playback and camera tracking but
+preserves the selected projection; it never calls a local solver. Legacy
+`?mode=local` URLs no longer expose other scenarios.
 
-- **Primary metrics:** plan priority yield TP, plan completion TCR, normalized
-  start-delay TM (lower is better), and the explicitly scoped validation status.
-  Additional metrics report balance BD, solve runtime RT and available slew time.
-- **Method comparison:** all precomputed methods for the selected scenario with
-  objective, completion, feasibility, runtime, evaluation count, seed, budget,
-  and stopping reason.
-- **Constraint audit:** scheduled/unscheduled task accounting, resource margins,
-  validation issues, search effort, and exact-search proof status.
-- **3D mission geometry:** WGS84 targets and selection highlighting. Reference
-  mode uses retained source Orekit position samples, moving satellites,
-  one-period paths and observation links only during actual task
-  intervals. Local synthetic scenarios have no orbit data: only target
-  coordinates and an explicitly labelled plan sequence are shown. Invented
-  satellite positions and arbitrary coverage circles are not displayed.
-- **Mission Gantt:** every target's visibility windows, validated observation
-  interval, and the slew immediately preceding a selected observation.
-- **Resource trace:** energy remaining and storage used, normalized against the
-  satellite capacities after every simulated task.
-- **Training curves:** realized exploratory episode-schedule objective, epsilon,
-  and normalized mean absolute temporal-difference error for Q-learning runs.
-  This diagnostic is not labeled as pure-policy performance; deterministic
-  checkpoint replay quality is recorded separately in run metadata.
-- **Search convergence:** incumbent objective value by unique evaluation for
-  stochastic-search solvers; deterministic solvers receive a terminal point.
+The analysis dock contains:
+
+- **Timeline:** source observation intervals and the selected task's visibility
+  windows, paginated across all 20 satellite lanes.
+- **Comparison:** TP/TCR/TM/BD, original runtime, check scope and objectives for
+  all four plans; different objectives are not collapsed into one ranking.
+- **Audit:** unassigned tasks, source consistency checks and verification gaps.
+- **Data:** pinned file hashes and source provenance.
+
+The inspector keeps TP, planned task count, TM and full feasibility visible.
+N/A remains explicitly labelled Not verified. Additional metrics and the run
+record are separate tabs. Runtime explanations, source-model details and
+validation caveats do not repeat across the main workspace. Source attribution,
+revision and verification scope remain accessible in Run record and Data.
+Satellite workload bars support mouse and keyboard selection.
 
 Selecting a target in the catalog, Gantt, or map updates the same inspector and
-selection highlight. The inspector exposes target coordinates, priority,
-duration, observation interval, and resource costs; a second tab contains run
-provenance. Globe toolbar controls toggle targets and tracks or fit the mission
-to the available viewport. Targets on the far side of Earth are depth-occluded.
-
-Editing configuration marks the visible result as pending until a new run is
-evaluated. Ctrl+Enter (Cmd+Enter on macOS) runs the form; controls are disabled
-while a solve is in progress and duplicate submissions are ignored. Comparison
-rows can reopen previously evaluated results. Export downloads the complete
-currently inspected run as JSON, including scenario, schedule, validation,
-diagnostics, and available provenance. An unsuccessful request keeps the last
-evaluated result available and reports its error in the status bar.
+selection highlight. The inspector exposes coordinates, priority, duration,
+satellite assignment, observation interval, data volume and source orbit number.
+The layers menu toggles targets, orbit paths, observation links, target IDs and
+satellite IDs. Escape, outside clicks and focus leaving the menu dismiss it.
+Export downloads the complete reference payload, including scenario, plan,
+provenance and verification scope. Load failures remain visible in the status
+bar. Targets on the far side of Earth are depth-occluded.
 
 The shared playback clock supports pause, reset, scrubbing and selectable speed.
-Reference times have an explicit UTC epoch; local scenarios retain relative
-seconds. Catalog, map, timeline cursor and task details share half-open interval
+Reference times use an explicit UTC epoch. Catalog, map, timeline cursor and
+task details share half-open interval
 semantics: observing at start, completed at end. Planned completion metrics stay
 separate from the playback-completed count. Task search, status and satellite
 filters keep large scenes reachable without scrollbars.
@@ -139,7 +120,7 @@ when an overview viewport is resized. A north-reset compass reflects the current
 camera heading instead of showing a static orientation indicator. Small/short
 map viewports compact the satellite readout to keep the globe accessible.
 
-The map's upper-left projection controls switch between the native Cesium 3D
+The map toolbar's projection controls switch between the native Cesium 3D
 globe, tilted 2.5D unfolded map (Columbus View), and 2D geographic map. All views
 share the same source positions, task selection, layers and replay clock; a
 projection change does not restart or pause playback. 2.5D retains orbital
@@ -201,10 +182,9 @@ Pushing this archive to `main` makes the reference snapshot public in the
 repository and includes it in the automatic GitHub Pages deployment. Source
 attribution and hashes document provenance, not a redistribution license.
 
-Disabled exact-solver choices are informative guardrails. The local API enforces
-the ten-task brute-force and sixteen-task branch-and-bound implementation limits.
-The static build uses stricter eight- and twelve-task caps to bound deployment
-time and records each skipped combination in its omission manifest.
+The retained Python API independently enforces the ten-task brute-force and
+sixteen-task branch-and-bound implementation limits. Those controls are not
+exposed in the EOS-Bench demo.
 
 ## JSON API
 
@@ -244,10 +224,9 @@ Natural Earth II tiles remain underneath as a token-free raster fallback.
 Scenario coordinates stay in the browser and are
 not uploaded to Cesium ion or NASA. If both remote imagery paths or the 3D engine
 are unavailable, a selectable two-dimensional coordinate map preserves target
-and selection context while the scheduling API and evidence charts continue to
-work. Its equirectangular target positions use the supplied WGS84 coordinates;
+and selection context while playback and evidence charts continue to work. Its equirectangular target positions use the supplied WGS84 coordinates;
 coastlines are explicitly schematic. The 3D engine loads asynchronously so an
-unavailable engine does not block scheduling.
+unavailable engine does not block reference replay.
 
 Cesium's official browser build uses workers, WebAssembly, and runtime code
 compilation. The Content Security Policy therefore permits `unsafe-eval` only
@@ -283,11 +262,11 @@ separately, and wheel inspection confirms that the HTML, stylesheet, application
 script, deployment configuration, Cesium configuration, and social preview
 asset ship with the Python package.
 
-Optional browser regression checks run the actual local API while blocking
-remote geometry dependencies, verifying the coordinate-map fallback, eight
-viewport sizes, complete 30-target pagination, linked selection, keyboard tabs,
-layer toggles, JSON downloads, duplicate-submit protection, error recovery,
-and recorded budgets and complete comparison pagination in Pages mode:
+Optional browser regression checks run against the actual reference archive
+while blocking remote geometry dependencies. They verify eight viewport sizes,
+all 500 reachable targets, all 20 satellite lanes, linked selection, keyboard
+tabs, layer-menu dismissal, JSON export, single-scenario enforcement, missing
+archive errors, plan switching and API-free static loading:
 
 ```bash
 python -m pip install -e '.[dev]' playwright
@@ -300,7 +279,7 @@ Chromium executable. These checks are skipped in the normal Python suite.
 Real WebGL checks run against the official Cesium engine rather than a mocked
 renderer. They verify initial-epoch tracks, exact source-sample positions,
 canvas picking, focus/follow, end-of-horizon bounds, responsive framing, map
-expansion and clearing geometry when switching to a local scenario. NASA
+expansion and retaining source geometry when changing reference plans. NASA
 imagery is deliberately blocked to check the Natural Earth fallback. The
 official Cesium CDN must be reachable:
 

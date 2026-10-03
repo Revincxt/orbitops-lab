@@ -2,14 +2,9 @@
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const state = {
-  scenarios: [],
-  solvers: [],
-  localSolvers: [],
   referenceData: null,
   globe: null,
   imageryFallbackActive: false,
-  staticDataset: null,
-  runCache: new Map(),
   currentPayload: null,
   selectedTaskId: null,
   busy: false,
@@ -36,18 +31,12 @@ let staticDatasetPromise = null;
 
 const elements = {
   form: document.getElementById("solve-form"),
-  scenario: document.getElementById("scenario-select"),
   solver: document.getElementById("solver-select"),
-  seed: document.getElementById("seed-input"),
-  budget: document.getElementById("budget-input"),
   button: document.getElementById("run-button"),
-  context: document.getElementById("scenario-context"),
   status: document.getElementById("status"),
   results: document.getElementById("results"),
-  runtime: document.getElementById("runtime"),
   value: document.getElementById("metric-value"),
   tasks: document.getElementById("metric-tasks"),
-  taskContext: document.getElementById("metric-task-context"),
   slew: document.getElementById("metric-slew"),
   feasible: document.getElementById("metric-feasible"),
   timeline: document.getElementById("timeline-chart"),
@@ -58,8 +47,6 @@ const elements = {
   learningLegend: document.getElementById("learning-legend"),
   globe: document.getElementById("mission-globe"),
   globeLoading: document.getElementById("globe-loading"),
-  globeTargets: document.getElementById("globe-targets"),
-  globeSequence: document.getElementById("globe-sequence"),
   deploymentMode: document.getElementById("deployment-mode"),
   comparisonBody: document.getElementById("comparison-body"),
   comparisonContext: document.getElementById("comparison-context"),
@@ -70,8 +57,6 @@ const elements = {
   validationList: document.getElementById("validation-list"),
   recordScenario: document.getElementById("record-scenario"),
   recordMethod: document.getElementById("record-method"),
-  recordSeed: document.getElementById("record-seed"),
-  recordBudget: document.getElementById("record-budget"),
   recordRevision: document.getElementById("record-revision"),
   shell: document.querySelector(".shell"),
   runLabel: document.getElementById("run-label"),
@@ -110,21 +95,13 @@ function bindPager(name, render) {
 }
 
 function activeRequest() {
-  if (isReferenceScenario()) return { scenario_id: elements.scenario.value, solver_name: elements.solver.value };
-  return {
-    scenario_id: elements.scenario.value,
-    solver_name: elements.solver.value,
-    seed: Number(elements.seed.value),
-    evaluation_budget: Number(elements.budget.value),
-  };
+  return { scenario_id: state.referenceData.scenario.scenario_id, solver_name: elements.solver.value };
 }
 
 function markConfigurationChanged() {
   const dirty = Boolean(state.lastRequest && JSON.stringify(activeRequest()) !== JSON.stringify(state.lastRequest));
   elements.pending.hidden = !dirty;
   elements.button.dataset.pending = String(dirty);
-  const solver = state.solvers.find((item) => item.solver_name === elements.solver.value);
-  if (solver) textField("solver-description", solver.category === "reference" ? "Imported plan · original objectives retained" : `${solver.category} · ${solver.stochastic ? "seeded execution" : "deterministic execution"}`);
 }
 
 function setPanel(name, open) {
@@ -195,7 +172,7 @@ function renderTargetCatalog() {
     const title = document.createElement("strong");
     title.textContent = task.target.name;
     const detail = document.createElement("small");
-    detail.textContent = `${task.task_id} · P${task.priority_value.toFixed(0)} · ${task.visibility_windows.length} windows`;
+    detail.textContent = `P${task.priority_value.toFixed(0)} · ${task.visibility_windows.length} windows`;
     name.append(title, detail);
     const status = document.createElement("span");
     status.className = "target-state";
@@ -223,18 +200,16 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
     }
   }
   if (seek && assignment) setReplayTime(assignment.start_s, true);
-  textField("selected-name", task.target.name);
   textField("selected-id", task.task_id);
   textField("selected-coordinates", `${task.target.latitude_deg.toFixed(2)}°, ${task.target.longitude_deg.toFixed(2)}°`);
   textField("selected-priority", `P${task.priority_value.toFixed(0)} / ${task.duration_s.toFixed(1)}s`);
   textField("selected-window", assignment ? `${timeLabel(assignment.start_s)}–${timeLabel(assignment.end_s)}` : "Not scheduled");
   textField("selected-assignment", assignment ? (assignment.satellite_id || payload.scenario.satellite.satellite_id) : `${task.visibility_windows.length} candidate windows`);
   document.getElementById("selected-assignment").title = assignment ? `${assignment.satellite_id || payload.scenario.satellite.satellite_id} · ${assignment.window_id}` : "No selected assignment";
-  textField("selected-resource-label", payload.mode === "reference" ? "Source data / orbit" : "Energy / storage");
+  textField("selected-resource-label", "Data / orbit");
   textField("selected-resources", payload.mode === "reference" ? (assignment ? `${(assignment.data_volume_gb * 1024).toFixed(2)} MB / #${assignment.orbit_number}` : "No source assignment") : `${task.energy_cost_wh.toFixed(1)} Wh / ${task.storage_cost_gb.toFixed(1)} GB`);
   textField("selected-state", taskState(taskId));
   document.getElementById("selected-state").classList.toggle("scheduled", Boolean(assignment));
-  textField("globe-coordinate", `${task.target.latitude_deg.toFixed(2)}° LAT / ${task.target.longitude_deg.toFixed(2)}° LON`);
   if (state.globe && window.Cesium) {
     payload.scenario.tasks.forEach((candidate) => {
       const entity = state.globe.entities.getById(`target-${candidate.task_id}`);
@@ -286,12 +261,7 @@ function refreshPanels() {
   if (!document.getElementById("pane-comparison").hidden) renderComparison(payload.scenario.scenario_id, payload.result.schedule.solver_name);
   if (!document.getElementById("pane-audit").hidden) renderConstraintAudit(payload.scenario, payload.result, payload.constraint_audit);
   if (!document.getElementById("pane-learning").hidden) {
-    if (payload.mode === "reference") { renderSourceDiagnostics(); }
-    else {
-    const trace = payload.result.schedule.metadata.training_trace;
-    if (Array.isArray(trace) && trace.length) renderTraining(trace);
-    else renderConvergence(payload.convergence || []);
-    }
+    renderSourceDiagnostics();
   }
   if (elements.resources.clientHeight > 0) renderResources(payload.scenario, payload.result);
   state.globe?.resize();
@@ -317,69 +287,20 @@ function chart(width, height, title, description) {
   return root;
 }
 
-function emptyChart(host, message) {
-  const empty = document.createElement("p");
-  empty.className = "chart-empty";
-  empty.textContent = message;
-  host.replaceChildren(empty);
-}
-
-function seriesPoints(points, x, y) {
-  return points.map((point) => `${x(point.x).toFixed(2)},${y(point.y).toFixed(2)}`).join(" ");
-}
-
-function sampleSeries(points, limit = 100) {
-  if (points.length <= limit) return points;
-  const sampled = [];
-  for (let index = 0; index < limit; index += 1) {
-    sampled.push(points[Math.round((index / (limit - 1)) * (points.length - 1))]);
-  }
-  return sampled;
-}
-
-function legendItems(items) {
-  return items.map(([className, text]) => {
-    const item = document.createElement("span");
-    const swatch = document.createElement("i");
-    swatch.className = `swatch ${className}`;
-    item.append(swatch, document.createTextNode(text));
-    return item;
-  });
-}
-
 async function loadStaticDataset() {
   if (!staticDatasetPromise) {
     staticDatasetPromise = fetch("./pages-data.json").then(async (response) => {
-      if (!response.ok) throw new Error("Static experiment dataset is unavailable.");
+      if (!response.ok) throw new Error("EOS-Bench dataset is unavailable.");
       const dataset = await response.json();
-      state.staticDataset = dataset;
       return dataset;
     });
   }
   return staticDatasetPromise;
 }
 
-async function staticApi(path, options = {}) {
-  const dataset = await loadStaticDataset();
-  if (path === "/api/reference/data") return dataset.reference || null;
-  if (path === "/api/scenarios") return dataset.scenarios;
-  if (path === "/api/solvers") return dataset.solvers;
-  if (path === "/api/solve" && options.method === "POST") {
-    const request = JSON.parse(options.body);
-    const key = `${request.scenario_id}::${request.solver_name}`;
-    const result = dataset.runs[key];
-    if (!result) {
-      const omission = (dataset.omissions || {})[key];
-      throw new Error(omission?.reason || "No precomputed result is available for this method and scenario.");
-    }
-    return result;
-  }
-  throw new Error(`Static deployment does not implement ${path}.`);
-}
-
-async function api(path, options = {}) {
-  if (staticDeployment) return staticApi(path, options);
-  const response = await fetch(path, options);
+async function api(path) {
+  if (staticDeployment) return (await loadStaticDataset()).reference;
+  const response = await fetch(path);
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
   return payload;
@@ -398,124 +319,16 @@ function runKey(scenarioId, solverName) {
   return `${scenarioId}::${solverName}`;
 }
 
-function selectedStaticRun() {
-  return state.staticDataset?.runs[runKey(elements.scenario.value, elements.solver.value)] || null;
-}
-
-function applyStaticRunConfiguration() {
-  if (!staticDeployment) return;
-  const selected = selectedStaticRun();
-  if (!selected) return;
-  const metadata = selected.run_metadata || {};
-  elements.seed.value = metadata.seed ?? state.staticDataset.metadata.seed;
-  elements.budget.value = metadata.evaluation_budget ?? state.staticDataset.metadata.evaluation_budget;
-}
-
-function updateScenarioContext() {
-  const scenario = state.scenarios.find((item) => item.scenario_id === elements.scenario.value);
-  if (!scenario) return;
-  const reference = scenario.mode === "reference";
-  const solvers = reference ? state.referenceData.plans.map((plan) => ({solver_name: plan.plan_id, label: plan.label, category: "reference", stochastic: false, max_tasks: null})) : state.localSolvers;
-  if (state.solvers !== solvers && (!state.solvers.length || state.solvers[0].category !== solvers[0].category || reference)) {
-    const previous = elements.solver.value;
-    state.solvers = solvers;
-    populateSelect(elements.solver, solvers, "solver_name", (item) => item.label || `${methodLabel(item.solver_name)} · ${item.category}`);
-    if (solvers.some((item) => item.solver_name === previous)) elements.solver.value = previous;
-    else elements.solver.value = reference ? "eos-sa-balanced" : "q-learning";
-  }
-  elements.seed.disabled = reference || staticDeployment || state.busy;
-  elements.budget.disabled = reference || staticDeployment || state.busy;
-  elements.runLabel.textContent = reference ? "Load reference plan" : (staticDeployment ? "Load reference run" : "Run evaluation");
-  if (reference) {
-    elements.seed.value = "";
-    elements.budget.value = "";
-    elements.seed.placeholder = "Not recorded";
-    elements.budget.placeholder = "Not recorded";
-    elements.context.textContent = `${scenario.satellite_count} satellites · ${scenario.task_count} tasks · 12 h UTC. Source benchmark; read-only replay, not a local solve.`;
-    elements.context.title = elements.context.textContent;
-    return;
-  }
-  if (!elements.seed.value) elements.seed.value = "42";
-  if (!elements.budget.value) elements.budget.value = "250";
-  elements.seed.placeholder = "";
-  elements.budget.placeholder = "";
-  const horizon = scenario.horizon_end_s - scenario.horizon_start_s;
-  const studyQuestion = scenario.research_question ? ` · ${scenario.research_question}` : "";
-  const geometryNote = scenario.geometry_note ? ` ${scenario.geometry_note}` : "";
-  elements.context.textContent = `${scenario.task_count} targets · ${(horizon / 60).toFixed(0)} min planning horizon${studyQuestion}${geometryNote}`;
-  elements.context.title = elements.context.textContent;
-  for (const option of elements.solver.options) {
-    const solver = state.solvers.find((item) => item.solver_name === option.value);
-    const exceedsCapability = Boolean(solver && solver.max_tasks !== null && scenario.task_count > solver.max_tasks);
-    const missingStaticRun = Boolean(
-      staticDeployment && state.staticDataset && !state.staticDataset.runs[runKey(scenario.scenario_id, option.value)],
-    );
-    option.disabled = exceedsCapability || missingStaticRun;
-    const omission = state.staticDataset?.omissions?.[runKey(scenario.scenario_id, option.value)];
-    option.title = omission?.reason || "";
-  }
-  if (elements.solver.selectedOptions[0]?.disabled) {
-    const preferred = [...elements.solver.options].find((option) => option.value === "greedy-insertion" && !option.disabled);
-    const available = preferred || [...elements.solver.options].find((option) => !option.disabled);
-    if (available) elements.solver.value = available.value;
-  }
-  applyStaticRunConfiguration();
-}
-
 function setBusy(busy, message) {
   state.busy = busy;
   elements.button.disabled = busy;
-  elements.scenario.disabled = busy;
   elements.solver.disabled = busy;
-  elements.seed.disabled = busy || staticDeployment || isReferenceScenario();
-  elements.budget.disabled = busy || staticDeployment || isReferenceScenario();
-  elements.runLabel.textContent = isReferenceScenario() ? (busy ? "Loading plan…" : "Load reference plan") : staticDeployment
-    ? (busy ? "Loading reference…" : "Load reference run")
-    : (busy ? "Evaluating…" : "Run evaluation");
+  elements.runLabel.textContent = busy ? "Loading…" : "Load plan";
   elements.results.setAttribute("aria-busy", String(busy));
   elements.statusIndicator.classList.toggle("is-busy", busy);
   elements.statusIndicator.classList.remove("is-error");
   elements.status.classList.remove("error");
   if (message) elements.status.textContent = message;
-}
-
-function displayReason(value) {
-  return String(value || "not reported").replaceAll("_", " ");
-}
-
-function methodVariant(solverName) {
-  if (solverName === "q-learning") return "hybrid";
-  if (solverName === "q-policy-only") return "pure policy";
-  return "";
-}
-
-function methodLabel(solverName) {
-  const variant = methodVariant(solverName);
-  return variant ? `${solverName} (${variant})` : solverName;
-}
-
-function runMetadata(payload) {
-  const scheduleMetadata = payload.result.schedule.metadata || {};
-  return {
-    seed: payload.run_metadata?.seed ?? payload.result.schedule.seed ?? Number(elements.seed.value),
-    evaluation_budget: payload.run_metadata?.evaluation_budget
-      ?? scheduleMetadata.evaluation_budget
-      ?? Number(elements.budget.value),
-    evaluations: payload.run_metadata?.evaluations
-      ?? scheduleMetadata.evaluations
-      ?? scheduleMetadata.nodes_expanded
-      ?? null,
-    stop_reason: payload.run_metadata?.stop_reason
-      ?? scheduleMetadata.stop_reason
-      ?? (scheduleMetadata.optimality_proven ? "optimality_proven" : "method_completed"),
-    source_revision: payload.run_metadata?.source_revision
-      ?? state.staticDataset?.metadata?.source_revision
-      ?? "local working tree",
-    software_version: payload.run_metadata?.software_version
-      ?? state.staticDataset?.metadata?.software_version
-      ?? "local",
-    budget_profile: payload.run_metadata?.budget_profile ?? "requested",
-  };
 }
 
 function appendCell(row, text, className = "") {
@@ -527,124 +340,8 @@ function appendCell(row, text, className = "") {
   return cell;
 }
 
-function renderComparison(scenarioId, focusedSolver) {
-  if (state.currentPayload?.mode === "reference") { renderReferenceComparison(); return; }
-  setComparisonHeadings(["Method", "TP ↑", "TCR ↑", "Slew ↓", "Check", "RT ↓", "Evals", "Stop reason", "Seed / budget"]);
-  const entries = [];
-  if (staticDeployment && state.staticDataset) {
-    state.solvers.forEach((solver) => {
-      const key = runKey(scenarioId, solver.solver_name);
-      entries.push({
-        solver,
-        payload: state.staticDataset.runs[key] || null,
-        omission: state.staticDataset.omissions?.[key] || null,
-      });
-    });
-  } else {
-    state.solvers.forEach((solver) => {
-      const payload = state.runCache.get(runKey(scenarioId, solver.solver_name));
-      if (payload) entries.push({ solver, payload, omission: null });
-    });
-  }
-
-  entries.sort((left, right) => {
-    if (!left.payload) return right.payload ? 1 : 0;
-    if (!right.payload) return -1;
-    if (left.payload.result.validation.is_feasible !== right.payload.result.validation.is_feasible) return left.payload.result.validation.is_feasible ? -1 : 1;
-    return right.payload.result.metrics.total_value - left.payload.result.metrics.total_value
-      || right.payload.result.metrics.completed_tasks - left.payload.result.metrics.completed_tasks
-      || left.payload.result.metrics.total_slew_time_s - right.payload.result.metrics.total_slew_time_s
-      || left.solver.solver_name.localeCompare(right.solver.solver_name);
-  });
-
-  const tableHost = document.querySelector(".comparison-table-host");
-  const capacity = Math.max(1, Math.floor((tableHost.clientHeight - 25) / 34));
-  const rows = pageItems("comparison", entries, capacity).map(({ solver, payload, omission }) => {
-    const row = document.createElement("tr");
-    if (solver.solver_name === focusedSolver) row.classList.add("is-focused");
-    const methodCell = appendCell(row, solver.solver_name, "method-name");
-    if (payload) {
-      const inspect = document.createElement("button");
-      inspect.type = "button";
-      inspect.textContent = solver.solver_name;
-      inspect.title = `Inspect ${methodLabel(solver.solver_name)} · seed ${runMetadata(payload).seed} / budget ${runMetadata(payload).evaluation_budget}`;
-      inspect.disabled = state.busy;
-      inspect.addEventListener("click", () => {
-        elements.solver.value = solver.solver_name;
-        applyStaticRunConfiguration();
-        renderResult(payload);
-        markConfigurationChanged();
-        elements.status.textContent = `Inspecting ${methodLabel(solver.solver_name)} · cached validated run`;
-      });
-      methodCell.replaceChildren(inspect);
-    }
-    const category = document.createElement("small");
-    const variant = methodVariant(solver.solver_name);
-    category.textContent = variant ? `${solver.category} · ${variant}` : solver.category;
-    methodCell.append(category);
-    if (!payload) {
-      row.classList.add("is-omitted");
-      const reason = document.createElement("td");
-      reason.colSpan = 8;
-      reason.textContent = omission?.reason || "Not evaluated in this local session.";
-      reason.title = reason.textContent;
-      row.append(reason);
-      return row;
-    }
-
-    const { result, scenario } = payload;
-    const metadata = runMetadata(payload);
-    const completion = `${result.metrics.completed_tasks}/${scenario.tasks.length}`;
-    appendCell(row, result.metrics.total_value.toFixed(1), "numeric");
-    appendCell(row, completion, "numeric");
-    appendCell(row, `${result.metrics.total_slew_time_s.toFixed(1)} s`, "numeric");
-    appendCell(row, result.validation.is_feasible ? "PASS" : "FAIL", result.validation.is_feasible ? "pass" : "fail");
-    appendCell(row, `${(result.runtime_s * 1000).toFixed(1)} ms`, "numeric");
-    appendCell(row, metadata.evaluations === null ? "—" : String(metadata.evaluations), "numeric");
-    appendCell(row, displayReason(metadata.stop_reason));
-    appendCell(row, `${metadata.seed} / ${metadata.evaluation_budget}`, "numeric budget-column");
-    return row;
-  });
-  elements.comparisonBody.replaceChildren(...rows);
-
-  const availableCount = entries.filter((entry) => entry.payload).length;
-  const omittedCount = entries.length - availableCount;
-  elements.comparisonContext.textContent = staticDeployment
-    ? `${availableCount} reference methods · ${omittedCount} documented omissions`
-    : `${availableCount} method${availableCount === 1 ? "" : "s"} evaluated in this session`;
-  elements.comparisonNote.textContent = staticDeployment
-    ? "Runtime is descriptive. Large stochastic cases use the recorded reduced Pages budget; omissions and every actual seed/budget remain explicit. Evaluation units differ by method family."
-    : "Evaluate additional methods to extend this within-session comparison. Evaluation units differ by method family and do not imply equal computational work.";
-  elements.comparisonNote.title = elements.comparisonNote.textContent;
-}
-
-function fallbackAudit(scenario, result) {
-  const simulation = result.validation.simulation;
-  const scheduledIds = new Set((simulation?.tasks || []).map((task) => task.task_id));
-  const minimumEnergy = Math.min(
-    scenario.satellite.initial_energy_wh,
-    ...(simulation?.tasks || []).map((task) => task.energy_after_wh),
-  );
-  const finalStorage = simulation?.final_state?.storage_gb ?? scenario.satellite.initial_storage_gb;
-  return {
-    methodology: "Local-session fallback: exclusions report solver termination, while validator issues and resource margins come from deterministic replay.",
-    summary: {
-      scheduled_tasks: scheduledIds.size,
-      unscheduled_tasks: scenario.tasks.length - scheduledIds.size,
-      validation_issues: result.validation.issues.length,
-      minimum_energy_wh: minimumEnergy,
-      storage_remaining_gb: Math.max(0, scenario.satellite.storage_capacity_gb - finalStorage),
-    },
-    issues: result.validation.issues,
-    unscheduled: scenario.tasks
-      .filter((task) => !scheduledIds.has(task.task_id))
-      .map((task) => ({
-        task_id: task.task_id,
-        target_name: task.target.name,
-        reason_code: "solver_termination",
-        reason: `Not selected before ${displayReason(result.schedule.metadata.stop_reason || "method completion")}.`,
-      })),
-  };
+function renderComparison() {
+  renderReferenceComparison();
 }
 
 function auditItem(title, code, description, itemClass = "") {
@@ -663,304 +360,24 @@ function auditItem(title, code, description, itemClass = "") {
   return item;
 }
 
-function renderConstraintAudit(scenario, result, auditPayload) {
-  if (state.currentPayload?.mode === "reference") { renderReferenceAudit(); return; }
-  const audit = auditPayload || fallbackAudit(scenario, result);
-  const summary = audit.summary;
-  elements.auditSummary.textContent = `${summary.scheduled_tasks} scheduled · ${summary.unscheduled_tasks} unscheduled · ${summary.validation_issues} validator issues`;
-
-  const unscheduledItems = audit.unscheduled.map((item) => auditItem(
-    `${item.target_name} · ${item.task_id}`,
-    displayReason(item.reason_code),
-    item.reason,
-  ));
-  if (!unscheduledItems.length) {
-    unscheduledItems.push(auditItem(
-      "All candidate targets scheduled",
-      "complete",
-      "No target requires an exclusion diagnosis for this incumbent.",
-      "audit-pass",
-    ));
-  }
-  const exclusionCapacity = Math.max(1, Math.floor(elements.unscheduledList.clientHeight / 69));
-  elements.unscheduledList.replaceChildren(...pageItems("unscheduled", unscheduledItems, exclusionCapacity));
-
-  const validationItems = [
-    auditItem(
-      "Minimum post-task energy",
-      "energy margin",
-      `${summary.minimum_energy_wh.toFixed(2)} Wh remained at the tightest recorded point.`,
-      "audit-margin",
-    ),
-    auditItem(
-      "Final storage headroom",
-      "storage margin",
-      `${summary.storage_remaining_gb.toFixed(2)} GB remained after replay.`,
-      "audit-margin",
-    ),
-  ];
-  audit.issues.forEach((issue) => {
-    validationItems.push(auditItem(
-      issue.task_id ? `${issue.task_id} · ${issue.severity}` : issue.severity,
-      issue.code,
-      issue.message,
-      issue.severity === "error" ? "audit-error" : "audit-warning",
-    ));
-  });
-  if (!audit.issues.length) {
-    validationItems.push(auditItem(
-      "Independent replay passed",
-      "no issues",
-      "The shared simulator reported no validation warnings or errors.",
-      "audit-pass",
-    ));
-  }
-  const validationCapacity = Math.max(1, Math.floor(elements.validationList.clientHeight / 69));
-  elements.validationList.replaceChildren(...pageItems("validation", validationItems, validationCapacity));
-  elements.auditMethodology.textContent = audit.methodology;
-  elements.auditMethodology.title = audit.methodology;
+function renderConstraintAudit() {
+  renderReferenceAudit();
 }
 
 function renderProvenance(payload) {
-  const metadata = runMetadata(payload);
-  const revision = String(metadata.source_revision);
-  elements.recordScenario.textContent = payload.scenario.scenario_id;
-  elements.recordMethod.textContent = payload.reference_plan?.label || methodLabel(payload.result.schedule.solver_name);
-  elements.recordSeed.textContent = String(metadata.seed);
-  elements.recordBudget.textContent = `${metadata.evaluation_budget} · ${metadata.budget_profile}`;
-  elements.recordRevision.textContent = revision.length > 12 ? revision.slice(0, 12) : revision;
-  elements.recordRevision.title = `${revision} · OrbitOps ${metadata.software_version}`;
+  const revision = payload.provenance.revision;
+  textField("record-scenario", payload.scenario.scenario_id);
+  textField("record-method", payload.reference_plan.label);
+  textField("record-revision", revision.slice(0, 12));
+  elements.recordRevision.title = revision;
 }
 
-function renderGantt(scenario, result) {
-  if (state.currentPayload?.mode === "reference") { renderReferenceGantt(); return; }
-  if (!elements.timeline.clientWidth || !elements.timeline.clientHeight) return;
-  const simulation = result.validation.simulation;
-  const scheduled = new Map((simulation?.tasks || []).map((task) => [task.task_id, task]));
-  const width = elements.timeline.clientWidth;
-  const height = elements.timeline.clientHeight;
-  const left = width < 500 ? 89 : 150;
-  const right = 18;
-  const top = 8;
-  const bottom = 25;
-  const rowHeight = 29;
-  const capacity = Math.max(1, Math.floor((height - top - bottom) / rowHeight));
-  const tasks = pageItems("timeline", filteredTasks(scenario), capacity);
-  const plotWidth = width - left - right;
-  const horizon = scenario.horizon_end_s - scenario.horizon_start_s;
-  const x = (value) => left + ((value - scenario.horizon_start_s) / horizon) * plotWidth;
-  const root = chart(width, height, "Mission Gantt chart",
-    `${scenario.tasks.length} targets with visibility windows, scheduled observations, and slew intervals. Paginated to fit the workspace.`);
-  root.setAttribute("preserveAspectRatio", "none");
-
-  for (let tick = 0; tick <= 4; tick += 1) {
-    const value = scenario.horizon_start_s + horizon * tick / 4;
-    root.append(svgElement("line", { x1: x(value), y1: top, x2: x(value),
-      y2: height - bottom, class: tick === 0 || tick === 4 ? "chart-grid-strong" : "chart-grid" }));
-    root.append(svgElement("text", { x: x(value), y: height - 8, "text-anchor": "middle",
-      class: "chart-axis" }, `${Math.round(value / 60)}m`));
-  }
-
-  tasks.forEach((task, index) => {
-    const rowY = top + index * rowHeight;
-    const row = svgElement("g", { class: "timeline-row", role: "button", tabindex: "0",
-      "aria-label": `Inspect ${task.target.name}, priority ${task.priority_value}`,
-      "aria-pressed": String(task.task_id === state.selectedTaskId), "data-task-id": task.task_id });
-    row.append(svgElement("rect", { x: 0, y: rowY, width, height: rowHeight - 2,
-      class: task.task_id === state.selectedTaskId ? "row-selected" : "row-band",
-      opacity: task.task_id === state.selectedTaskId || index % 2 === 0 ? 1 : 0 }));
-    const maxLabelLength = width < 500 ? 11 : 22;
-    const name = task.target.name.length > maxLabelLength ? `${task.target.name.slice(0, maxLabelLength - 1)}…` : task.target.name;
-    row.append(svgElement("text", { x: 6, y: rowY + 12, class: "task-label" }, name));
-    row.append(svgElement("text", { x: 6, y: rowY + 23, class: "task-sublabel" },
-      width < 500 ? `P${task.priority_value.toFixed(0)}` : `${task.task_id} · P${task.priority_value.toFixed(0)}`));
-    task.visibility_windows.forEach((window) => {
-      const bar = svgElement("rect", { x: x(window.start_s), y: rowY + 7,
-        width: Math.max(2, x(window.end_s) - x(window.start_s)), height: 15, rx: 2, class: "window-bar" });
-      bar.append(svgElement("title", {}, `${window.window_id}: ${window.start_s.toFixed(0)}–${window.end_s.toFixed(0)}s visibility`));
-      row.append(bar);
-    });
-    const assignment = scheduled.get(task.task_id);
-    if (assignment) {
-      if (assignment.slew_time_s > 0) {
-        const slewStart = Math.max(scenario.horizon_start_s, assignment.start_s - assignment.slew_time_s);
-        const slew = svgElement("rect", { x: x(slewStart), y: rowY + 12,
-          width: Math.max(2, x(assignment.start_s) - x(slewStart)), height: 5, rx: 1, class: "slew-bar" });
-        slew.append(svgElement("title", {}, `Slew ${assignment.slew_time_s.toFixed(1)} seconds`));
-        row.append(slew);
-      }
-      const observation = svgElement("rect", { x: x(assignment.start_s), y: rowY + 10,
-        width: Math.max(3, x(assignment.end_s) - x(assignment.start_s)), height: 9, rx: 1, class: "task-bar", "data-task-id": task.task_id, "data-state": taskState(task.task_id) });
-      observation.append(svgElement("title", {}, `${task.target.name}: ${assignment.start_s.toFixed(1)}–${assignment.end_s.toFixed(1)}s · ${assignment.window_id}`));
-      row.append(observation);
-    } else {
-      row.append(svgElement("circle", { cx: width - 6, cy: rowY + 14, r: 2, class: "unscheduled-dot" }));
-    }
-    row.addEventListener("click", () => selectTarget(task.task_id));
-    row.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        selectTarget(task.task_id);
-      }
-    });
-    root.append(row);
-  });
-  root.append(svgElement("line", {x1: x(state.replay.time), x2: x(state.replay.time), y1: top, y2: height - bottom, class: "time-cursor", "data-left": left, "data-width": plotWidth}));
-  elements.timeline.replaceChildren(root);
+function renderGantt() {
+  renderReferenceGantt();
 }
 
-function renderResources(scenario, result) {
-  if (state.currentPayload?.mode === "reference") { renderWorkloads(); return; }
-  const simulation = result.validation.simulation;
-  if (!simulation) {
-    emptyChart(elements.resources, "Resource trace is unavailable.");
-    return;
-  }
-  const satellite = scenario.satellite;
-  const energy = [{ x: scenario.horizon_start_s, y: (satellite.initial_energy_wh / satellite.energy_capacity_wh) * 100 }];
-  const storage = [{ x: scenario.horizon_start_s, y: (satellite.initial_storage_gb / satellite.storage_capacity_gb) * 100 }];
-  simulation.tasks.forEach((task) => {
-    energy.push({ x: task.end_s, y: (task.energy_after_wh / satellite.energy_capacity_wh) * 100 });
-    storage.push({ x: task.end_s, y: (task.storage_after_gb / satellite.storage_capacity_gb) * 100 });
-  });
-
-  const width = Math.max(180, elements.resources.clientWidth);
-  const height = Math.max(70, elements.resources.clientHeight);
-  const dimensions = { left: 29, top: 16, plotWidth: width - 43, plotHeight: height - 42 };
-  const horizon = scenario.horizon_end_s - scenario.horizon_start_s;
-  const x = (value) => dimensions.left + ((value - scenario.horizon_start_s) / horizon) * dimensions.plotWidth;
-  const y = (value) => dimensions.top + (1 - value / 100) * dimensions.plotHeight;
-  const root = chart(width, height, "Resource envelope", "Energy remaining and storage used as percentages of capacity.");
-
-  const definitions = svgElement("defs");
-  const gradient = svgElement("linearGradient", { id: "energy-gradient", x1: "0", y1: "0", x2: "0", y2: "1" });
-  gradient.append(
-    svgElement("stop", { offset: "0%", "stop-color": "#59b9e8", "stop-opacity": "0.16" }),
-    svgElement("stop", { offset: "100%", "stop-color": "#59b9e8", "stop-opacity": "0" }),
-  );
-  definitions.append(gradient);
-  root.append(definitions);
-
-  [0, 0.5, 1].forEach((fraction) => {
-    const gridY = y(fraction * 100);
-    root.append(svgElement("line", { x1: dimensions.left, y1: gridY, x2: dimensions.left + dimensions.plotWidth, y2: gridY, class: "chart-grid" }));
-    root.append(svgElement("text", { x: dimensions.left - 10, y: gridY + 4, "text-anchor": "end", class: "chart-axis" }, `${fraction * 100}%`));
-  });
-  [0, 0.5, 1].forEach((fraction) => {
-    const value = scenario.horizon_start_s + horizon * fraction;
-    root.append(svgElement("text", { x: x(value), y: height - 18, "text-anchor": "middle", class: "chart-axis" }, `${Math.round(value / 60)}m`));
-  });
-
-  const area = [
-    `${x(energy[0].x)},${y(0)}`,
-    ...energy.map((point) => `${x(point.x)},${y(point.y)}`),
-    `${x(energy.at(-1).x)},${y(0)}`,
-  ].join(" ");
-  root.append(svgElement("polygon", { points: area, class: "energy-area" }));
-  root.append(svgElement("polyline", { points: seriesPoints(energy, x, y), class: "energy-line" }));
-  root.append(svgElement("polyline", { points: seriesPoints(storage, x, y), class: "storage-line" }));
-  const energyFinal = energy.at(-1);
-  const storageFinal = storage.at(-1);
-  root.append(svgElement("circle", { cx: x(energyFinal.x), cy: y(energyFinal.y), r: 2, class: "chart-point" }));
-  root.append(svgElement("circle", { cx: x(storageFinal.x), cy: y(storageFinal.y), r: 2, class: "storage-point" }));
-  elements.resources.replaceChildren(root);
-}
-
-function renderConvergence(points) {
-  elements.learningKicker.textContent = "Search diagnostics";
-  elements.learningTitle.textContent = "Convergence trace";
-  elements.learningLegend.replaceChildren(...legendItems([["objective", "Incumbent objective"]]));
-  if (!points.length) {
-    emptyChart(elements.learning, "This solver did not publish a convergence trace.");
-    return;
-  }
-  const width = Math.max(300, elements.learning.clientWidth);
-  const height = Math.max(120, elements.learning.clientHeight);
-  const dimensions = { left: 38, top: 20, plotWidth: width - 58, plotHeight: height - 44 };
-  const maxEvaluation = Math.max(1, ...points.map((point) => point.evaluation));
-  const maxValue = Math.max(1, ...points.map((point) => point.total_value));
-  const x = (value) => dimensions.left + (value / maxEvaluation) * dimensions.plotWidth;
-  const y = (value) => dimensions.top + (1 - value / maxValue) * dimensions.plotHeight;
-  const root = chart(width, height, "Search convergence", "Incumbent objective value by unique solution evaluation.");
-  [0, 0.5, 1].forEach((fraction) => {
-    const gridY = y(maxValue * fraction);
-    root.append(svgElement("line", { x1: dimensions.left, y1: gridY, x2: dimensions.left + dimensions.plotWidth, y2: gridY, class: "chart-grid" }));
-    root.append(svgElement("text", { x: dimensions.left - 10, y: gridY + 4, "text-anchor": "end", class: "chart-axis" }, `${Math.round(maxValue * fraction)}`));
-    root.append(svgElement("text", { x: x(maxEvaluation * fraction), y: height - 18, "text-anchor": "middle", class: "chart-axis" }, `${Math.round(maxEvaluation * fraction)}`));
-  });
-  const series = points.map((point) => ({ x: point.evaluation, y: point.total_value }));
-  root.append(svgElement("polyline", { points: seriesPoints(series, x, y), class: "convergence-line" }));
-  series.forEach((point) => root.append(svgElement("circle", { cx: x(point.x), cy: y(point.y), r: 4, class: "chart-point" })));
-  root.append(svgElement("text", { x: dimensions.left, y: 17, class: "chart-panel-label" }, "Objective by evaluation"));
-  elements.learning.replaceChildren(root);
-}
-
-function renderTraining(trace) {
-  elements.learningKicker.textContent = "Learning diagnostics";
-  elements.learningTitle.textContent = "Training curves";
-  elements.learningLegend.replaceChildren(...legendItems([
-    ["objective", "Episode schedule objective"],
-    ["epsilon", "Epsilon"],
-    ["td-error", "Mean |TD|"],
-  ]));
-  if (!trace.length) {
-    emptyChart(elements.learning, "Training trace is unavailable for this run.");
-    return;
-  }
-  const points = sampleSeries(trace);
-  const width = Math.max(300, elements.learning.clientWidth);
-  const height = Math.max(140, elements.learning.clientHeight);
-  const left = 38;
-  const plotWidth = width - 58;
-  const topY = 20;
-  const topHeight = (height - 80) * 0.62;
-  const lowerY = topY + topHeight + 31;
-  const lowerHeight = height - lowerY - 27;
-  const maxEpisode = Math.max(1, ...points.map((point) => point.episode));
-  const maxValue = Math.max(1, ...points.map((point) => point.total_value));
-  const maxTd = Math.max(1e-12, ...points.map((point) => point.mean_abs_td_error));
-  const x = (value) => left + (value / maxEpisode) * plotWidth;
-  const yValue = (value) => topY + (1 - value / maxValue) * topHeight;
-  const yDiagnostic = (value) => lowerY + (1 - value) * lowerHeight;
-  const root = chart(width, height, "Q-learning training curves", "Realized exploratory episode schedule objective, epsilon exploration schedule, and normalized mean absolute temporal-difference error by episode.");
-
-  [0, 0.5, 1].forEach((fraction) => {
-    const objectiveY = yValue(maxValue * fraction);
-    const diagnosticY = yDiagnostic(fraction);
-    root.append(svgElement("line", { x1: left, y1: objectiveY, x2: left + plotWidth, y2: objectiveY, class: "chart-grid" }));
-    root.append(svgElement("text", { x: left - 10, y: objectiveY + 4, "text-anchor": "end", class: "chart-axis" }, `${Math.round(maxValue * fraction)}`));
-    root.append(svgElement("line", { x1: left, y1: diagnosticY, x2: left + plotWidth, y2: diagnosticY, class: "chart-grid" }));
-    root.append(svgElement("text", { x: left - 10, y: diagnosticY + 4, "text-anchor": "end", class: "chart-axis" }, fraction.toFixed(1)));
-    root.append(svgElement("text", { x: x(maxEpisode * fraction), y: height - 10, "text-anchor": fraction === 1 ? "end" : "middle", class: "chart-axis" }, `${Math.round(maxEpisode * fraction)}`));
-  });
-  root.append(svgElement("text", { x: left, y: 17, class: "chart-panel-label" }, "Episode schedule objective"));
-  root.append(svgElement("text", { x: left, y: lowerY - 13, class: "chart-panel-label" }, "Exploration / normalized TD error"));
-  root.append(svgElement("text", { x: left + plotWidth - 30, y: height - 10, "text-anchor": "end", class: "chart-panel-label" }, "Episode"));
-
-  const objective = points.map((point) => ({ x: point.episode, y: point.total_value }));
-  const epsilon = points.map((point) => ({ x: point.episode, y: point.epsilon }));
-  const td = points.map((point) => ({ x: point.episode, y: point.mean_abs_td_error / maxTd }));
-  root.append(svgElement("polyline", { points: seriesPoints(objective, x, yValue), class: "objective-line" }));
-  root.append(svgElement("polyline", { points: seriesPoints(epsilon, x, yDiagnostic), class: "epsilon-line" }));
-  root.append(svgElement("polyline", { points: seriesPoints(td, x, yDiagnostic), class: "td-line" }));
-  elements.learning.replaceChildren(root);
-}
-
-function wrapLongitude(value) {
-  return ((value + 540) % 360) - 180;
-}
-
-function circularLongitudeCenter(tasks) {
-  if (!tasks.length) return 0;
-  const vector = tasks.reduce((total, task) => {
-    const radians = (task.target.longitude_deg * Math.PI) / 180;
-    return {
-      x: total.x + Math.cos(radians),
-      y: total.y + Math.sin(radians),
-    };
-  }, { x: 0, y: 0 });
-  if (Math.abs(vector.x) < 1e-12 && Math.abs(vector.y) < 1e-12) return 0;
-  return (Math.atan2(vector.y, vector.x) * 180) / Math.PI;
+function renderResources() {
+  renderWorkloads();
 }
 
 function renderGlobeFallback(scenario, scheduledIds) {
@@ -994,16 +411,6 @@ function renderGlobeFallback(scenario, scheduledIds) {
     const outline = points.map(([lon, lat]) => project(lon, lat).join(",")).join(" ");
     map.append(svgElement("polygon", { points: outline, class: "map-land" }));
   });
-  const taskById = new Map(scenario.tasks.map((task) => [task.task_id, task]));
-  const sequence = (state.currentPayload?.result.validation.simulation?.tasks || [])
-    .map((assignment) => taskById.get(assignment.task_id)).filter(Boolean);
-  const track = svgElement("polyline", {
-    points: sequence.map((task) => project(task.target.longitude_deg, task.target.latitude_deg).join(",")).join(" "),
-    class: "map-sequence",
-  });
-  if (state.currentPayload?.mode === "reference") track.setAttribute("points", "");
-  track.style.display = state.layers.track ? "" : "none";
-  map.append(track);
   scenario.tasks.forEach((task) => {
     const [x, y] = project(task.target.longitude_deg, task.target.latitude_deg);
     const marker = svgElement("g", { class: `map-marker${scheduledIds.has(task.task_id) ? " is-scheduled" : ""}`,
@@ -1011,7 +418,6 @@ function renderGlobeFallback(scenario, scheduledIds) {
       "aria-label": `Inspect ${task.target.name}` });
     marker.append(svgElement("circle", { cx: x, cy: y, r: 4 }));
     marker.append(svgElement("title", {}, `${task.target.name}: ${task.target.latitude_deg.toFixed(2)}°, ${task.target.longitude_deg.toFixed(2)}°`));
-    if (scenario.tasks.length <= 18) marker.append(svgElement("text", { x: x + 8, y: y - 7 }, task.target.name));
     marker.style.display = state.layers.targets ? "" : "none";
     marker.addEventListener("click", () => selectTarget(task.task_id));
     marker.addEventListener("keydown", (event) => {
@@ -1022,7 +428,7 @@ function renderGlobeFallback(scenario, scheduledIds) {
     });
     map.append(marker);
   });
-  map.append(svgElement("text", { x: 20, y: 485, class: "map-caption" }, "2D FALLBACK · SCHEMATIC COASTLINES · WGS84 TARGET COORDINATES"));
+  map.append(svgElement("text", { x: 20, y: 485, class: "map-caption" }, "2D SCHEMATIC · WGS84"));
   if (state.currentPayload?.replay) addFallbackOrbits(map);
   elements.globe.replaceChildren(map);
   elements.globe.dataset.engine = "fallback";
@@ -1035,14 +441,13 @@ function updateGlobeLayers() {
   if (state.globe) {
     state.globe.entities.values.forEach((entity) => {
       if (entity.id.startsWith("target-")) entity.show = state.layers.targets;
-      if (entity.id.startsWith("orbit-") || entity.id.startsWith("sequence-")) entity.show = state.layers.track;
+      if (entity.id.startsWith("orbit-")) entity.show = state.layers.track;
       if (entity.id.startsWith("ray-")) entity.show = state.layers.rays;
       if (entity.label && entity.id.startsWith("target-")) entity.label.show = state.layers.labels || entity.id === `target-${state.selectedTaskId}`;
     });
     state.globe.scene.requestRender();
   } else {
     document.querySelectorAll(".map-marker").forEach((marker) => { marker.style.display = state.layers.targets ? "" : "none"; });
-    document.querySelectorAll(".map-sequence").forEach((track) => { track.style.display = state.layers.track ? "" : "none"; });
     document.querySelectorAll(".map-orbit").forEach((track) => { track.style.display = state.layers.track ? "" : "none"; });
     document.querySelectorAll(".map-ray").forEach((ray) => { ray.style.display = state.layers.rays ? "" : "none"; });
   }
@@ -1119,8 +524,6 @@ function nasaBlueMarbleLayer(Cesium) {
 function renderMissionGlobe(scenario, result) {
   const scheduledTasks = result.validation.simulation?.tasks || [];
   const scheduledIds = new Set(scheduledTasks.map((task) => task.task_id));
-  elements.globeTargets.textContent = `${scenario.tasks.length} targets`;
-  elements.globeSequence.textContent = state.currentPayload?.mode === "reference" ? `${scheduledIds.size} planned · ${scenario.satellites.length} satellites` : `${scheduledIds.size} selected · ${scenario.satellite.satellite_id}`;
   elements.globe.setAttribute("aria-label", `Interactive WGS84 globe with ${scenario.tasks.length} mission targets, ${scheduledIds.size} scheduled.`);
 
   const Cesium = window.Cesium;
@@ -1188,81 +591,7 @@ function renderMissionGlobe(scenario, result) {
     state.orbitStyles.clear();
     state.entityTaskStates.clear();
     state.geometrySelectionKey = null;
-    if (state.currentPayload.mode === "reference") {
-      setupReferenceGlobe(viewer, Cesium);
-      return;
-    }
-    const longitudeCenter = circularLongitudeCenter(scenario.tasks);
-    const latitudeCenter = scenario.tasks.length
-      ? scenario.tasks.reduce((sum, task) => sum + task.target.latitude_deg, 0) / scenario.tasks.length
-      : 0;
-    const scheduledColor = Cesium.Color.fromCssColorString("#59b9e8");
-    const candidateColor = Cesium.Color.fromCssColorString("#e1b46a");
-    const targetPositions = [];
-
-    scenario.tasks.forEach((task, index) => {
-      const selected = scheduledIds.has(task.task_id);
-      const color = selected ? scheduledColor : candidateColor;
-      const position = Cesium.Cartesian3.fromDegrees(task.target.longitude_deg, task.target.latitude_deg, task.target.altitude_m || 0);
-      targetPositions.push(position);
-      viewer.entities.add({
-        id: `target-${task.task_id}`,
-        name: task.target.name,
-        position,
-        point: {
-          pixelSize: selected ? 11 : 8,
-          color,
-          outlineColor: Cesium.Color.WHITE.withAlpha(0.76),
-          outlineWidth: 1,
-          disableDepthTestDistance: 0,
-        },
-        label: {
-          show: state.layers.labels || task.task_id === state.selectedTaskId,
-          text: task.target.name.toUpperCase(),
-          font: "600 11px sans-serif",
-          fillColor: Cesium.Color.WHITE.withAlpha(0.88),
-          outlineColor: Cesium.Color.fromCssColorString("#211b2a"),
-          outlineWidth: 3,
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          pixelOffset: new Cesium.Cartesian2(((index % 3) - 1) * 18, -22 - (index % 4) * 10),
-          disableDepthTestDistance: 0,
-        },
-      });
-    });
-
-    const taskById = new Map(scenario.tasks.map((task) => [task.task_id, task]));
-    const sequenceCoordinates = [];
-    scheduledTasks.forEach((assignment) => {
-      const task = taskById.get(assignment.task_id);
-      if (task) sequenceCoordinates.push(task.target.longitude_deg, task.target.latitude_deg, 70000);
-    });
-    if (sequenceCoordinates.length >= 6) {
-      viewer.entities.add({
-        id: "sequence-local",
-        polyline: {
-          positions: Cesium.Cartesian3.fromDegreesArrayHeights(sequenceCoordinates),
-          width: 3,
-          material: new Cesium.PolylineGlowMaterialProperty({
-            color: scheduledColor.withAlpha(0.78),
-            glowPower: 0.16,
-          }),
-          arcType: Cesium.ArcType.GEODESIC,
-        },
-      });
-    }
-
-    let missionCenter = targetPositions.length
-      ? Cesium.BoundingSphere.fromPoints(targetPositions)
-      : new Cesium.BoundingSphere(Cesium.Cartesian3.fromDegrees(longitudeCenter, latitudeCenter, 0), 250000);
-    const global = missionCenter.radius > 2800000;
-    if (global) missionCenter = new Cesium.BoundingSphere(Cesium.Cartesian3.ZERO, 7100000);
-    state.cameraHome = { missionCenter, global, longitudeCenter, latitudeCenter };
-    fitMissionView();
-    viewer.scene.requestRender();
-    elements.globe.dataset.engine = "cesium";
-    updateMapViewControls();
-    updateGlobeLayers();
-    elements.globeLoading.classList.add("is-hidden");
+    setupReferenceGlobe(viewer, Cesium);
   } catch (error) {
     console.warn("Cesium mission view unavailable", error);
     if (state.globe && !state.globe.isDestroyed()) state.globe.destroy();
@@ -1273,7 +602,7 @@ function renderMissionGlobe(scenario, result) {
 }
 
 function renderResult(payload) {
-  const { scenario, result, convergence } = payload;
+  const { scenario, result } = payload;
   const previousScenarioId = state.currentPayload?.scenario.scenario_id;
   state.currentPayload = payload;
   state.taskById = new Map(scenario.tasks.map((task) => [task.task_id, task]));
@@ -1283,140 +612,66 @@ function renderResult(payload) {
     state.pages = {};
     state.selectedTaskId = result.validation.simulation?.tasks[0]?.task_id || scenario.tasks[0]?.task_id;
   }
-  const metadata = runMetadata(payload);
-  state.lastRequest = payload.mode === "reference" ? {scenario_id: scenario.scenario_id, solver_name: result.schedule.solver_name} : {
-    scenario_id: scenario.scenario_id,
-    solver_name: result.schedule.solver_name,
-    seed: metadata.seed,
-    evaluation_budget: metadata.evaluation_budget,
-  };
-  const trainingTrace = result.schedule.metadata.training_trace;
-  state.runCache.set(runKey(scenario.scenario_id, result.schedule.solver_name), payload);
-  elements.value.textContent = result.metrics.total_value.toFixed(1);
-  elements.tasks.textContent = `${result.metrics.completed_tasks}/${scenario.tasks.length}`;
-  elements.taskContext.textContent = `${((result.metrics.completed_tasks / Math.max(1, scenario.tasks.length)) * 100).toFixed(0)}% of candidate targets`;
+  state.lastRequest = { scenario_id: scenario.scenario_id, solver_name: result.schedule.solver_name };
+  textField("metric-value", result.metrics.total_value.toFixed(0));
+  textField("metric-tasks", `${result.metrics.completed_tasks}/${scenario.tasks.length}`);
+  document.getElementById("metric-tasks").title = `TCR: ${(payload.evaluation.TCR * 100).toFixed(1)}%`;
   renderEvaluation(payload);
-  const reference = payload.mode === "reference";
-  elements.feasible.textContent = reference ? "N/A" : result.validation.is_feasible ? "PASS" : "FAIL";
-  elements.feasible.classList.toggle("is-fail", !reference && !result.validation.is_feasible);
-  elements.feasible.classList.toggle("is-reference", reference);
-  textField("check-label", reference ? "Full feasibility" : "Feasibility");
-  textField("check-context", reference ? "Not independently verified" : "Shared simulator verdict");
-  elements.validationBadge.textContent = reference ? (result.validation.reference_consistent ? "REFERENCE CONSISTENCY CHECKED" : "REFERENCE DISCREPANCIES") : result.validation.is_feasible ? "SCHEDULE VALIDATED" : "VALIDATION FAILED";
-  elements.validationBadge.className = `validation-badge ${reference ? "is-reference" : result.validation.is_feasible ? "is-pass" : "is-fail"}`;
-  textField("mission-name", scenarioDisplayName(scenario));
+  textField("metric-feasible", "N/A");
+  elements.feasible.classList.add("is-reference");
+  textField("check-context", "Not verified");
+  textField("validation-badge", result.validation.reference_consistent ? "Consistent · limited" : "Discrepancies");
+  elements.validationBadge.className = `validation-badge ${result.validation.reference_consistent ? "is-reference" : "is-fail"}`;
+  elements.validationBadge.title = "Source hashes and structural consistency only; no full physical feasibility certificate.";
+  textField("mission-name", `EOS-Bench · ${scenario.satellites.length} satellites · ${scenario.tasks.length} tasks`);
   textField("mission-id", scenario.scenario_id);
-  textField("mission-horizon", `${((scenario.horizon_end_s - scenario.horizon_start_s) / 60).toFixed(0)} min`);
-  const finalState = result.validation.simulation?.final_state;
-  if (!reference) {
-    textField("energy-readout", `${(finalState?.energy_wh ?? scenario.satellite.initial_energy_wh).toFixed(1)} / ${scenario.satellite.energy_capacity_wh.toFixed(0)} Wh`);
-    textField("storage-readout", `${(finalState?.storage_gb ?? scenario.satellite.initial_storage_gb).toFixed(1)} / ${scenario.satellite.storage_capacity_gb.toFixed(1)} GB`);
-  }
+  textField("mission-horizon", `${((scenario.horizon_end_s - scenario.horizon_start_s) / 3600).toFixed(0)} h`);
   configureModeDetails(payload);
   elements.export.disabled = false;
-  const timingNote = reference ? " · source runtime" : staticDeployment ? " · recorded at build" : "";
-  elements.runtime.textContent = `${payload.reference_plan?.label || result.schedule.solver_name} · ${reference ? `${result.runtime_s.toFixed(3)} s` : `${(result.runtime_s * 1000).toFixed(1)} ms`}${timingNote}`;
   renderProvenance(payload);
-  renderComparison(scenario.scenario_id, result.schedule.solver_name);
-  renderConstraintAudit(scenario, result, payload.constraint_audit);
   renderMissionGlobe(scenario, result);
-  renderGantt(scenario, result);
-  renderResources(scenario, result);
-  if (reference) renderSourceDiagnostics();
-  else if (Array.isArray(trainingTrace) && trainingTrace.length) renderTraining(trainingTrace);
-  else renderConvergence(convergence);
-  elements.results.hidden = false;
   selectTarget(state.selectedTaskId, false);
+  refreshPanels();
   markConfigurationChanged();
 }
 
 async function runSolve() {
-  if (state.busy || !elements.form.reportValidity() || !elements.scenario.value) return;
-  const progressMessage = staticDeployment
-    ? "Loading the precomputed reproducibility artifact…"
-    : "Evaluating the solver and replaying the resulting schedule…";
-  setBusy(true, progressMessage);
+  if (state.busy || !state.referenceData || !elements.form.reportValidity()) return;
+  setBusy(true, "Loading plan…");
   try {
-    const request = activeRequest();
-    const payload = isReferenceScenario() ? window.OrbitReplay.referencePayload(state.referenceData, state.referenceData.plans.find((plan) => plan.plan_id === request.solver_name)) : await api("/api/solve", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-    });
-    if (!payload.run_metadata) {
-      payload.run_metadata = {
-        seed: request.seed,
-        evaluation_budget: request.evaluation_budget,
-        budget_profile: "requested",
-        source_revision: "local working tree",
-        software_version: "local",
-      };
-    }
-    renderResult(payload);
+    const plan = state.referenceData.plans.find((item) => item.plan_id === elements.solver.value);
+    if (!plan) throw new Error("Reference plan is unavailable.");
+    renderResult(window.OrbitReplay.referencePayload(state.referenceData, plan));
     if (window.matchMedia("(max-width: 1000px)").matches) setPanel("config", false);
-    elements.status.textContent = payload.mode === "reference" ? "EOS-Bench reference loaded · source files hash-verified; limited consistency checks, not a full feasibility certificate." : staticDeployment
-      ? "Precomputed run loaded · feasibility and diagnostic artifacts were generated by the shared simulator."
-      : "Schedule replay completed · the shared simulator produced the feasibility verdict and diagnostics.";
+    elements.status.textContent = `${plan.label} · Ready`;
   } catch (error) {
     setBusy(false);
     elements.statusIndicator.classList.add("is-error");
     elements.status.classList.add("error");
-    elements.status.textContent = error instanceof Error ? error.message : "The run failed.";
+    elements.status.textContent = error instanceof Error ? error.message : "Plan could not be loaded.";
   } finally {
     if (state.busy) setBusy(false);
     refreshPanels();
   }
 }
 
-function scenarioDisplayName(scenario) {
-  const names = {
-    "showcase-resources-10": "Resource-constrained observation pass",
-    "showcase-temporal-06": "Overlapping access windows",
-    "showcase-slew-18": "Angularly dispersed target corridor",
-    "showcase-global-30": "Dense global observation campaign",
-  };
-  return names[scenario.scenario_id] || scenario.name;
-}
-
 async function initialize() {
+  setBusy(true, "Loading EOS-Bench…");
   try {
-    const [scenarioPayload, solverPayload, referenceData] = await Promise.all([api("/api/scenarios"), api("/api/solvers"), api("/api/reference/data")]);
-    state.scenarios = [...scenarioPayload.scenarios];
-    state.solvers = solverPayload.solvers;
-    state.localSolvers = solverPayload.solvers;
+    const referenceData = await api("/api/reference/data");
+    if (!referenceData?.scenario || !referenceData.plans?.length) throw new Error("EOS-Bench reference data is unavailable.");
     state.referenceData = referenceData;
-    if (referenceData) {
-      const source = referenceData.scenario;
-      state.scenarios.unshift({scenario_id: source.scenario_id, name: source.name, task_count: source.tasks.length, satellite_count: source.satellites.length, horizon_start_s: source.horizon_start_s, horizon_end_s: source.horizon_end_s, mode: "reference"});
-    }
-    populateSelect(elements.scenario, state.scenarios, "scenario_id", (item) => `${scenarioDisplayName(item)} · ${item.task_count}`);
-    if (state.scenarios.some((item) => item.scenario_id === "showcase-resources-10")) elements.scenario.value = "showcase-resources-10";
-    populateSelect(
-      elements.solver,
-      state.solvers,
-      "solver_name",
-      (item) => `${methodLabel(item.solver_name)} · ${item.category}`,
-    );
-    elements.solver.value = "q-learning";
-    if (referenceData && new URLSearchParams(location.search).get("mode") !== "local") elements.scenario.value = referenceData.scenario.scenario_id;
-    if (staticDeployment) {
-      const dataset = await loadStaticDataset();
-      elements.seed.value = dataset.metadata.seed;
-      elements.budget.value = dataset.metadata.evaluation_budget;
-      elements.seed.disabled = true;
-      elements.budget.disabled = true;
-      elements.deploymentMode.textContent = "GitHub Pages · precomputed runs";
-      elements.runLabel.textContent = "Load reference run";
-    }
-    updateScenarioContext();
-    markConfigurationChanged();
+    populateSelect(elements.solver, referenceData.plans, "plan_id", (plan) => plan.label);
+    elements.solver.value = referenceData.plans.some((plan) => plan.plan_id === "eos-sa-balanced") ? "eos-sa-balanced" : referenceData.plans[0].plan_id;
+    setBusy(false);
     await runSolve();
   } catch (error) {
     setBusy(false);
     elements.button.disabled = true;
+    elements.solver.disabled = true;
     elements.statusIndicator.classList.add("is-error");
     elements.status.classList.add("error");
-    elements.status.textContent = error instanceof Error ? error.message : "The lab could not start.";
+    elements.status.textContent = error instanceof Error ? error.message : "EOS-Bench could not start.";
   }
 }
 
@@ -1424,16 +679,7 @@ elements.form.addEventListener("submit", (event) => {
   event.preventDefault();
   runSolve();
 });
-elements.scenario.addEventListener("change", () => {
-  updateScenarioContext();
-  markConfigurationChanged();
-});
-elements.solver.addEventListener("change", () => {
-  applyStaticRunConfiguration();
-  markConfigurationChanged();
-});
-elements.seed.addEventListener("input", markConfigurationChanged);
-elements.budget.addEventListener("input", markConfigurationChanged);
+elements.solver.addEventListener("change", markConfigurationChanged);
 elements.export.addEventListener("click", () => {
   if (!state.currentPayload) return;
   const payload = state.currentPayload;
@@ -1459,6 +705,19 @@ for (const name of ["targets", "track", "rays", "labels"]) {
     updateReplayVisuals();
   });
 }
+const layerToggle = document.getElementById("toggle-layers");
+const layerOptions = document.getElementById("layer-options");
+function setLayersOpen(open) {
+  layerToggle.setAttribute("aria-expanded", String(open));
+  layerOptions.hidden = !open;
+}
+layerToggle.addEventListener("click", () => setLayersOpen(layerOptions.hidden));
+document.addEventListener("pointerdown", (event) => {
+  if (!event.target.closest("#layer-controls")) setLayersOpen(false);
+});
+document.getElementById("layer-controls").addEventListener("focusout", (event) => {
+  if (!event.currentTarget.contains(event.relatedTarget)) setLayersOpen(false);
+});
 document.getElementById("reset-view").addEventListener("click", () => {
   if (state.globe && state.cameraHome) {
     fitMissionView(window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 0.6);
@@ -1471,6 +730,12 @@ bindMissionControls();
 bindPager("target", renderTargetCatalog);
 for (const name of ["timeline", "comparison", "unscheduled", "validation"]) bindPager(name, refreshPanels);
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !layerOptions.hidden) {
+    event.preventDefault();
+    setLayersOpen(false);
+    layerToggle.focus();
+    return;
+  }
   if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
     event.preventDefault();
     runSolve();
