@@ -63,22 +63,25 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
             "comparison-body",
             "target-next",
             "target-prev",
+            "target-count",
+            "target-search",
         ]
     )
     assert "Schedule the orbit" not in html
     assert 'src="./deployment-config.js?v=0.2.0"' in html
-    assert 'src="./app.js?v=0.14.0"' in html
+    assert 'src="./app.js?v=0.15.1"' in html
     assert 'src="./replay.js?v=0.9.0"' in html
     assert 'src="./orbit-model.js?v=0.9.0"' in html
     assert 'src="./sensor-fov.js?v=0.11.0"' in html
-    assert 'src="./mission.js?v=0.14.0"' in html
-    assert 'href="./app.css?v=0.14.1"' in html
+    assert 'src="./mission.js?v=0.15.1"' in html
+    assert 'href="./app.css?v=0.15.1"' in html
     assert 'href="./favicon.svg?v=0.2.0"' in html
     assert 'id="sun-direction"' not in html
     assert 'class="app-title"' not in html
     assert 'class="header-divider"' not in html
     assert ">Mission workspace<" not in html
-    assert 'class="visually-hidden">OrbitOps Mission Control' in html
+    assert 'class="visually-hidden">OrbitOps<' in html
+    assert "MISSION CONTROL" not in html.upper()
     assert 'class="orbit-hud-footer"' not in html
     assert 'aria-label="Satellite details"' in html
     assert 'id="close-satellite-details"' in html
@@ -89,6 +92,22 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     assert 'class="orbit-legend"' not in html
     assert 'aria-label="Map actions"' in html
     assert html.count('class="map-action') == 5
+
+
+def test_compact_panel_headers_remove_search_markup_and_dependencies() -> None:
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    stylesheet = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
+    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    mission = (STATIC_DIR / "mission.js").read_text(encoding="utf-8")
+
+    assert "target-search" not in html + script + mission
+    assert "catalog-filters" not in html + stylesheet
+    assert "Find task" not in html
+    assert 'aria-label="Filter task status"' in html
+    assert 'class="panel-heading inspector-heading"' in html
+    assert 'role="tablist" aria-label="Inspector views"' in html
+    assert 'role="tabpanel" aria-labelledby="tab-selection"' in html
+    assert 'role="tabpanel" aria-labelledby="tab-evaluation"' in html
 
 
 def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:

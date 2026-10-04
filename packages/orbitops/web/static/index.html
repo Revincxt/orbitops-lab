@@ -5,18 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="An engineering workspace for constrained Earth-observation scheduling.">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="OrbitOps Mission Control">
+  <meta property="og:title" content="OrbitOps">
   <meta property="og:description" content="Reproducible Earth-observation scheduling and independent feasibility analysis.">
   <meta property="og:url" content="https://revincxt.github.io/orbitops-lab/">
   <meta property="og:image" content="https://revincxt.github.io/orbitops-lab/orbitops-social-card.jpg">
   <meta name="twitter:card" content="summary_large_image">
-  <title>OrbitOps · Mission Control</title>
+  <title>OrbitOps</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=0.2.0">
   <link rel="preconnect" href="https://cesium.com">
   <link rel="preconnect" href="https://gibs.earthdata.nasa.gov">
   <link id="cesium-styles" rel="preload" as="style" href="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Widgets/widgets.css">
   <link rel="preload" href="./fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="./app.css?v=0.14.1">
+  <link rel="stylesheet" href="./app.css?v=0.15.1">
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -37,8 +37,8 @@
   </svg>
   <main class="shell" data-workspace-view="map">
     <header class="masthead">
-      <a class="brand" href="./" aria-label="OrbitOps Mission Control home"><svg class="brand-mark"><use href="#i-orbit"/></svg><span>ORBIT<span class="brand-accent">OPS</span><small>MISSION CONTROL</small></span></a>
-      <h1 class="visually-hidden">OrbitOps Mission Control</h1>
+      <a class="brand" href="./" aria-label="OrbitOps home"><svg class="brand-mark"><use href="#i-orbit"/></svg><span>ORBIT<span class="brand-accent">OPS</span></span></a>
+      <h1 class="visually-hidden">OrbitOps</h1>
       <span class="header-rule" aria-hidden="true"></span>
       <div class="header-actions">
         <div class="algorithm-control"><select id="solver-select" name="solver_name" aria-label="Optimization Algorithm" required disabled></select></div>
@@ -59,8 +59,7 @@
           <dl id="comparison-values" class="radar-values" aria-label="Selected algorithm raw metrics"></dl>
         </section>
         <section class="target-catalog command-card" aria-labelledby="targets-title">
-          <div class="section-heading"><h3 id="targets-title">Task List</h3><span id="target-count" class="count-badge">—</span></div>
-          <div class="catalog-filters"><input id="target-search" type="search" placeholder="Find task / target" aria-label="Find task or target"><select id="target-filter" aria-label="Filter task status"><option value="all">All tasks</option><option value="planned">Planned</option><option value="unassigned">Unassigned</option><option value="active">Active now</option></select></div>
+          <div class="section-heading"><h3 id="targets-title">Task List</h3><select id="target-filter" aria-label="Filter task status"><option value="all">All tasks</option><option value="planned">Planned</option><option value="unassigned">Unassigned</option><option value="active">Active now</option></select></div>
           <div class="catalog-head"><span>TARGET / PRIORITY</span><span>STATE</span></div>
           <div id="target-list" class="target-list" aria-label="Mission tasks" tabindex="0"><p class="chart-empty">Awaiting mission data</p></div>
         </section>
@@ -140,12 +139,11 @@
       </section>
       <aside id="inspector" class="inspector-panel" aria-labelledby="results-title">
         <div class="inspector-card command-card">
-        <div class="panel-heading"><h2 id="results-title">Plan summary</h2></div>
-        <div class="inspector-tabs" role="tablist" aria-label="Inspector views"><button id="tab-selection" type="button" role="tab" aria-selected="true" aria-controls="inspector-selection" data-inspector-tab="selection">Selection</button><button id="tab-evaluation" type="button" role="tab" aria-selected="false" aria-controls="inspector-evaluation" tabindex="-1" data-inspector-tab="evaluation">Metrics</button></div>
+        <div class="panel-heading inspector-heading"><h2 id="results-title">Plan summary</h2><div class="inspector-tabs" role="tablist" aria-label="Inspector views"><button id="tab-selection" type="button" role="tab" aria-selected="true" aria-controls="inspector-selection" data-inspector-tab="selection">Selection</button><button id="tab-evaluation" type="button" role="tab" aria-selected="false" aria-controls="inspector-evaluation" tabindex="-1" data-inspector-tab="evaluation">Metrics</button></div></div>
         <section id="inspector-selection" class="selection-panel" role="tabpanel" aria-labelledby="tab-selection"><div class="selection-heading"><svg><use href="#i-target"/></svg><div><h3 id="selected-id">No target selected</h3></div><span id="selected-state" class="target-state">—</span></div><dl class="selection-details"><div><dt>Coordinates</dt><dd id="selected-coordinates">—</dd></div><div><dt>Priority / duration</dt><dd id="selected-priority">—</dd></div><div><dt>Satellite</dt><dd id="selected-assignment">—</dd></div><div><dt>Observation · UTC</dt><dd id="selected-window">—</dd></div><div><dt id="selected-resource-label">Data / orbit</dt><dd id="selected-resources">—</dd></div></dl></section>
         <section id="inspector-evaluation" class="metrics-panel" role="tabpanel" aria-labelledby="tab-evaluation" hidden><dl class="metric-details"><div title="BD = 1 − Σ|satellite workload − mean| / (2 × all required task duration)"><dt>Balance · BD ↑</dt><dd id="metric-balance">—</dd></div><div title="Recorded solver runtime; not viewer performance"><dt>Runtime · RT ↓</dt><dd id="metric-runtime">—</dd></div><div><dt>Slew time ↓</dt><dd id="metric-motion">—</dd></div><div><dt>Objective</dt><dd id="metric-objective">—</dd></div><div><dt>Metric basis</dt><dd id="metric-basis">—</dd></div></dl></section>
         </div>
-        <article class="resource-block visual-block command-card" aria-labelledby="resources-title"><div class="section-heading"><h3 id="resources-title">Satellite workload</h3><span class="count-badge">s</span></div><div id="resource-chart" class="chart-host"><p class="chart-empty">Awaiting plan</p></div><div class="resource-readouts"><span>ACTIVE SATELLITES<strong id="energy-readout">—</strong></span><span>OBSERVATION TIME<strong id="storage-readout">—</strong></span></div></article>
+        <article class="resource-block visual-block command-card" aria-labelledby="resources-title"><div class="section-heading"><h3 id="resources-title">Satellite workload</h3></div><div id="resource-chart" class="chart-host"><p class="chart-empty">Awaiting plan</p></div><div class="resource-readouts"><span>ACTIVE SATELLITES<strong id="energy-readout">—</strong></span><span>OBSERVATION TIME<strong id="storage-readout">—</strong></span></div></article>
       </aside>
     </div>
     <footer class="status-bar"><span id="status-indicator" class="live-dot"></span><p id="status" class="status" aria-live="polite">Loading EOS-Bench…</p><span class="status-end">WGS84 · UTC</span></footer>
@@ -156,7 +154,7 @@
   <script src="./replay.js?v=0.9.0" defer></script>
   <script src="./orbit-model.js?v=0.9.0" defer></script>
   <script src="./sensor-fov.js?v=0.11.0" defer></script>
-  <script src="./mission.js?v=0.14.0" defer></script>
-  <script src="./app.js?v=0.14.0" defer></script>
+  <script src="./mission.js?v=0.15.1" defer></script>
+  <script src="./app.js?v=0.15.1" defer></script>
 </body>
 </html>

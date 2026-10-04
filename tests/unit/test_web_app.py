@@ -127,6 +127,11 @@ def test_exact_solver_limit_is_reported_without_running_search(tmp_path: Path) -
 
 def test_static_and_scenario_routes_are_fixed_and_safe(tmp_path: Path) -> None:
     application = LabApplication(SCENARIO_DIR)
+    satellite = application.dispatch("GET", "/models/earth-observer.glb?v=0.15.0")
+    assert satellite.status == 200
+    assert satellite.content_type == "model/gltf-binary"
+    assert satellite.body[:4] == b"glTF"
+    assert application.dispatch("GET", "/models/../app.js").status == 404
 
     homepage = application.dispatch("GET", "/")
     stylesheet = application.dispatch("GET", "/app.css")

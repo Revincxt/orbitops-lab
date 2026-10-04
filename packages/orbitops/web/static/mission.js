@@ -14,12 +14,10 @@ function taskState(taskId) {
 }
 
 function filteredTasks(scenario) {
-  const search = document.getElementById("target-search").value.toLowerCase().trim();
   const filter = document.getElementById("target-filter").value;
   const satellite = document.getElementById("satellite-filter").value;
   return scenario.tasks.filter((task) => {
     const assignment = state.assignments.get(task.task_id);
-    if (search && !`${task.task_id} ${task.target.name}`.toLowerCase().includes(search)) return false;
     if (filter === "planned" && !assignment) return false;
     if (filter === "unassigned" && assignment) return false;
     if (filter === "active" && taskState(task.task_id) !== "Observing") return false;
@@ -64,7 +62,6 @@ function configureReplay(payload) {
   selector.replaceChildren(all, ...options);
   if (options.some((option) => option.value === previous)) selector.value = previous;
   selector.hidden = payload.mode !== "reference";
-  document.getElementById("target-search").value = "";
   document.getElementById("target-filter").value = "all";
   setPlaybackControl(false);
 }
@@ -422,7 +419,7 @@ function renderWorkloads() {
   const rowHeight = layoutSize("workload-row-height");
   const capacity = Math.max(1, Math.min(scenario.satellites.length, Math.floor(height / rowHeight)));
   const labelWidth = Math.min(108, width * .43);
-  const barWidth = width - labelWidth - 34;
+  const barWidth = Math.max(12, width - labelWidth - 46);
   const focusedSatellite = elements.resources.contains(document.activeElement) ? document.activeElement.dataset.satelliteId : null;
   const selected = state.selectedSatelliteId;
   const sorted = scenario.satellites.map((satellite) => ({id: satellite.satellite_id, load: plan.workloads[satellite.satellite_id]})).sort((a, b) => b.load - a.load || a.id.localeCompare(b.id));
@@ -438,7 +435,7 @@ function renderWorkloads() {
     group.append(svgElement("text", {x: 0, y: y + 10, class: "chart-axis"}, satelliteName(row.id)));
     group.append(svgElement("rect", {x: labelWidth, y: y + 1, width: barWidth, height: 8, rx: 2, class: "workload-track"}));
     group.append(svgElement("rect", {x: labelWidth, y: y + 1, width: row.load / maximum * barWidth, height: 8, rx: 2, class: `workload-bar${row.id === selected ? " is-selected" : ""}`}));
-    group.append(svgElement("text", {x: width - 1, y: y + 10, "text-anchor": "end", class: "chart-axis"}, `${row.load}`));
+    group.append(svgElement("text", {x: width - 1, y: y + 10, "text-anchor": "end", class: "chart-axis workload-value"}, `${row.load} s`));
     group.addEventListener("click", () => selectSatellite(row.id));
     group.addEventListener("keydown", (event) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); selectSatellite(row.id); } });
     root.append(group);
@@ -461,29 +458,6 @@ function satelliteName(id) {
 function satelliteAltitude(orbit) {
   const position = state.globe && state.orbitPositions.get(orbit.satellite_id)?.getValue(state.globe.clock.currentTime);
   return position ? window.Cesium.Cartographic.fromCartesian(position).height : state.orbitModels.get(orbit.satellite_id).point(state.replay.time)[2];
-}
-
-function satelliteGlyph() {
-  // A screen-space engineering symbol, not a physical spacecraft/attitude model.
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 40;
-  const context = canvas.getContext("2d");
-  context.translate(20, 20);
-  context.rotate(-Math.PI / 7);
-  context.strokeStyle = "#08111a";
-  context.lineWidth = 2;
-  context.fillStyle = "#fff";
-  for (const x of [-17, 7]) {
-    context.fillRect(x, -7, 10, 14);
-    context.strokeRect(x, -7, 10, 14);
-    context.beginPath();
-    context.moveTo(x + 5, -7); context.lineTo(x + 5, 7);
-    context.moveTo(x, 0); context.lineTo(x + 10, 0);
-    context.stroke();
-  }
-  context.fillRect(-5, -10, 10, 20);
-  context.strokeRect(-5, -10, 10, 20);
-  return canvas;
 }
 
 function updateSolarEnvironment() {
@@ -568,7 +542,6 @@ function setupReferenceGlobe(viewer, Cesium) {
   viewer.clock.currentTime = Cesium.JulianDate.addSeconds(epoch, state.replay.time, new Cesium.JulianDate());
   viewer.clock.clockRange = Cesium.ClockRange.UNBOUNDED;
   viewer.clock.shouldAnimate = false;
-  const symbol = satelliteGlyph();
   payload.replay.orbits.forEach((orbit, index) => {
     const sampled = new Cesium.SampledPositionProperty();
     orbit.samples.forEach(([time, lon, lat, altitude]) => sampled.addSample(Cesium.JulianDate.addSeconds(epoch, time, new Cesium.JulianDate()), Cesium.Cartesian3.fromDegrees(lon, lat, altitude)));
@@ -601,14 +574,17 @@ function setupReferenceGlobe(viewer, Cesium) {
     viewer.entities.add({id: `orbit-preview-${orbit.satellite_id}`, position,
       path: {show: state.layers.track && bounds.future > 0, leadTime: bounds.future, trailTime: 0, resolution: 15, width: 1.4, material: styles.normal.future}});
     viewer.entities.add({id: `satellite-${orbit.satellite_id}`, name: orbit.satellite_id, position,
+      // Generic nadir-facing illustration, not source spacecraft attitude.
+      orientation: new Cesium.VelocityOrientationProperty(position, Cesium.Ellipsoid.WGS84),
       viewFrom: new Cesium.Cartesian3(-1800000, -1800000, 1600000),
-      billboard: {image: symbol, width: 22, height: 22, color, disableDepthTestDistance: 0,
-        scaleByDistance: new Cesium.NearFarScalar(500000, 1.3, 50000000, .75)},
+      model: {uri: "./models/earth-observer.glb?v=0.15.0", scale: 1, minimumPixelSize: 28,
+        maximumScale: 120000, runAnimations: false, shadows: Cesium.ShadowMode.DISABLED,
+        silhouetteColor: color, silhouetteSize: 0, environmentMapOptions: {enabled: false}},
       point: {show: false, pixelSize: 23, color: color.withAlpha(.15), outlineColor: color, outlineWidth: 1, disableDepthTestDistance: 0},
       label: {show: state.layers.satelliteLabels, text: satelliteName(orbit.satellite_id), font: '500 12px "Inter", sans-serif', fillColor: color,
         showBackground: true, backgroundColor: Cesium.Color.fromCssColorString("#0a1420").withAlpha(.8),
         backgroundPadding: new Cesium.Cartesian2(5, 3), horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
-        pixelOffset: new Cesium.Cartesian2(14, -10), disableDepthTestDistance: 0,
+        pixelOffset: new Cesium.Cartesian2(20, -14), disableDepthTestDistance: 0,
         distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 55000000)}});
   });
   payload.scenario.tasks.forEach((task) => {
@@ -666,7 +642,8 @@ function updateCesiumReplay(active) {
         future.material = styles.future;
         past.width = future.width = selected ? 2.5 : 1.4;
         const entity = viewer.entities.getById(`satellite-${orbit.satellite_id}`);
-        entity.billboard.width = entity.billboard.height = selected ? 30 : 22;
+        entity.model.minimumPixelSize = selected ? 40 : 28;
+        entity.model.silhouetteSize = selected ? 1 : 0;
         entity.point.show = selected;
         entity.label.show = selected || state.layers.satelliteLabels;
         entity.label.distanceDisplayCondition = new Cesium.DistanceDisplayCondition(0, selected ? Infinity : 55000000);
@@ -716,9 +693,14 @@ function addFallbackOrbits(map) {
     group.append(track);
     const marker = svgElement("g", {class: "map-satellite", "data-satellite-id": orbit.satellite_id, role: "button", tabindex: "0", "aria-label": `Inspect satellite ${orbit.satellite_id}`});
     marker.style.color = orbitColor(orbit.satellite_id);
-    marker.append(svgElement("path", {d: "M-8-3H-3V-5H3V-3H8V3H3V5H-3V3H-8Z"}));
+    // A shaded vector counterpart when the native 3D renderer is unavailable.
+    marker.append(svgElement("path", {class: "satellite-panel", d: "M-16-3-6-6-6 4-16 7Z M6-6 16-3 16 7 6 4Z"}));
+    marker.append(svgElement("path", {class: "satellite-cells", d: "M-13-4V6M-10-5V5M-16 2-6-1M10-5V5M13-4V6M6-1 16 2"}));
+    marker.append(svgElement("path", {class: "satellite-bus", d: "M-5-5 0-8 5-5V6L0 9-5 6Z"}));
+    marker.append(svgElement("path", {class: "satellite-metal", d: "M-5-5 0-8 5-5 0-2Z M0-2V9L5 6V-5Z"}));
+    marker.append(svgElement("path", {class: "satellite-antenna", d: "M-3-8Q0-12 3-8Q0-6-3-8Z M0-9V-13"}));
     marker.append(svgElement("title", {}, orbit.satellite_id));
-    marker.append(svgElement("text", {x: 11, y: -7, class: "satellite-label"}, satelliteName(orbit.satellite_id)));
+    marker.append(svgElement("text", {x: 20, y: -9, class: "satellite-label"}, satelliteName(orbit.satellite_id)));
     marker.addEventListener("click", () => selectSatellite(orbit.satellite_id));
     marker.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectSatellite(orbit.satellite_id); }
@@ -908,10 +890,10 @@ function pickedMissionObject(viewer, point) {
   if (first?.id?.startsWith("fov-")) {
     first = viewer.scene.drillPick(point, 10).find((hit) => !hit.id?.id?.startsWith("fov-"))?.id;
   }
-  // Observation links/paths can share a pixel with their satellite symbol.
-  // Prefer the actual symbol there, without disabling depth testing.
-  const satellite = typeof first?.id === "string" && !first.billboard && (first.id.startsWith("orbit-") || first.id.startsWith("ray-"))
-    ? viewer.scene.drillPick(point, 5).find((hit) => hit.id?.billboard)?.id : null;
+  // Observation links/paths can share a pixel with their satellite model.
+  // Prefer the actual spacecraft there, without disabling depth testing.
+  const satellite = typeof first?.id === "string" && !first.model && (first.id.startsWith("orbit-") || first.id.startsWith("ray-"))
+    ? viewer.scene.drillPick(point, 5).find((hit) => hit.id?.model)?.id : null;
   const id = (satellite || first)?.id;
   if (typeof id !== "string") return null;
   for (const prefix of ["target-", "ray-"]) if (id.startsWith(prefix)) return {kind: "task", id: id.slice(prefix.length)};
@@ -1148,8 +1130,8 @@ function bindMissionControls() {
   document.getElementById("replay-speed").addEventListener("change", (event) => { state.replay.speed = Number(event.target.value); });
   bindOrbitControls();
   document.addEventListener("visibilitychange", () => { if (document.hidden) pauseReplay(); });
-  for (const id of ["target-search", "target-filter", "satellite-filter"]) {
-    document.getElementById(id).addEventListener(id === "target-search" ? "input" : "change", () => {
+  for (const id of ["target-filter", "satellite-filter"]) {
+    document.getElementById(id).addEventListener("change", () => {
       elements.targetList.scrollTop = 0;
       state.pages.timeline = 0;
       if (id === "satellite-filter" && document.getElementById(id).value !== "all") selectSatellite(document.getElementById(id).value);

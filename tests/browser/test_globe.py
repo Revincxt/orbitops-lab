@@ -122,7 +122,38 @@ def globe_page(
         context.close()
 
 
-def test_real_globe_has_startup_tracks_symbols_and_unmodified_source_positions(
+def test_native_satellite_models_have_shared_assets_and_valid_extended_orientations(
+    globe_page: Any,
+) -> None:
+    original = globe_page.evaluate("JSON.stringify(state.referenceData)")
+    for time in [-2 * 86400, 0, 43200, 3 * 86400]:
+        globe_page.evaluate("time => setReplayTime(time, true)", time)
+        globe_page.wait_for_function("state.globe.dataSourceDisplay.ready")
+        models = globe_page.evaluate("""() => {
+          const viewer = state.globe, now = viewer.clock.currentTime;
+          return viewer.entities.values.filter(e => e.model).map(e => {
+            const position = e.position.getValue(now), q = e.orientation.getValue(now);
+            const rotation = Cesium.Matrix3.fromQuaternion(q);
+            const up = Cesium.Matrix3.getColumn(rotation, 2, new Cesium.Cartesian3());
+            const radial = Cesium.Cartesian3.normalize(position, new Cesium.Cartesian3());
+            return {id:e.id, uri:e.model.uri.getValue(),
+              scale:e.model.scale.getValue(), cap:e.model.maximumScale.getValue(),
+              orientation:Math.hypot(q.x,q.y,q.z,q.w),
+              nadir:Cesium.Cartesian3.dot(up,radial),
+              billboard:Boolean(e.billboard)};
+          });
+        }""")
+        assert len(models) == 20
+        assert len({model["uri"] for model in models}) == 1
+        for model in models:
+            assert model["scale"] == 1 and model["cap"] == 120000
+            assert not model["billboard"]
+            assert model["orientation"] == pytest.approx(1)
+            assert model["nadir"] > 0.99
+    assert globe_page.evaluate("JSON.stringify(state.referenceData)") == original
+
+
+def test_real_globe_has_startup_tracks_models_and_unmodified_source_positions(
     globe_page: Any,
 ) -> None:
     scene = globe_page.evaluate("""() => {
@@ -139,8 +170,9 @@ def test_real_globe_has_startup_tracks_symbols_and_unmodified_source_positions(
             pastShown:past.show.getValue(), futureShown:future.show.getValue(),
             sourceError:Cesium.Cartesian3.distance(satellite.position.getValue(viewer.clock.currentTime),
               Cesium.Cartesian3.fromDegrees(sample[1],sample[2],sample[3])),
-            symbol:Boolean(satellite.billboard.image.getValue()),
-            depth:satellite.billboard.disableDepthTestDistance.getValue()};
+            model:satellite.model.uri.getValue(), billboard:Boolean(satellite.billboard),
+            orientation:Boolean(satellite.orientation.getValue(viewer.clock.currentTime)),
+            pixels:satellite.model.minimumPixelSize.getValue()};
         })
       };
     }""")
@@ -149,7 +181,9 @@ def test_real_globe_has_startup_tracks_symbols_and_unmodified_source_positions(
     for orbit in scene["paths"]:
         assert orbit["future"] == pytest.approx(orbit["period"] / 2)
         assert orbit["futureShown"] and orbit["pastShown"]
-        assert orbit["symbol"] and orbit["depth"] == 0
+        assert orbit["model"] == "./models/earth-observer.glb?v=0.15.0"
+        assert not orbit["billboard"] and orbit["orientation"]
+        assert orbit["pixels"] in {28, 40}
         assert orbit["sourceError"] < 0.001
     globe_page.wait_for_function(
         "elements.globe.dataset.imagerySource === 'natural-earth-fallback'"
@@ -932,7 +966,7 @@ def pickable_satellite(globe_page: Any) -> dict[str, Any]:
         if (pickedMissionObject(viewer, point)?.id !== entity.id.slice(10)) continue;
         return {id:entity.id.slice(10), x, y};
       }
-      return null; // Billboard textures become pickable after their first rendered frame.
+      return null; // Models become pickable after their first rendered frame.
     }""",
         timeout=10000,
     ).json_value()

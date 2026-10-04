@@ -49,8 +49,8 @@ synthetic scenario.
 The fixed-viewport engineering workspace keeps configuration, mission geometry,
 and output inspection visible together. The page, map and inspector do not
 scroll. Task List is the only internally scrolling panel; all 500 source tasks
-remain reachable, with search and status filters. Timeline rows use height-aware
-pagination.
+remain reachable, with a status filter on the Task List heading and no search
+field. Timeline rows use height-aware pagination.
 Desktop side panels are fixed; there are no collapse controls. On narrow screens
 a compact Map / Tasks / Results navigation switches between full-width views.
 
@@ -63,7 +63,25 @@ workload, without the former four primary metric cards. Projection controls live
 in the map toolbar. Layer, fit, expand, Overview and Follow share one compact
 control rail with matching heights, icon sizes and interaction states;
 layer switches are grouped in a dismissible menu. Plan summary has no download
-button, and the toolbar has no Past/Future legend.
+button, and the toolbar has no Past/Future legend. Selection / Metrics share a
+compact segmented control at the right of the Plan summary heading, rather than
+occupying a separate row.
+
+The brand shows only OrbitOps, without a Mission Control subtitle. Task List
+has no count badge. Satellite workload places `s` after every source duration,
+rather than in its section header.
+
+Satellites use an original, locally bundled glTF 3D illustration with a metal
+bus, thermal blanket, blue solar wings, optics and communications hardware.
+The model is shared by all 20 satellites and retains natural materials rather
+than being tinted entirely with orbit colours. Active selection uses a fine
+orbit-coloured outline. The nominal velocity-based orientation and minimum
+screen size are display assumptions, not real spacecraft attitude, scale or
+individual satellite replicas. All source positions and the existing FOV
+geometry remain unchanged. The unfolded maps retain models, and the offline
+schematic uses a shaded vector counterpart. Clicking, double-click focus,
+follow, playback and plan switching remain available. Asset provenance and
+reproducible build instructions are in `static/models/README.md`.
 
 The visual treatment follows an orbital command-room reference: a near-black
 workspace, restrained cyan accents, fine borders and softly rounded

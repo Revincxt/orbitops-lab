@@ -210,6 +210,7 @@ class LabApplication:
             "/orbit-model.js": ("orbit-model.js", "text/javascript; charset=utf-8"),
             "/sensor-fov.js": ("sensor-fov.js", "text/javascript; charset=utf-8"),
             "/mission.js": ("mission.js", "text/javascript; charset=utf-8"),
+            "/models/earth-observer.glb": ("models/earth-observer.glb", "model/gltf-binary"),
             "/favicon.svg": ("favicon.svg", "image/svg+xml"),
             "/cesium-config.js": ("cesium-config.js", "text/javascript; charset=utf-8"),
             "/deployment-config.js": (

@@ -128,7 +128,6 @@ function renderTargetCatalog() {
   const { scenario, result } = state.currentPayload;
   const assignments = new Map((result.validation.simulation?.tasks || []).map((task) => [task.task_id, task]));
   const tasks = filteredTasks(scenario);
-  textField("target-count", tasks.length === scenario.tasks.length ? scenario.tasks.length : `${tasks.length}/${scenario.tasks.length}`);
   // Reuse list nodes during selection, playback and resize: preserve focus and
   // scroll position even with all 500 tasks, including the live "Active now" filter.
   const key = `${result.schedule.solver_name}:${tasks.map((task) => task.task_id).join(",")}`;
@@ -238,7 +237,6 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
   }
   if (reveal) {
     if (!filteredTasks(payload.scenario).some((candidate) => candidate.task_id === taskId)) {
-      document.getElementById("target-search").value = "";
       document.getElementById("target-filter").value = "all";
       document.getElementById("satellite-filter").value = "all";
     }

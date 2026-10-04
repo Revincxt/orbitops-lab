@@ -54,6 +54,7 @@ jobs:
               "orbitops/web/static/mission.js",
               "orbitops/web/static/orbit-model.js",
               "orbitops/web/static/sensor-fov.js",
+              "orbitops/web/static/models/earth-observer.glb",
               "orbitops/web/static/fonts/InterVariable.woff2",
               "orbitops/web/static/fonts/OFL.txt",
               "orbitops/web/static/favicon.svg",

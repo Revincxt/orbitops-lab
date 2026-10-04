@@ -147,7 +147,7 @@ def test_decluttered_header_and_static_compass_work_without_the_globe_engine(
 ) -> None:
     reference_ready(page, lab_url)
     assert "Mission workspace" not in page.locator(".masthead").inner_text()
-    assert page.get_by_role("heading", name="OrbitOps Mission Control", exact=True).count() == 1
+    assert page.get_by_role("heading", name="OrbitOps", exact=True).count() == 1
     assert page.locator(".app-title, .header-divider").count() == 0
     assert page.locator("#north-view").is_disabled()
     assert page.locator("#camera-heading").count() == 0
@@ -171,10 +171,101 @@ def test_reference_views_keep_all_data_reachable_without_scrolling(
     assert_single_screen(page)
     if width <= 1000:
         page.locator("#workspace-tasks").click()
-    page.locator("#target-search").fill("M500")
-    assert page.locator(".target-row").count() == 1
-    page.locator(".target-row").click()
+    assert page.locator("#target-search").count() == 0
+    assert page.locator(".target-row").count() == 500
+    page.locator('.target-row[data-task-id="M500"]').click()
     assert page.locator("#selected-id").inner_text() == "M500"
+    assert_single_screen(page)
+
+
+@pytest.mark.parametrize(
+    ("width", "height"),
+    [(1920, 1080), (1440, 900), (1280, 720), (1024, 768), (800, 600), (375, 667)],
+)
+def test_task_filter_and_inspector_tabs_fit_their_heading_rows(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    page.evaluate("document.fonts.ready")
+    page.evaluate("() => {setReplayTime(0, true);}")
+    original = page.evaluate("JSON.stringify(state.currentPayload)")
+    active_count = page.evaluate("""() => [...state.assignments.values()].filter(task =>
+      task.start_s <= state.replay.time && state.replay.time < task.end_s).length""")
+    assert active_count > 0
+    map_bounds = page.evaluate("elements.globe.getBoundingClientRect().toJSON()")
+    assert page.locator("#target-search, .catalog-filters").count() == 0
+    if width <= 1000:
+        page.locator("#workspace-tasks").click()
+    task_filter = page.locator("#target-filter")
+    assert task_filter.is_visible()
+    assert task_filter.evaluate("""node => {
+      const heading = node.closest('.section-heading');
+      const title = heading.querySelector('#targets-title').getBoundingClientRect();
+      const control = node.getBoundingClientRect(), box = heading.getBoundingClientRect();
+      return Math.abs((title.top + title.bottom - control.top - control.bottom) / 2) < 1
+        && control.left >= title.right + 6 && box.right - control.right <= 16
+        && control.top >= box.top && control.bottom <= box.bottom
+        && heading.scrollWidth <= heading.clientWidth;
+    }""")
+    for status, count in [
+        ("planned", 488),
+        ("unassigned", 12),
+        ("active", active_count),
+        ("all", 500),
+    ]:
+        task_filter.select_option(status)
+        assert page.locator(".target-row").count() == count
+        assert page.evaluate("""() => [...elements.targetList.children].every(row => {
+          const filter = document.getElementById('target-filter').value;
+          return filter === 'all' || (filter === 'planned'
+            ? state.assignments.has(row.dataset.taskId)
+            : row.dataset.state === (filter === 'active' ? 'Observing' : 'Unassigned'));
+        })""")
+    task_filter.select_option("active")
+    page.evaluate("() => {setReplayTime(43200, true);}")
+    assert page.locator(".target-row").count() == 0
+    page.locator("#replay-reset").dispatch_event("click")
+    assert page.locator(".target-row").count() == active_count
+    task_filter.select_option("all")
+    if width <= 1000:
+        page.locator("#workspace-summary").click()
+    tabs = page.get_by_role("tablist", name="Inspector views")
+    assert tabs.is_visible()
+    assert tabs.evaluate("""node => {
+      const heading = node.closest('.panel-heading');
+      const title = heading.querySelector('#results-title').getBoundingClientRect();
+      const control = node.getBoundingClientRect(), box = heading.getBoundingClientRect();
+      return Math.abs((title.top + title.bottom - control.top - control.bottom) / 2) < 1
+        && control.left >= title.right + 6 && box.right - control.right <= 12
+        && control.top >= box.top && control.bottom <= box.bottom
+        && heading.scrollWidth <= heading.clientWidth
+        && [...node.children].every(tab => {
+          const r = tab.getBoundingClientRect();
+          return r.left >= control.left && r.right <= control.right
+            && tab.scrollWidth <= tab.clientWidth;
+        });
+    }""")
+    card_bounds = page.locator(".inspector-card").bounding_box()
+    page.locator("#tab-evaluation").click()
+    assert page.locator("#inspector-evaluation").is_visible()
+    assert page.locator("#inspector-selection").is_hidden()
+    assert page.locator("#tab-evaluation").get_attribute("aria-selected") == "true"
+    assert page.locator(".inspector-card").bounding_box() == card_bounds
+    for key, selected in [
+        ("Home", "selection"),
+        ("End", "evaluation"),
+        ("ArrowRight", "selection"),
+        ("ArrowLeft", "evaluation"),
+    ]:
+        page.keyboard.press(key)
+        assert page.locator(f"#tab-{selected}").get_attribute("aria-selected") == "true"
+        assert page.locator(f"#tab-{selected}").get_attribute("tabindex") == "0"
+        assert page.locator(f"#inspector-{selected}").is_visible()
+    if width <= 1000:
+        page.locator("#workspace-map").click()
+    assert page.evaluate("elements.globe.getBoundingClientRect().toJSON()") == map_bounds
+    assert page.evaluate("JSON.stringify(state.currentPayload)") == original
     assert_single_screen(page)
 
 
@@ -193,8 +284,7 @@ def test_reference_half_open_task_states_utc_and_no_local_solves(page: Any, lab_
     assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 488
     assert page.evaluate("state.currentPayload.evaluation.TM.toFixed(3)") == "0.307"
     assert page.locator("#seed-input").count() == 0
-    page.locator("#target-search").fill("M350")
-    page.locator(".target-row").click()
+    page.locator('.target-row[data-task-id="M350"]').click()
     assert page.locator("#selected-state").text_content() == "Observing"
     assert "12:00:00 UTC" in page.locator("#replay-time").inner_text()
     page.locator("#replay-scrub").evaluate(
@@ -463,11 +553,13 @@ def test_task_list_scroll_and_focus_survive_replay_resize_and_plan_switch(
     page.locator("#solver-select").select_option("eos-ppo-profit")
     assert page.locator(".target-row").count() == 500
     assert page.locator("#target-list").evaluate("n => n.scrollTop") > 20000
-    page.locator("#target-search").fill("DOES-NOT-EXIST")
+    page.locator("#target-filter").select_option("active")
+    page.evaluate("() => {setReplayTime(43200, true);}")
     assert page.locator("#target-list").inner_text() == "No matching tasks"
-    assert page.locator("#target-count").inner_text() == "0/500"
+    assert page.locator("#target-count").count() == 0
     page.evaluate("selectTarget('M500', true, false)")
-    assert page.locator("#target-search").input_value() == ""
+    assert page.locator("#target-filter").input_value() == "all"
+    assert page.locator("#target-search").count() == 0
     assert page.locator(".target-row").count() == 500
     assert last.get_attribute("aria-pressed") == "true"
     assert last.evaluate("""n => {const r = n.getBoundingClientRect();
@@ -709,7 +801,7 @@ def test_map_actions_share_one_style_without_download_or_orbit_legend(
     page.set_viewport_size({"width": width, "height": height})
     reference_ready(page, lab_url)
     assert page.locator("#export-run, #orbit-span, .orbit-legend, a[download]").count() == 0
-    assert page.locator("#inspector .panel-heading button").count() == 0
+    assert page.locator("#inspector .panel-heading button:not([role=tab])").count() == 0
     rail = page.get_by_role("group", name="Map actions", exact=True)
     assert rail.locator(".map-action").count() == 5
     assert rail.locator(".map-action").evaluate_all("nodes => nodes.map(node => node.id)") == [
@@ -840,6 +932,29 @@ def test_workload_selection_matches_satellite_highlight(page: Any, lab_url: str)
     assert page.locator(f'.workload-row[data-satellite-id="{satellite}"]').evaluate(
         "node => node === document.activeElement"
     )
+
+
+@pytest.mark.parametrize(("width", "height"), [(1440, 900), (1024, 768), (375, 667)])
+def test_brand_and_panel_headers_are_clean_and_workload_values_include_seconds(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    assert page.title() == "OrbitOps"
+    assert page.locator(".brand").inner_text() == "ORBITOPS"
+    assert page.locator(".brand small, #target-count, .count-badge").count() == 0
+    assert page.locator(".map-satellite .satellite-panel").count() == 20
+    assert page.locator(".map-satellite .satellite-antenna").count() == 20
+    if width <= 1000:
+        page.locator("#workspace-summary").click()
+    assert page.locator(".resource-block .section-heading").inner_text() == "Satellite workload"
+    values = page.locator(".workload-value").all_text_contents()
+    assert values and all(value.endswith(" s") for value in values)
+    assert page.locator(".workload-value").evaluate_all("""nodes => nodes.every(n => {
+      const box = n.getBoundingClientRect(), parent = n.closest('svg').getBoundingClientRect();
+      return box.left >= parent.left && box.right <= parent.right + 1;
+    })""")
+    assert_single_screen(page)
 
 
 @pytest.mark.parametrize(("width", "height"), [(1440, 900), (1024, 768), (375, 667)])
