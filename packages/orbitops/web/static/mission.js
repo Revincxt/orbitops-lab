@@ -107,6 +107,7 @@ function updateReplayWindow() {
   slider.min = replay.windowStart;
   slider.max = replay.windowEnd;
   slider.value = replay.time;
+  slider.parentElement.style.setProperty("--replay-progress", `${(replay.time - replay.windowStart) / width * 100}%`);
   slider.setAttribute("aria-valuetext", window.OrbitReplay.utc(scenario.epoch_utc, replay.time, true));
   slider.title = `${window.OrbitReplay.utc(scenario.epoch_utc, replay.windowStart, true)} → ${window.OrbitReplay.utc(scenario.epoch_utc, replay.windowEnd, true)}`;
 }
@@ -184,6 +185,8 @@ function updateReplayVisuals() {
   document.getElementById("replay-time").dateTime = new Date(Date.parse(payload.scenario.epoch_utc) + time * 1000).toISOString();
   document.getElementById("replay-time-button").title = extended ? "UTC · estimated two-body orbit · no task execution. Click to jump to a time." : "UTC · source samples. Click to jump to a time.";
   updateReplayWindow();
+  const timeline = elements.timeline.querySelector(".timeline-lanes");
+  if (timeline && (Number(timeline.dataset.windowStart) !== state.replay.windowStart || Number(timeline.dataset.windowEnd) !== state.replay.windowEnd)) renderReferenceGantt();
   if (state.selectedTaskId) {
     const selectedState = taskState(state.selectedTaskId);
     textField("selected-state", selectedState);
@@ -199,7 +202,7 @@ function updateReplayVisuals() {
   const cursor = document.querySelector(".time-cursor");
   if (cursor) {
     cursor.toggleAttribute("hidden", extended);
-    const x = Number(cursor.dataset.left) + (time - payload.scenario.horizon_start_s) / (payload.scenario.horizon_end_s - payload.scenario.horizon_start_s) * Number(cursor.dataset.width);
+    const x = Number(cursor.dataset.left) + (time - state.replay.windowStart) / (state.replay.windowEnd - state.replay.windowStart) * Number(cursor.dataset.width);
     if (Number.isFinite(x)) { cursor.setAttribute("x1", x); cursor.setAttribute("x2", x); }
   }
   if (state.globe) updateCesiumReplay(active);
@@ -210,14 +213,6 @@ function updateReplayVisuals() {
 
 function stateColor(taskId) {
   return TASK_COLORS[taskState(taskId)];
-}
-
-function configureModeDetails(payload) {
-  document.querySelector(".slew-legend").hidden = true;
-  textField("timeline-title", "Observation · UTC");
-  const loads = Object.values(payload.reference_plan.workloads);
-  textField("energy-readout", `${loads.filter((load) => load > 0).length}/${loads.length}`);
-  textField("storage-readout", `${loads.reduce((a, b) => a + b, 0).toFixed(0)} s`);
 }
 
 function renderEvaluation(payload) {
@@ -267,6 +262,23 @@ function radarSeries(plans) {
   }));
 }
 
+function appendChartGradient(defs, id, stops, radial = false, horizontal = false) {
+  const gradient = svgElement(radial ? "radialGradient" : "linearGradient", radial
+    ? {id, cx: "45%", cy: "24%", r: "85%"}
+    : {id, x1: "0%", y1: "0%", x2: horizontal ? "100%" : "0%", y2: horizontal ? "0%" : "100%"});
+  stops.forEach(([offset, color, opacity = 1]) => {
+    gradient.append(svgElement("stop", {offset, "stop-color": color, "stop-opacity": opacity}));
+  });
+  defs.append(gradient);
+  return `url(#${id})`;
+}
+
+function appendChartDepth(defs, id) {
+  const filter = svgElement("filter", {id, x: "-30%", y: "-50%", width: "160%", height: "200%", "color-interpolation-filters": "sRGB"});
+  filter.append(svgElement("feDropShadow", {dx: 0, dy: 1.5, stdDeviation: 1.2, "flood-color": "#01060c", "flood-opacity": .65}));
+  defs.append(filter);
+}
+
 function renderReferenceComparison() {
   const plans = state.referenceData.plans;
   const selectedId = state.currentPayload.reference_plan.plan_id;
@@ -286,6 +298,16 @@ function renderReferenceComparison() {
   };
   const points = (scores) => scores.map((score, index) => position(index, radius * score).join(",")).join(" ");
   const root = chart(width, height, "Optimization algorithm comparison", `${description} Selected: ${selected.plan.label}, ${summary(selected)}.`);
+  const defs = svgElement("defs");
+  appendChartGradient(defs, "radar-surface", [["0%", "#24374e"], ["55%", "#132235"], ["100%", "#091321"]], true);
+  appendChartDepth(defs, "radar-depth");
+  colors.forEach((color, index) => appendChartGradient(defs, `radar-fill-${index}`, [["0%", color, .26], ["100%", color, .025]]));
+  root.append(defs);
+  const boundary = points(RADAR_AXES.map(() => 1));
+  root.append(svgElement("ellipse", {cx, cy, rx: radius + 7, ry: radius + 7, class: "radar-reference-ring", "aria-hidden": "true"}));
+  // A decorative plinth adds depth; measured polygons keep their exact axes.
+  root.append(svgElement("polygon", {points: boundary, transform: "translate(0 3)", class: "radar-plinth", "aria-hidden": "true"}));
+  root.append(svgElement("polygon", {points: boundary, class: "radar-surface", "aria-hidden": "true"}));
   for (const scale of [.25, .5, .75, 1]) {
     root.append(svgElement("polygon", { points: points(RADAR_AXES.map(() => scale)), class: `radar-grid${scale === 1 ? " radar-boundary" : ""}` }));
   }
@@ -305,6 +327,7 @@ function renderReferenceComparison() {
     const group = svgElement("g", { class: `radar-series${active ? " is-selected" : ""}`, "data-plan-id": item.plan.plan_id });
     // CSSOM updates are compatible with the local server's strict style CSP.
     group.style.setProperty("--series-color", colors[index % colors.length]);
+    group.style.setProperty("--series-fill", `url(#radar-fill-${index})`);
     group.append(svgElement("title", {}, `${item.plan.label} · ${summary(item)}\nObjective: ${item.plan.objective}\nReference consistency only, not full feasibility.`));
     if (item.metrics.every((metric) => metric.score !== null)) {
       group.append(svgElement("polygon", { points: points(item.metrics.map((metric) => metric.score)), class: "radar-area", "stroke-dasharray": dashes[index % dashes.length] }));
@@ -312,6 +335,7 @@ function renderReferenceComparison() {
     item.metrics.forEach((metric, axisIndex) => {
       if (metric.score === null) return;
       const [x, y] = position(axisIndex, radius * metric.score);
+      if (active) group.append(svgElement("ellipse", {cx: x, cy: y, rx: 4.8, ry: 4.8, class: "radar-point-halo", "aria-hidden": "true"}));
       const dot = svgElement("circle", { cx: x, cy: y, r: active ? 2.5 : 1.5, class: "radar-point", "data-metric": metric.key, "data-raw": metric.raw, "data-score": metric.score });
       dot.append(svgElement("title", {}, `${item.plan.label} · ${metric.name}: ${metric.format(metric.raw)}\n${metric.scale}`));
       group.append(dot);
@@ -362,44 +386,67 @@ function renderReferenceGantt() {
   if (!elements.timeline.clientWidth || !elements.timeline.clientHeight) return;
   const {scenario, reference_plan: plan} = state.currentPayload;
   const width = elements.timeline.clientWidth;
-  const height = elements.timeline.clientHeight;
   const left = width < 600 ? 128 : 155;
-  const top = 8;
-  const bottom = 25;
+  const top = 6;
+  const bottom = 6;
   const rowHeight = layoutSize("timeline-row-height");
   const plotWidth = width - left - 14;
-  const horizon = scenario.horizon_end_s;
-  const x = (time) => left + time / horizon * plotWidth;
+  const {windowStart, windowEnd} = state.replay;
+  const duration = windowEnd - windowStart;
+  const x = (time) => left + (time - windowStart) / duration * plotWidth;
+  const overlaps = (start, end) => end > windowStart && start < windowEnd;
   const satelliteFilter = document.getElementById("satellite-filter").value;
   const satellites = scenario.satellites.filter((satellite) => satelliteFilter === "all" || satellite.satellite_id === satelliteFilter);
-  const lanes = pageItems("timeline", satellites, Math.max(1, Math.floor((height - top - bottom) / rowHeight)));
-  const root = chart(width, height, "Satellite observation timeline", "UTC source task intervals; all satellites including zero-workload satellites remain reachable through pagination. Minimum display widths do not change actual durations.");
+  const height = top + satellites.length * rowHeight + bottom;
+  const scrollTop = elements.timeline.scrollTop;
+  const focusedTaskId = elements.timeline.contains(document.activeElement) ? document.activeElement.dataset.taskId : null;
+  elements.timeline.style.setProperty("--timeline-label-width", `${left}px`);
+  const axis = chart(width, 24, "Schedule time axis", `${window.OrbitReplay.utc(scenario.epoch_utc, windowStart, true)} → ${window.OrbitReplay.utc(scenario.epoch_utc, windowEnd, true)}`);
+  axis.setAttribute("preserveAspectRatio", "none");
+  const root = chart(width, height, "Satellite observation timeline", "UTC source task intervals; all satellites including zero-workload satellites remain reachable through internal scrolling. Minimum display widths do not change actual durations.");
   root.setAttribute("preserveAspectRatio", "none");
+  root.classList.add("timeline-lanes");
+  root.dataset.windowStart = windowStart;
+  root.dataset.windowEnd = windowEnd;
+  root.style.height = `${height}px`;
+  const defs = svgElement("defs");
+  appendChartGradient(defs, "timeline-lane-surface", [["0%", "#182535"], ["100%", "#101b2a"]]);
+  appendChartGradient(defs, "timeline-lane-active", [["0%", "#21384a"], ["100%", "#15283b"]]);
+  appendChartGradient(defs, "timeline-planned", [["0%", "#d4f7ff"], ["35%", "#70d7ed"], ["100%", "#3f8da9"]]);
+  appendChartGradient(defs, "timeline-observing", [["0%", "#fff0c5"], ["35%", "#edc78a"], ["100%", "#ae7e43"]]);
+  appendChartGradient(defs, "timeline-completed", [["0%", "#d7ffed"], ["35%", "#75d9b6"], ["100%", "#398f77"]]);
+  const clip = svgElement("clipPath", {id: "timeline-plot-clip"});
+  clip.append(svgElement("rect", {x: left, y: 0, width: plotWidth, height}));
+  defs.append(clip);
+  root.append(defs);
   for (let tick = 0; tick <= 4; tick += 1) {
-    const time = horizon * tick / 4;
+    const time = windowStart + duration * tick / 4;
     root.append(svgElement("line", {x1: x(time), x2: x(time), y1: top, y2: height - bottom, class: "chart-grid"}));
-    root.append(svgElement("text", {x: x(time), y: height - 8, "text-anchor": "middle", class: "chart-axis"}, timeLabel(time).slice(0, 5)));
+    axis.append(svgElement("text", {x: x(time), y: 15, "text-anchor": tick === 0 ? "start" : tick === 4 ? "end" : "middle", class: "chart-axis"}, timeLabel(time).slice(0, 5)));
   }
+  document.getElementById("timeline-axis").replaceChildren(axis);
   const selectedTask = scenario.tasks.find((task) => task.task_id === state.selectedTaskId);
   const visibleIds = new Set(filteredTasks(scenario).map((task) => task.task_id));
-  lanes.forEach((satellite, index) => {
+  satellites.forEach((satellite, index) => {
     const rowY = top + index * rowHeight;
-    const row = svgElement("g", {class: "satellite-lane", "data-satellite-id": satellite.satellite_id});
+    const row = svgElement("g", {class: `satellite-lane${satellite.satellite_id === state.selectedSatelliteId ? " is-selected" : ""}`, "data-satellite-id": satellite.satellite_id});
     row.append(svgElement("title", {}, satellite.satellite_id));
     row.append(svgElement("rect", {x: 0, y: rowY, width, height: rowHeight - 2, rx: 3, class: "row-band", opacity: index % 2 ? 0 : 1}));
     row.append(svgElement("text", {x: 5, y: rowY + 13, class: "task-label"}, satelliteName(satellite.satellite_id)));
     const assignments = plan.assignments.filter((assignment) => assignment.satellite_id === satellite.satellite_id);
     row.append(svgElement("text", {x: 5, y: rowY + 27, class: "task-sublabel"}, `${assignments.length} tasks · ${plan.workloads[satellite.satellite_id]} s`));
-    selectedTask?.visibility_windows.filter((window) => window.satellite_id === satellite.satellite_id).forEach((window) => {
-      const bar = svgElement("rect", {x: x(window.start_s), y: rowY + 6, width: Math.max(1, x(window.end_s) - x(window.start_s)), height: 20, class: "window-bar"});
+    selectedTask?.visibility_windows.filter((window) => window.satellite_id === satellite.satellite_id && overlaps(window.start_s, window.end_s)).forEach((window) => {
+      const bar = svgElement("rect", {x: x(window.start_s), y: rowY + 6, width: Math.max(1, x(window.end_s) - x(window.start_s)), height: 20, class: "window-bar", "clip-path": "url(#timeline-plot-clip)"});
       bar.append(svgElement("title", {}, `${selectedTask.task_id} · ${window.window_id} · ${timeLabel(window.start_s)}–${timeLabel(window.end_s)} UTC`));
       row.append(bar);
     });
     assignments.filter((assignment) => visibleIds.has(assignment.task_id)).forEach((assignment) => {
       const selected = assignment.task_id === state.selectedTaskId;
+      const inWindow = overlaps(assignment.start_s, assignment.end_s);
       const bar = svgElement("rect", {x: x(assignment.start_s), y: rowY + (selected ? 7 : 10), width: Math.max(selected ? 4 : 2, x(assignment.end_s) - x(assignment.start_s)), height: selected ? 18 : 12,
-        rx: 1, class: "task-bar", "data-task-id": assignment.task_id, "data-state": taskState(assignment.task_id), role: "button", tabindex: 0,
+        rx: 1, class: "task-bar", "clip-path": "url(#timeline-plot-clip)", "data-task-id": assignment.task_id, "data-state": taskState(assignment.task_id), role: "button", tabindex: inWindow ? 0 : -1,
         "aria-label": `${assignment.task_id} on ${satellite.satellite_id}, ${timeLabel(assignment.start_s)} UTC, ${(assignment.end_s - assignment.start_s).toFixed(0)} seconds`});
+      bar.toggleAttribute("hidden", !inWindow);
       if (selected) { bar.setAttribute("stroke", "#fff"); bar.setAttribute("stroke-width", "1"); }
       bar.append(svgElement("title", {}, `${assignment.task_id} · ${satellite.satellite_id}\n${timeLabel(assignment.start_s)}–${timeLabel(assignment.end_s)} UTC\nActual duration: ${assignment.end_s - assignment.start_s}s. Display width may be enlarged.`));
       bar.addEventListener("click", () => selectTarget(assignment.task_id));
@@ -408,8 +455,17 @@ function renderReferenceGantt() {
     });
     root.append(row);
   });
-  root.append(svgElement("line", {x1: x(state.replay.time), x2: x(state.replay.time), y1: top, y2: height - bottom, class: "time-cursor", "data-left": left, "data-width": plotWidth}));
-  elements.timeline.replaceChildren(root);
+  const cursor = svgElement("line", {x1: x(state.replay.time), x2: x(state.replay.time), y1: top, y2: height - bottom, class: "time-cursor", "data-left": left, "data-width": plotWidth});
+  cursor.toggleAttribute("hidden", state.replay.time < scenario.horizon_start_s || state.replay.time > scenario.horizon_end_s);
+  root.append(cursor);
+  const previous = elements.timeline.querySelector(".timeline-lanes");
+  if (previous) previous.replaceWith(root);
+  else {
+    elements.timeline.querySelector(".chart-empty")?.remove();
+    elements.timeline.append(root);
+  }
+  elements.timeline.scrollTop = scrollTop;
+  if (focusedTaskId) root.querySelector(`[data-task-id="${CSS.escape(focusedTaskId)}"]`)?.focus({preventScroll: true});
 }
 
 function renderWorkloads() {
@@ -427,15 +483,29 @@ function renderWorkloads() {
   if (selected && !rows.some((row) => row.id === selected)) rows[rows.length - 1] = sorted.find((row) => row.id === selected);
   const maximum = Math.max(1, ...sorted.map((row) => row.load));
   const root = chart(width, height, "Satellite observation workload", "Highest-workload satellites plus the selected satellite. All satellites are available in the timeline. Source observation durations in seconds, not battery or storage traces.");
+  const defs = svgElement("defs");
+  appendChartGradient(defs, "workload-fill", [["0%", "#38677f"], ["60%", "#639eb7"], ["100%", "#9acedd"]], false, true);
+  appendChartGradient(defs, "workload-selected", [["0%", "#86714e"], ["60%", "#b29a72"], ["100%", "#e1c99f"]], false, true);
+  appendChartGradient(defs, "workload-recess", [["0%", "#080f1a"], ["100%", "#142133"]]);
+  appendChartDepth(defs, "workload-depth");
+  root.append(defs);
   rows.forEach((row, index) => {
     const y = 7 + index * rowHeight;
     const group = svgElement("g", {class: "workload-row", role: "button", tabindex: 0, "aria-label": `${row.id}: ${row.load} seconds`, "aria-pressed": String(row.id === selected), "data-satellite-id": row.id});
     group.append(svgElement("title", {}, `${row.id} · ${row.load} s`));
     group.append(svgElement("rect", {x: 0, y: y - 6, width, height: rowHeight, class: "workload-row-band"}));
-    group.append(svgElement("text", {x: 0, y: y + 10, class: "chart-axis"}, satelliteName(row.id)));
-    group.append(svgElement("rect", {x: labelWidth, y: y + 1, width: barWidth, height: 8, rx: 2, class: "workload-track"}));
-    group.append(svgElement("rect", {x: labelWidth, y: y + 1, width: row.load / maximum * barWidth, height: 8, rx: 2, class: `workload-bar${row.id === selected ? " is-selected" : ""}`}));
-    group.append(svgElement("text", {x: width - 1, y: y + 10, "text-anchor": "end", class: "chart-axis workload-value"}, `${row.load} s`));
+    if (row.id === selected) group.append(svgElement("rect", {x: 0, y: y + 2, width: 2, height: 8, rx: 1, class: "workload-selection-marker", "aria-hidden": "true"}));
+    group.append(svgElement("text", {x: 6, y: y + 10, class: "chart-axis"}, satelliteName(row.id)));
+    group.append(svgElement("rect", {x: labelWidth, y: y + 2, width: barWidth, height: 8, rx: 2, class: "workload-track"}));
+    for (const tick of [.25, .5, .75]) {
+      group.append(svgElement("line", {x1: labelWidth + tick * barWidth, x2: labelWidth + tick * barWidth, y1: y + 3, y2: y + 9, class: "workload-tick", "aria-hidden": "true"}));
+    }
+    const filledWidth = row.load / maximum * barWidth;
+    group.append(svgElement("rect", {x: labelWidth, y: y + 2, width: filledWidth, height: 8, rx: 2, class: `workload-bar${row.id === selected ? " is-selected" : ""}`}));
+    if (filledWidth > 5) group.append(svgElement("line", {x1: labelWidth + 2.5, x2: labelWidth + filledWidth - 2.5, y1: y + 3, y2: y + 3, class: "workload-highlight", "aria-hidden": "true"}));
+    const value = svgElement("text", {x: width - 1, y: y + 10, "text-anchor": "end", class: "chart-axis workload-value"});
+    value.append(svgElement("tspan", {}, String(row.load)), svgElement("tspan", {class: "workload-unit"}, " s"));
+    group.append(value);
     group.addEventListener("click", () => selectSatellite(row.id));
     group.addEventListener("keydown", (event) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); selectSatellite(row.id); } });
     root.append(group);
@@ -774,7 +844,10 @@ function selectSatellite(id) {
   state.orbitEmphasis = true;
   updateReplayVisuals();
   renderWorkloads();
-  if (!document.getElementById("pane-timeline").hidden) renderGantt(state.currentPayload.scenario, state.currentPayload.result);
+  if (!document.getElementById("pane-timeline").hidden) {
+    renderGantt(state.currentPayload.scenario, state.currentPayload.result);
+    revealTimelineSatellite(id);
+  }
 }
 
 function updateOrbitHud() {
@@ -1133,7 +1206,7 @@ function bindMissionControls() {
   for (const id of ["target-filter", "satellite-filter"]) {
     document.getElementById(id).addEventListener("change", () => {
       elements.targetList.scrollTop = 0;
-      state.pages.timeline = 0;
+      elements.timeline.scrollTop = 0;
       if (id === "satellite-filter" && document.getElementById(id).value !== "all") selectSatellite(document.getElementById(id).value);
       refreshPanels();
     });

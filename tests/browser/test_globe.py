@@ -15,7 +15,11 @@ from typing import Any
 
 import pytest
 
-from tests.browser.test_workbench import assert_single_screen
+from tests.browser.test_workbench import (
+    assert_centered_playback_controls,
+    assert_single_screen,
+    assert_timeline_playback_alignment,
+)
 from tests.browser.test_workbench import browser as browser
 from tests.browser.test_workbench import lab_url as lab_url
 
@@ -82,22 +86,30 @@ def globe_page(
     def official_asset(route: Any) -> None:
         url = route.request.url
         if url not in cesium_assets:
-            response = route.fetch(timeout=30000, max_retries=2)
-            headers = {
-                key: value
-                for key, value in response.headers.items()
-                if key.lower() not in {"content-encoding", "content-length"}
-            }
-            asset = (response.status, headers, response.body())
-            if response.ok:
-                cesium_assets[url] = asset
-        else:
-            asset = cesium_assets[url]
-        status, headers, body = asset
+            # Use Chrome's network path, including its system proxy, rather than
+            # the separate API-request client used by route.fetch().
+            route.continue_()
+            return
+        status, headers, body = cesium_assets[url]
         route.fulfill(status=status, headers=headers, body=body)
 
     context.route("https://cesium.com/**", official_asset)
     page = context.new_page()
+
+    def cache_official_asset(request: Any) -> None:
+        if not request.url.startswith("https://cesium.com/") or request.url in cesium_assets:
+            return
+        response = request.response()
+        if response is None or not response.ok:
+            return
+        headers = {
+            key: value
+            for key, value in response.headers.items()
+            if key.lower() not in {"content-encoding", "content-length"}
+        }
+        cesium_assets[request.url] = (response.status, headers, response.body())
+
+    page.on("requestfinished", cache_official_asset)
     errors: list[str] = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(lab_url, wait_until="domcontentloaded")
@@ -120,6 +132,46 @@ def globe_page(
     finally:
         context.unroute_all(behavior="ignoreErrors")
         context.close()
+
+
+@pytest.mark.parametrize("viewport", [(1440, 900), (800, 600), (375, 667)])
+def test_native_timeline_scrubber_and_window_buttons_share_the_globe_clock(
+    globe_page: Any, viewport: tuple[int, int]
+) -> None:
+    globe_page.set_viewport_size({"width": viewport[0], "height": viewport[1]})
+    globe_page.wait_for_timeout(150)
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    assert_centered_playback_controls(globe_page)
+    assert_timeline_playback_alignment(globe_page)
+    globe_page.locator("#replay-scrub").evaluate(
+        "node => {node.value = 5; node.dispatchEvent(new Event('input'));}"
+    )
+    assert globe_page.locator("#selected-state").text_content() == "Observing"
+    assert_timeline_playback_alignment(globe_page)
+    for button, expected in [
+        ("replay-window-prev", -43195),
+        ("replay-window-next", 5),
+        ("replay-window-next", 43205),
+    ]:
+        globe_page.locator(f"#{button}").click()
+        assert globe_page.evaluate("state.replay.time") == expected
+        clock = globe_page.evaluate("""() => Cesium.JulianDate.secondsDifference(
+          state.globe.clock.currentTime,
+          Cesium.JulianDate.fromIso8601(state.currentPayload.scenario.epoch_utc))""")
+        assert clock == pytest.approx(expected)
+        assert_timeline_playback_alignment(globe_page)
+        if expected != 5:
+            assert globe_page.locator(".task-bar:not([hidden]), .window-bar").count() == 0
+            assert (
+                globe_page.evaluate(
+                    "state.globe.entities.values.filter(e=>e.id.startsWith('ray-')).length"
+                )
+                == 0
+            )
+    globe_page.locator("#replay-reset").click()
+    assert globe_page.locator(".task-bar:not([hidden])").count() == 488
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+    assert_single_screen(globe_page)
 
 
 def test_native_satellite_models_have_shared_assets_and_valid_extended_orientations(
@@ -507,34 +559,42 @@ def test_compass_north_reset_interrupts_a_camera_flight_and_freezes_during_morph
     )
 
 
-def test_attribution_is_an_accessible_icon_and_preserves_native_provider_credits(
+def test_map_information_control_is_hidden_and_preserves_native_provider_credits(
     globe_page: Any,
 ) -> None:
     globe_page.wait_for_function(
         "elements.globe.dataset.imagerySource === 'natural-earth-fallback'"
     )
-    credit = globe_page.get_by_role("button", name="Map credits", exact=True)
-    assert credit.is_visible()
-    assert credit.inner_text() == ""
-    assert credit.locator("svg").count() == 1
-    assert globe_page.get_by_text("Data attribution", exact=True).count() == 0
+    credit = globe_page.locator(".cesium-credit-expand-link")
+    assert credit.is_hidden()
+    assert credit.get_attribute("hidden") == ""
+    assert credit.get_attribute("tabindex") == "-1"
+    assert credit.locator("svg").count() == 0
+    assert (
+        globe_page.locator(".attribution-icon, #comparison-info, #comparison-scales").count() == 0
+    )
+    assert globe_page.get_by_text("Data attribution", exact=True).is_hidden()
     assert globe_page.locator(".cesium-credit-logoContainer img").is_visible()
     assert globe_page.locator(".masthead").inner_text().find("Mission workspace") == -1
-    for key in ["Enter", "Space"]:
-        credit.focus()
-        globe_page.keyboard.press(key)
-        popup = globe_page.locator(".cesium-credit-lightbox")
-        assert popup.is_visible()
-        assert "Natural Earth II" in popup.inner_text()
-        globe_page.locator(".cesium-credit-lightbox-close").click()
-        assert not popup.is_visible()
+    # Inspect native credit content programmatically: the hidden control has no UI entry.
+    credit.evaluate("node => node.click()")
+    popup = globe_page.locator(".cesium-credit-lightbox")
+    assert popup.is_visible()
+    assert "Natural Earth II" in popup.inner_text()
+    globe_page.locator(".cesium-credit-lightbox-close").click()
+    assert popup.is_hidden()
     globe_page.locator("#solver-select").select_option("eos-sa-profit")
     globe_page.wait_for_function("!state.busy && state.globe.dataSourceDisplay.ready")
-    assert credit.inner_text() == ""
-    assert credit.locator("svg").count() == 1
-    credit.click()
+    assert credit.is_hidden()
+    assert credit.locator("svg").count() == 0
+    credit.evaluate("node => node.click()")
     assert "Natural Earth II" in globe_page.locator(".cesium-credit-lightbox").inner_text()
     globe_page.locator(".cesium-credit-lightbox-close").click()
+    globe_page.emulate_media(reduced_motion="reduce")
+    for selector in ["#view-2d", "#view-2_5d", "#view-3d"]:
+        globe_page.locator(selector).click()
+        assert credit.is_hidden()
+        assert globe_page.locator(".cesium-credit-logoContainer img").is_visible()
     assert_single_screen(globe_page)
 
 
@@ -549,7 +609,7 @@ def test_compact_map_keeps_compass_and_credits_inside_and_camera_controls_outsid
       const frame = document.querySelector('.globe-frame').getBoundingClientRect();
       const compass = document.getElementById('north-view').getBoundingClientRect();
       const controls = document.querySelector('.orbit-camera').getBoundingClientRect();
-      const credit = document.querySelector('.attribution-icon').getBoundingClientRect();
+      const credit = document.querySelector('.cesium-credit-logoContainer').getBoundingClientRect();
       const legend = document.querySelector('.globe-overlay').getBoundingClientRect();
       return compass.width >= 44 && compass.height >= 44 && compass.right < frame.right
         && compass.bottom < frame.bottom && compass.top >= frame.top
@@ -559,7 +619,7 @@ def test_compact_map_keeps_compass_and_credits_inside_and_camera_controls_outsid
     assert_single_screen(globe_page)
 
 
-def test_all_twenty_cone_tips_track_native_satellites_with_a_full_15_degree_fov(
+def test_all_twenty_cone_tips_track_native_satellites_with_a_full_30_degree_fov(
     globe_page: Any,
 ) -> None:
     globe_page.wait_for_function(
@@ -599,7 +659,7 @@ def test_all_twenty_cone_tips_track_native_satellites_with_a_full_15_degree_fov(
         for cone in geometry:
             assert cone["tipError"] < 1e-7, cone
             assert cone["direction"] == pytest.approx(1, abs=1e-12), cone
-            assert cone["angle"] == pytest.approx(15, abs=1e-10), cone
+            assert cone["angle"] == pytest.approx(30, abs=1e-10), cone
             assert 300000 < cone["length"] < 2000000, cone
             assert 0.03 <= cone["alpha"] <= 0.04, cone
             assert not cone["pickable"] and cone["outline"] == 48, cone

@@ -48,16 +48,16 @@ synthetic scenario.
 
 The fixed-viewport engineering workspace keeps configuration, mission geometry,
 and output inspection visible together. The page, map and inspector do not
-scroll. Task List is the only internally scrolling panel; all 500 source tasks
+scroll. Task List and Timeline scroll internally; all 500 source tasks
 remain reachable, with a status filter on the Task List heading and no search
-field. Timeline rows use height-aware pagination.
+field. Timeline shows all 20 satellite lanes without pagination.
 Desktop side panels are fixed; there are no collapse controls. On narrow screens
 a compact Map / Tasks / Results navigation switches between full-width views.
 
 The top-right algorithm selector, beside Repository, switches
 between the four original plans immediately. There is no Load Plan button,
 pending-change prompt, visible selector label or separate configuration card. The left column contains
-the algorithm comparison radar above Task List. The centre prioritizes the orbit view, with a compact
+Task List above the algorithm comparison radar. The centre prioritizes the orbit view, with a compact
 analysis dock below it. The right panel shows target details and satellite
 workload, without the former four primary metric cards. Projection controls live
 in the map toolbar. Layer, fit, expand, Overview and Follow share one compact
@@ -67,7 +67,11 @@ button, and the toolbar has no Past/Future legend. Selection / Metrics share a
 compact segmented control at the right of the Plan summary heading, rather than
 occupying a separate row.
 
-The brand shows only OrbitOps, without a Mission Control subtitle. Task List
+The brand shows only OrbitOps, without a Mission Control subtitle. The live UTC
+replay clock sits below its wordmark without increasing the header height;
+clicking it opens the UTC jump picker under the masthead. The replay bar has no
+duplicate timestamp, and the clock remains visible in Map / Tasks / Results.
+Task List
 has no count badge. Satellite workload places `s` after every source duration,
 rather than in its section header.
 
@@ -83,15 +87,20 @@ schematic uses a shaded vector counterpart. Clicking, double-click focus,
 follow, playback and plan switching remain available. Asset provenance and
 reproducible build instructions are in `static/models/README.md`.
 
-The visual treatment follows an orbital command-room reference: a near-black
-workspace, restrained cyan accents, fine borders and softly rounded
-data cards surrounding the central globe. The map brackets and header rule
+The visual treatment refines the orbital command-room reference with layered
+graphite surfaces, soft blue ambient light, fine edge highlights and 8px panel
+corners. Header bands and alternating rows stay subdued; cyan is concentrated
+on active selections and source chart marks rather than filling every panel.
+Small status chips, a prominent selected-task ID and stronger numeric hierarchy
+separate essential information from secondary labels. This treatment is scoped
+to Task List, Comparison, Plan summary, Satellite workload and Timeline; it does
+not alter the globe's appearance, control styling or allocated space. The map brackets and header rule
 are decorative only and never capture pointer events. No decorative charts,
 invented telemetry or aggregate rankings are introduced. Inter typography,
 tabular numeric alignment, restrained status colours and keyboard focus remain
 consistent across the panels. Desktop keeps the existing column widths and map
 height. On phones the radar and algorithm legend sit side by side; tablet Tasks
-views place Comparison beside the scrolling list.
+views place the scrolling Task List on the left and Comparison on the right.
 
 NASA and Natural Earth imagery share a darker, reduced-saturation presentation
 with a subtle blue atmospheric rim. This affects appearance only, not geometry,
@@ -137,7 +146,14 @@ local solver. Legacy
 `?mode=local` URLs no longer expose other scenarios.
 
 The analysis dock contains only the Timeline: source observation intervals and
-the selected task's visibility windows, paginated across all 20 satellite lanes.
+the selected task's visibility windows across all 20 satellite lanes. The
+Visibility/Observation legend sits directly left of the satellite filter at
+the right of the Timeline heading, without a separate Observation · UTC title.
+The plot scrolls internally, with a sticky UTC scale and replay scrubber
+and no previous/next page controls. Playback, resize and plan changes preserve
+its scroll position; selecting a task or satellite reveals the corresponding
+lane without scrolling the page or map. The inspector retains its observation
+time field.
 
 Comparison uses a five-axis SVG radar for all four source algorithms. Each axis
 uses a 0–1 display scale with outward meaning better: TP / highest source TP,
@@ -147,8 +163,25 @@ zero completion. Runtime is source solver runtime, not viewer performance.
 Colours and line patterns distinguish the plans; the active series is drawn
 last and has a subtle fill. The footer shows its raw TP/TCR/TM/RT/BD values;
 axis and series tooltips preserve metric scales, exact source objectives and
-limited reference-consistency scope. The information button reveals the scale
-definitions on demand. No overall score or full-feasibility claim is inferred.
+limited reference-consistency scope. There is no separate information button
+or explanatory popover. No overall score or full-feasibility claim is inferred.
+
+The instrument panels share their own corner radii, header surfaces, inset
+control rails and active-state gradients, independent of the unchanged map
+shell. Restrained shadows separate the graphite instrument surfaces;
+readable Inter labels and tabular figures retain the fixed-height engineering
+layout. Charts use local SVG gradients and lightweight
+depth filters, not a new chart library or image assets. The radar has a decorative
+plinth, a faint decorative reference ring, transparent selected-plan surface
+and vertex halos; metric polygons stay untransformed on their original axes.
+Workload bars have slim recessed tracks, restrained horizontal shading, separated
+numeric/unit typography and an explicit selected-row marker, with unchanged value-to-length ratios, including
+zero-length bars for zero workload. Timeline bars share the same material and
+state colours, with a coordinated selected-satellite lane. These presentation
+effects do not alter the archive, source times, plans or evaluation metrics.
+Algorithm changes use a short opacity transition only; there is no continuous
+decorative animation, perspective distortion or minimum fake bar width. Reduced
+motion disables the transition, and keyboard focus remains visible.
 
 Task rows retain their DOM nodes across selection, resize and playback so the
 scroll position and keyboard focus do not jump. A task selected elsewhere is
@@ -161,9 +194,23 @@ scrubber, speed and play/reset controls. Source attribution, revision, hashes an
 verification scope remain in the reference archive and payload. Removing their panels
 does not change the archive, recomputed metrics or limited validation scope.
 Satellite workload bars support mouse and keyboard selection.
+The panel contains only the per-satellite bars, without active-satellite or
+total-observation-time footer readouts. Source workload totals remain unchanged.
+
+Previous/next 12-hour window, play/pause, reset, playback direction and speed
+form one centered control group below the map. A fine divider separates the speed
+selector from the transport buttons; active playback and reverse direction have
+distinct states. The replay bar is now 46px
+high, returning 24px to the map. UTC stays under the brand rather than in this group.
+The scrubber lives under Timeline's UTC tick labels and shares the exact plot
+coordinates, including the native thumb's half-width. The scale and scrubber stay
+fixed while satellite lanes scroll; refreshes keep the input node and keyboard
+focus intact. Tick labels, task intervals and playback position share the same
+12-hour window, including orbit-only periods before and after the scenario.
+Source tasks are clipped to that window, not duplicated into extended periods.
 
 Every satellite has an illustrative, geocentric circular field of view with a
-15° **full** cone angle (7.5° half-angle). Its tip follows the exact displayed
+30° **full** cone angle (15° half-angle). Its tip follows the exact displayed
 satellite position, including estimated orbit extensions; its axis points at
 Earth's centre. Cone surfaces use 3.5% opacity with subtle satellite-coloured
 edges. Earth intersections are computed against the WGS84 ellipsoid, not by
@@ -173,7 +220,7 @@ These are display assumptions, not source sensor attitudes, verified coverage,
 terrain visibility, access windows or task executions; the reference archive,
 schedules and scores remain unchanged.
 
-The existing Layers menu toggles `Sensor FOV · 15°`. 3D shows the translucent
+The existing Layers menu toggles `Sensor FOV · 30°`. 3D shows the translucent
 volume and ground boundary. The unfolded 2D/2.5D views and offline schematic
 show the ground boundary only, rather than a distorted 3D cone. This follows
 Cesium's [3D-only primitive model-matrix support](https://cesium.com/learn/cesiumjs/ref-doc/Primitive.html#modelMatrix).
@@ -187,7 +234,7 @@ The interface bundles the unmodified Inter variable font and its SIL Open Font
 License locally; no font CDN request is needed in either the API or Pages build.
 Labels use proportional type, numeric values use tabular figures, and only the
 UTC playback timestamp uses monospace. CSS density tokens are shared by the
-catalog, timeline, workload and comparison pagination, so larger readable type
+catalog and timeline rows, workload capacity and comparison layout, so larger readable type
 does not crop rows or alter any source data. Satellite names are human-readable
 throughout the interface, with full source IDs retained in titles and the payload.
 
@@ -228,8 +275,9 @@ generated extension samples are display-only.
 
 Catalog, map, timeline cursor and task details share half-open interval
 semantics: observing at start, completed at end. Planned completion metrics stay
-separate from the playback-completed count. Task search, status and satellite
-filters keep large scenes reachable without scrollbars.
+separate from the playback-completed count. Status and satellite filters,
+together with internal catalog and timeline scrolling, keep large scenes
+reachable without scrolling the page or map.
 
 The orbit display uses a one-period window centred on the current time: half a
 period of solid past trajectory and half a period of dashed future trajectory.
@@ -270,9 +318,9 @@ while replay is paused, without an extra render loop. Unfolded views use map nor
 morphs and degenerate north projections retain the last valid bearing. There is
 no numeric readout, and its N label stays upright. Clicking it preserves position
 and pitch while releasing tracking and resetting heading and roll.
-The native credit popup remains available through a compact information icon,
-without the default attribution text. Required provider credits and the Cesium
-logo are retained. Small/short
+The map has no attribution information icon or toggle. Only that control is
+hidden; native credit content, provider credit metadata and the Cesium logo are
+retained. Small/short
 map panes compact the toolbar and separate the task legend from the compass.
 
 The map toolbar's projection controls switch between the native Cesium 3D
@@ -451,7 +499,9 @@ framing, map expansion and retaining source geometry when changing reference
 plans. They also check extended positions, paths and follow in all three native
 projections, plus the built-in starfield. NASA
 imagery is deliberately blocked to check the Natural Earth fallback. The
-official Cesium CDN must be reachable:
+official Cesium CDN must be reachable. First requests use Chrome's network path
+and system proxy; completed official responses are cached byte-for-byte across
+tests, avoiding a separate API client's proxy configuration:
 
 ```bash
 ORBITOPS_GLOBE_TESTS=1 pytest tests/browser/test_globe.py

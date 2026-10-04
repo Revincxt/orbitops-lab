@@ -50,7 +50,7 @@ def test_pages_build_bundles_fonts_and_orbit_extension(tmp_path: Path) -> None:
     assert (output / "sensor-fov.js").read_bytes() == (
         pages.STATIC_DIR / "sensor-fov.js"
     ).read_bytes()
-    assert "./sensor-fov.js?v=0.11.0" in (output / "index.html").read_text()
+    assert "./sensor-fov.js?v=0.12.0" in (output / "index.html").read_text()
     assert (output / "models/earth-observer.glb").read_bytes() == (
         pages.STATIC_DIR / "models/earth-observer.glb"
     ).read_bytes()

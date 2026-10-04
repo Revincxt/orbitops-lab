@@ -65,16 +65,26 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
             "target-prev",
             "target-count",
             "target-search",
+            "comparison-info",
+            "comparison-scales",
+            "timeline-title",
+            "timeline-prev",
+            "timeline-next",
+            "timeline-range",
+            "energy-readout",
+            "storage-readout",
         ]
     )
     assert "Schedule the orbit" not in html
+    assert "ACTIVE SATELLITES" not in html
+    assert "OBSERVATION TIME" not in html
     assert 'src="./deployment-config.js?v=0.2.0"' in html
-    assert 'src="./app.js?v=0.15.1"' in html
+    assert 'src="./app.js?v=0.18.0"' in html
     assert 'src="./replay.js?v=0.9.0"' in html
     assert 'src="./orbit-model.js?v=0.9.0"' in html
-    assert 'src="./sensor-fov.js?v=0.11.0"' in html
-    assert 'src="./mission.js?v=0.15.1"' in html
-    assert 'href="./app.css?v=0.15.1"' in html
+    assert 'src="./sensor-fov.js?v=0.12.0"' in html
+    assert 'src="./mission.js?v=0.18.0"' in html
+    assert 'href="./app.css?v=0.18.0"' in html
     assert 'href="./favicon.svg?v=0.2.0"' in html
     assert 'id="sun-direction"' not in html
     assert 'class="app-title"' not in html
@@ -92,6 +102,13 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     assert 'class="orbit-legend"' not in html
     assert 'aria-label="Map actions"' in html
     assert html.count('class="map-action') == 5
+    assert html.index('aria-labelledby="targets-title"') < html.index(
+        'aria-labelledby="comparison-title"'
+    )
+    assert html.count("command-card console-panel") == 5
+    assert 'class="globe-card command-card"' in html
+    assert "Sensor FOV · 30°" in html
+    assert "full cone angle 30°, half-angle 15°" in html
 
 
 def test_compact_panel_headers_remove_search_markup_and_dependencies() -> None:
@@ -154,6 +171,93 @@ def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     assert "markConfigurationChanged" not in script
 
 
+def test_information_controls_are_removed_without_deleting_map_credit_content() -> None:
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    stylesheet = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
+    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    for removed in ["comparison-info", "comparison-scales", "attribution-icon"]:
+        assert removed not in html + stylesheet + script
+    assert "setComparisonScalesOpen" not in script
+    assert "styleMapAttribution" not in script
+    assert "hideMapCreditToggle();" in script
+    assert "link.hidden = true" in script
+    assert "link.tabIndex = -1" in script
+    assert "cesium-credit-logoContainer img" in stylesheet
+    assert "credit: new Cesium.Credit" in script
+
+
+def test_live_utc_clock_and_picker_are_in_the_brand_header() -> None:
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    header = html.split('<header class="masthead">', 1)[1].split("</header>", 1)[0]
+
+    assert 'class="brand-block"' in header
+    for control in ["replay-time-button", "replay-time", "replay-time-picker", "replay-utc-input"]:
+        assert html.count(f'id="{control}"') == 1
+        assert f'id="{control}"' in header
+    assert header.index('class="brand"') < header.index('id="replay-time-button"')
+    assert 'aria-controls="replay-time-picker"' in header
+
+
+def test_playback_controls_are_one_accessible_group() -> None:
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    assert 'class="replay-controls" role="group" aria-label="Playback controls"' in html
+    controls = html.split('class="replay-controls"', 1)[1].split("</div>", 1)[0]
+    for control in [
+        "replay-window-prev",
+        "replay-play",
+        "replay-reset",
+        "replay-direction",
+        "replay-speed",
+        "replay-window-next",
+    ]:
+        assert f'id="{control}"' in controls
+    assert 'id="replay-time"' not in controls
+
+
+def test_timeline_uses_scroll_instead_of_pagination_and_retains_task_observation_time() -> None:
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    mission = (STATIC_DIR / "mission.js").read_text(encoding="utf-8")
+    header = html.split('class="dock-header"', 1)[1].split("<article", 1)[0]
+
+    assert 'id="schedule-title"' in header and 'id="satellite-filter"' in header
+    assert (
+        header.index("Visibility")
+        < header.index("Observation")
+        < header.index('id="satellite-filter"')
+    )
+    assert 'id="timeline-title"' not in html
+    assert "pageItems" not in script + mission
+    assert "bindPager" not in script
+    assert "state.pages" not in script + mission
+    assert "satellites.forEach" in mission
+    assert "root.style.height" in mission
+    assert "elements.timeline.scrollTop = scrollTop" in mission
+    assert "revealTimelineSatellite" in script + mission
+    assert 'id="selected-window"' in html
+    assert ">Observation · UTC<" in html
+
+
+def test_replay_scrubber_is_inside_the_timeline_scale_not_the_map_footer() -> None:
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    footer = html.split('class="replay-bar"', 1)[1].split("</article>", 1)[0]
+    timeline = html.split('class="timeline-scale"', 1)[1].split("</article>", 1)[0]
+    mission = (STATIC_DIR / "mission.js").read_text(encoding="utf-8")
+    for control in ["replay-scrub"]:
+        assert html.count(f'id="{control}"') == 1
+        assert f'id="{control}"' in timeline
+        assert f'id="{control}"' not in footer
+    for control in ["replay-window-prev", "replay-window-next"]:
+        assert html.count(f'id="{control}"') == 1
+        assert f'id="{control}"' in footer
+        assert f'id="{control}"' not in timeline
+    assert 'id="timeline-axis"' in timeline
+    assert '"--timeline-label-width"' in mission
+    assert "previous.replaceWith(root)" in mission
+    assert "windowStart + duration * tick / 4" in mission
+
+
 def test_satellite_camera_supports_double_click_focus_without_a_focus_button() -> None:
     mission = (STATIC_DIR / "mission.js").read_text(encoding="utf-8")
     script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
@@ -185,10 +289,12 @@ def test_web_lab_styles_use_a_fixed_viewport_engineering_workspace() -> None:
     assert ".command-card::after" in stylesheet
     assert "pointer-events: none" in stylesheet
     assert ".header-rule" in stylesheet
-    assert "transform: skew(-18deg)" in stylesheet
+    assert "--panel-header:" in stylesheet
+    assert "--panel-radius:" in stylesheet
+    assert "--control-active:" in stylesheet
     assert "height: 100dvh" in stylesheet
     assert "overscroll-behavior: none" in stylesheet
-    assert stylesheet.count("overflow-y: auto") == 1
+    assert stylesheet.count("overflow-y: auto") == 2
     assert "overscroll-behavior: contain" in stylesheet
     assert "scrollbar-width: thin" in stylesheet
     assert "overflow-x: auto" not in stylesheet
@@ -223,6 +329,28 @@ def test_web_typography_is_self_hosted_and_density_has_one_source_of_truth() -> 
         assert f"--{token}:" in stylesheet
         assert f'layoutSize("{token}")' in script + mission
     assert "height: var(--target-row-height)" in stylesheet
+
+
+def test_chart_depth_is_native_svg_and_does_not_replace_metric_geometry() -> None:
+    mission = (STATIC_DIR / "mission.js").read_text(encoding="utf-8")
+    stylesheet = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
+    for token in [
+        "panel-radius",
+        "control-radius",
+        "panel-header",
+        "control-surface",
+        "control-active",
+    ]:
+        assert f"--{token}:" in stylesheet
+    assert "appendChartGradient" in mission
+    assert "appendChartDepth" in mission
+    assert 'svgElement("feDropShadow"' in mission
+    assert 'class: "radar-plinth", "aria-hidden": "true"' in mission
+    assert '"--series-fill"' in mission
+    assert "const filledWidth = row.load / maximum * barWidth" in mission
+    assert "width: filledWidth" in mission
+    assert "radius * metric.score" in mission
+    assert "perspective(" not in stylesheet
 
 
 def test_github_pages_build_is_reproducible_and_uses_official_actions() -> None:

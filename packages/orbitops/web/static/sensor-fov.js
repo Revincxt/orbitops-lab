@@ -3,7 +3,7 @@
 // Illustrative circular, geocentric field of view. Not source sensor attitude,
 // access windows, terrain visibility or task-execution evidence.
 (() => {
-  const ANGLE_DEG = 15;
+  const ANGLE_DEG = 30;
   const HALF_ANGLE = ANGLE_DEG * Math.PI / 360;
   const A = 6378137, B = A * (1 - 1 / 298.257223563);
   const radii = [A, A, B];

@@ -17,9 +17,9 @@ const distance = (a, b) => Math.hypot(...a.map((x, i) => x - b[i]));
 const unit = v => v.map(x => x / Math.hypot(...v));
 const a = 6378137, b = a * (1 - 1 / 298.257223563);
 
-test("15 degrees is the full cone angle, not its half-angle", () => {
-  assert.equal(SensorFov.ANGLE_DEG, 15);
-  assert.equal(SensorFov.HALF_ANGLE, 7.5 * Math.PI / 180);
+test("30 degrees is the full cone angle, not its half-angle", () => {
+  assert.equal(SensorFov.ANGLE_DEG, 30);
+  assert.equal(SensorFov.HALF_ANGLE, 15 * Math.PI / 180);
 });
 
 test("all twenty cones point at Earth and intersect WGS84 at the same half-angle", () => {

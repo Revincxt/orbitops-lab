@@ -8,7 +8,6 @@ const state = {
   currentPayload: null,
   selectedTaskId: null,
   busy: false,
-  pages: {},
   layers: { targets: true, track: true, rays: true, fov: true, illumination: true, labels: false, satelliteLabels: true },
   cameraHome: null,
   targetRowsKey: null,
@@ -60,27 +59,6 @@ function textField(id, value) {
 
 function layoutSize(name) {
   return parseFloat(getComputedStyle(elements.shell).getPropertyValue(`--${name}`));
-}
-
-function pageItems(name, items, size) {
-  const pageSize = Math.max(1, size);
-  const lastPage = Math.max(0, Math.ceil(items.length / pageSize) - 1);
-  const page = Math.min(lastPage, Math.max(0, state.pages[name] || 0));
-  state.pages[name] = page;
-  const start = page * pageSize;
-  textField(`${name}-range`, items.length ? `${start + 1}–${Math.min(start + pageSize, items.length)} / ${items.length}` : "0 items");
-  document.getElementById(`${name}-prev`).disabled = page === 0;
-  document.getElementById(`${name}-next`).disabled = page === lastPage;
-  return items.slice(start, start + pageSize);
-}
-
-function bindPager(name, render) {
-  for (const [direction, delta] of [["prev", -1], ["next", 1]]) {
-    document.getElementById(`${name}-${direction}`).addEventListener("click", () => {
-      state.pages[name] = (state.pages[name] || 0) + delta;
-      render();
-    });
-  }
 }
 
 function setWorkspaceView(view) {
@@ -240,19 +218,13 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
       document.getElementById("target-filter").value = "all";
       document.getElementById("satellite-filter").value = "all";
     }
-    const filtered = filteredTasks(payload.scenario);
-    const index = filtered.findIndex((candidate) => candidate.task_id === taskId);
-    const capacity = Math.max(1, Math.floor((elements.timeline.clientHeight - 33) / layoutSize("timeline-row-height")));
-    if (payload.mode === "reference" && assignment) {
-      const selectedSatellite = document.getElementById("satellite-filter").value;
-      const satellites = payload.scenario.satellites.filter((satellite) => selectedSatellite === "all" || selectedSatellite === satellite.satellite_id);
-      const lane = satellites.findIndex((satellite) => satellite.satellite_id === assignment.satellite_id);
-      if (lane >= 0) state.pages.timeline = Math.floor(lane / capacity);
-    } else if (index >= 0) state.pages.timeline = Math.floor(index / capacity);
   }
   renderTargetCatalog();
   if (reveal) revealSelectedTask();
-  if (!document.getElementById("pane-timeline").hidden) renderGantt(payload.scenario, payload.result);
+  if (!document.getElementById("pane-timeline").hidden) {
+    renderGantt(payload.scenario, payload.result);
+    if (reveal && assignment) revealTimelineSatellite(assignment.satellite_id);
+  }
   if (payload.mode === "reference") renderWorkloads();
   updateReplayVisuals();
 }
@@ -264,6 +236,17 @@ function revealSelectedTask() {
   const box = row.getBoundingClientRect();
   if (box.top < bounds.top) elements.targetList.scrollTop += box.top - bounds.top;
   else if (box.bottom > bounds.bottom) elements.targetList.scrollTop += box.bottom - bounds.bottom;
+}
+
+function revealTimelineSatellite(satelliteId) {
+  const lane = elements.timeline.querySelector(`[data-satellite-id="${CSS.escape(satelliteId)}"]`);
+  if (!lane) return;
+  const bounds = elements.timeline.getBoundingClientRect();
+  const scaleHeight = elements.timeline.querySelector(".timeline-scale")?.getBoundingClientRect().height || 0;
+  const top = bounds.top + scaleHeight;
+  const row = lane.getBoundingClientRect();
+  if (row.top < top) elements.timeline.scrollTop += row.top - top;
+  else if (row.bottom > bounds.bottom) elements.timeline.scrollTop += row.bottom - bounds.bottom;
 }
 
 function refreshPanels() {
@@ -503,24 +486,12 @@ function nasaBlueMarbleLayer(Cesium) {
   return commandImageryLayer(Cesium, provider);
 }
 
-function styleMapAttribution() {
-  // Keep Cesium's original credit popup and required provider attribution.
+function hideMapCreditToggle() {
+  // Hide only the information control, not the logo or native credit content.
   const link = elements.globe.querySelector(".cesium-credit-expand-link");
   if (!link) return;
-  const icon = svgElement("svg", {viewBox: "0 0 24 24", "aria-hidden": "true"});
-  icon.append(svgElement("circle", {cx: 12, cy: 12, r: 8}), svgElement("path", {d: "M12 11v6m0-10v.5"}));
-  link.replaceChildren(icon);
-  link.classList.add("attribution-icon");
-  link.setAttribute("role", "button");
-  link.setAttribute("aria-label", "Map credits");
-  link.title = "Map credits";
-  link.tabIndex = 0;
-  link.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      link.click();
-    }
-  });
+  link.hidden = true;
+  link.tabIndex = -1;
 }
 
 function renderMissionGlobe(scenario, result) {
@@ -556,7 +527,7 @@ function renderMissionGlobe(scenario, result) {
         requestRenderMode: true,
         maximumRenderTimeChange: Infinity,
       });
-      styleMapAttribution();
+      hideMapCreditToggle();
       state.globe.imageryLayers.add(primaryImagery);
       state.globe.imageryLayers.add(geographicGridLayer(Cesium));
       bindGlobePicking(state.globe, Cesium);
@@ -626,11 +597,10 @@ function renderResult(payload) {
   state.assignments = new Map((result.validation.simulation?.tasks || []).map((task) => [task.task_id, task]));
   configureReplay(payload);
   if (previousScenarioId !== scenario.scenario_id) {
-    state.pages = {};
+    elements.timeline.scrollTop = 0;
     state.selectedTaskId = result.validation.simulation?.tasks[0]?.task_id || scenario.tasks[0]?.task_id;
   }
   renderEvaluation(payload);
-  configureModeDetails(payload);
   renderMissionGlobe(scenario, result);
   selectTarget(state.selectedTaskId, false);
   refreshPanels();
@@ -678,15 +648,22 @@ async function initialize() {
 }
 
 elements.solver.addEventListener("change", loadReferencePlan);
-const comparisonInfo = document.getElementById("comparison-info");
-const comparisonScales = document.getElementById("comparison-scales");
-function setComparisonScalesOpen(open) {
-  comparisonInfo.setAttribute("aria-expanded", String(open));
-  comparisonScales.hidden = !open;
-}
-comparisonInfo.addEventListener("click", () => setComparisonScalesOpen(comparisonScales.hidden));
-document.addEventListener("pointerdown", (event) => {
-  if (!event.target.closest(".comparison-card")) setComparisonScalesOpen(false);
+elements.timeline.addEventListener("keydown", (event) => {
+  if (event.target !== elements.timeline || event.altKey || event.ctrlKey || event.metaKey) return;
+  const node = elements.timeline;
+  const scaleHeight = node.querySelector(".timeline-scale")?.clientHeight || 0;
+  const pageHeight = Math.max(layoutSize("timeline-row-height"), node.clientHeight - scaleHeight);
+  const offsets = {
+    Home: -node.scrollTop,
+    End: node.scrollHeight - node.clientHeight - node.scrollTop,
+    PageUp: -pageHeight,
+    PageDown: pageHeight,
+    ArrowUp: -layoutSize("timeline-row-height"),
+    ArrowDown: layoutSize("timeline-row-height"),
+  };
+  if (!(event.key in offsets)) return;
+  event.preventDefault();
+  node.scrollTop += offsets[event.key];
 });
 document.querySelectorAll(".workspace-nav button").forEach((button) => {
   button.addEventListener("click", () => setWorkspaceView(button.dataset.workspaceView));
@@ -721,14 +698,7 @@ document.getElementById("reset-view").addEventListener("click", () => {
 });
 bindTabs();
 bindMissionControls();
-bindPager("timeline", refreshPanels);
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !comparisonScales.hidden) {
-    event.preventDefault();
-    setComparisonScalesOpen(false);
-    comparisonInfo.focus();
-    return;
-  }
   if (event.key === "Escape" && !layerOptions.hidden) {
     event.preventDefault();
     setLayersOpen(false);
