@@ -6,14 +6,20 @@ STATIC_DIR = Path(__file__).parents[2] / "packages" / "orbitops" / "web" / "stat
 def test_web_lab_has_accessible_product_specific_structure() -> None:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
-    assert 'id="solve-form"' in html
+    assert 'class="algorithm-control"' in html
+    assert 'aria-label="Optimization Algorithm"' in html
+    assert ">Optimization Algorithm<" not in html
+    assert 'for="solver-select"' not in html
+    assert ">Task List<" in html
     assert 'aria-live="polite"' in html
     assert 'id="timeline-chart"' in html
     assert 'id="resource-chart"' in html
     assert 'id="mission-globe"' in html
     assert 'aria-label="Map projection"' in html
     assert all(f'id="{view}"' in html for view in ["view-3d", "view-2_5d", "view-2d"])
-    assert 'id="comparison-body"' in html
+    assert 'id="comparison-chart"' in html
+    assert 'id="comparison-legend"' in html
+    assert 'id="comparison-values"' in html
     assert "Cesium.js" in html
     assert 'id="toggle-layers"' in html
     assert 'aria-controls="layer-options"' in html
@@ -45,17 +51,44 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
             "metric-slew",
             "metric-feasible",
             "camera-focus",
+            "export-run",
+            "i-export",
+            "orbit-span",
+            "solve-form",
+            "run-button",
+            "run-label",
+            "pending-state",
+            "tab-comparison",
+            "pane-comparison",
+            "comparison-body",
+            "target-next",
+            "target-prev",
         ]
     )
     assert "Schedule the orbit" not in html
     assert 'src="./deployment-config.js?v=0.2.0"' in html
-    assert 'src="./app.js?v=0.11.0"' in html
+    assert 'src="./app.js?v=0.14.0"' in html
     assert 'src="./replay.js?v=0.9.0"' in html
     assert 'src="./orbit-model.js?v=0.9.0"' in html
     assert 'src="./sensor-fov.js?v=0.11.0"' in html
-    assert 'src="./mission.js?v=0.11.0"' in html
-    assert 'href="./app.css?v=0.11.0"' in html
+    assert 'src="./mission.js?v=0.14.0"' in html
+    assert 'href="./app.css?v=0.14.1"' in html
     assert 'href="./favicon.svg?v=0.2.0"' in html
+    assert 'id="sun-direction"' not in html
+    assert 'class="app-title"' not in html
+    assert 'class="header-divider"' not in html
+    assert ">Mission workspace<" not in html
+    assert 'class="visually-hidden">OrbitOps Mission Control' in html
+    assert 'class="orbit-hud-footer"' not in html
+    assert 'aria-label="Satellite details"' in html
+    assert 'id="close-satellite-details"' in html
+    assert 'href="#i-overview"' in html
+    assert 'href="#i-follow"' in html
+    assert ">000°<" not in html
+    assert 'id="camera-heading"' not in html
+    assert 'class="orbit-legend"' not in html
+    assert 'aria-label="Map actions"' in html
+    assert html.count('class="map-action') == 5
 
 
 def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
@@ -72,6 +105,8 @@ def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     assert "Cesium.MapMode2D.ROTATE" in script
     assert "state.globe.scene.skyBox.show = true" in script
     assert "state.globe.scene.skyBox.show = false" not in script
+    assert "state.globe.scene.sun.show = true" in script
+    assert "state.globe.scene.globe.enableLighting = true" in script
     assert "BlueMarble_ShadedRelief/default" in script
     assert "NaturalEarthII" in script
     assert "new Cesium.GridImageryProvider" in script
@@ -80,6 +115,9 @@ def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     assert "GoogleMapsCompatible_Level8" in script
     assert "visibility_windows" in script
     assert "innerHTML" not in script
+    assert "elements.export" not in script
+    assert "createObjectURL" not in script
+    assert "link.download" not in script
     assert script.count("https://") == 1
     assert "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/" in script
     assert 'fetch("http' not in script
@@ -93,6 +131,8 @@ def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     assert "q-learning" not in script
     assert "setLayersOpen" in script
     assert "referencePayload" in script
+    assert 'elements.solver.addEventListener("change", loadReferencePlan)' in script
+    assert "markConfigurationChanged" not in script
 
 
 def test_satellite_camera_supports_double_click_focus_without_a_focus_button() -> None:
@@ -115,7 +155,9 @@ def test_web_lab_styles_use_a_fixed_viewport_engineering_workspace() -> None:
     assert ".globe-card" in stylesheet
     assert ".window-bar" in stylesheet
     assert ".workload-track" in stylesheet
-    assert ".comparison-table" in stylesheet
+    assert ".radar-area" in stylesheet
+    assert ".radar-legend" in stylesheet
+    assert ".comparison-table" not in stylesheet
     assert ".audit-grid" not in stylesheet
     assert ".metric-grid" not in stylesheet
     assert ".metric-details" in stylesheet
@@ -127,7 +169,9 @@ def test_web_lab_styles_use_a_fixed_viewport_engineering_workspace() -> None:
     assert "transform: skew(-18deg)" in stylesheet
     assert "height: 100dvh" in stylesheet
     assert "overscroll-behavior: none" in stylesheet
-    assert "overflow-y: auto" not in stylesheet
+    assert stylesheet.count("overflow-y: auto") == 1
+    assert "overscroll-behavior: contain" in stylesheet
+    assert "scrollbar-width: thin" in stylesheet
     assert "overflow-x: auto" not in stylesheet
     assert "min-width: 0" in stylesheet
     assert "@media (max-width: 640px)" in stylesheet
@@ -154,14 +198,12 @@ def test_web_typography_is_self_hosted_and_density_has_one_source_of_truth() -> 
     assert "font: '500 12px \"Inter\", sans-serif'" in mission
     assert 'satellite_id.split("_")[0]' not in mission
     for token in [
-        "target-row-height",
         "timeline-row-height",
         "workload-row-height",
-        "comparison-header-height",
-        "comparison-row-height",
     ]:
         assert f"--{token}:" in stylesheet
         assert f'layoutSize("{token}")' in script + mission
+    assert "height: var(--target-row-height)" in stylesheet
 
 
 def test_github_pages_build_is_reproducible_and_uses_official_actions() -> None:

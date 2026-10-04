@@ -7,7 +7,6 @@ Remote geometry dependencies are blocked to exercise the offline fallback.
 
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -86,7 +85,7 @@ def assert_single_screen(page: Any) -> None:
     assert dimensions["scrollWidth"] == dimensions["width"], dimensions
     assert dimensions["scrollHeight"] == dimensions["height"], dimensions
     assert dimensions["x"] == dimensions["y"] == 0, dimensions
-    assert dimensions["scrollingPanels"] == [], dimensions
+    assert set(dimensions["scrollingPanels"]) <= {"target-list"}, dimensions
 
 
 @pytest.mark.parametrize(
@@ -111,22 +110,22 @@ def test_analysis_views_fit_without_scrolling(
     page.set_viewport_size({"width": width, "height": height})
     ready(page, lab_url)
     assert page.locator("#mission-globe").get_attribute("data-engine") == "fallback"
-    for name in ["timeline", "comparison"]:
-        page.locator(f"#tab-{name}").click()
-        page.wait_for_timeout(80)
-        assert page.locator(f"#pane-{name}").is_visible()
-        assert_single_screen(page)
+    assert page.locator("#pane-timeline").is_visible()
+    assert_single_screen(page)
     page.mouse.move(width // 2, height - 80)
     page.mouse.wheel(0, 800)
     assert_single_screen(page)
     if width <= 1000:
         page.locator("#workspace-tasks").click()
     page.wait_for_timeout(80)
-    assert page.locator("#run-button").is_visible()
+    assert page.get_by_label("Optimization Algorithm", exact=True).is_visible()
+    assert page.locator("#comparison-chart").is_visible()
     assert page.evaluate("""() => {
-      const container = document.getElementById('target-list').getBoundingClientRect();
-      return [...document.querySelectorAll('.target-row')].every(row =>
-        row.getBoundingClientRect().bottom <= container.bottom + 1);
+      const container = document.getElementById('target-list');
+      const radar = document.getElementById('comparison-chart');
+      const header = document.querySelector('.masthead');
+      return container.clientHeight >= 48 && radar.clientHeight >= 120
+        && header.scrollWidth <= header.clientWidth + 1;
     }""")
     if width <= 1000:
         page.locator("#workspace-summary").click()
@@ -136,25 +135,26 @@ def test_analysis_views_fit_without_scrolling(
         assert not page.locator("#inspector").is_visible()
 
 
-def collect_pages(page: Any, name: str, selector: str) -> set[str]:
-    seen: set[str] = set()
-    # Readable rows can require more pages on compact screens. Every source task
-    # must remain reachable even when only one fits, without an arbitrary cap.
-    for _ in range(500):
-        seen.update(
-            page.locator(selector).evaluate_all("nodes => nodes.map(node => node.dataset.taskId)")
-        )
-        if page.locator(f"#{name}-next").is_disabled():
-            return seen
-        page.locator(f"#{name}-next").click()
-    raise AssertionError("pagination did not terminate")
-
-
 def reference_ready(page: Any, url: str) -> None:
     page.goto(url, wait_until="domcontentloaded")
     page.wait_for_function(
         "state.currentPayload?.scenario.scenario_id === 'eos-s1-20-500' && !state.busy"
     )
+
+
+def test_decluttered_header_and_static_compass_work_without_the_globe_engine(
+    page: Any, lab_url: str
+) -> None:
+    reference_ready(page, lab_url)
+    assert "Mission workspace" not in page.locator(".masthead").inner_text()
+    assert page.get_by_role("heading", name="OrbitOps Mission Control", exact=True).count() == 1
+    assert page.locator(".app-title, .header-divider").count() == 0
+    assert page.locator("#north-view").is_disabled()
+    assert page.locator("#camera-heading").count() == 0
+    assert page.locator("#north-view").get_attribute("title") == "Face north"
+    assert page.locator(".compass-dial").is_visible()
+    assert page.get_by_text("Data attribution", exact=True).count() == 0
+    assert_single_screen(page)
 
 
 @pytest.mark.parametrize(
@@ -168,9 +168,7 @@ def test_reference_views_keep_all_data_reachable_without_scrolling(
     reference_ready(page, lab_url)
     assert page.locator(".map-satellite").count() == 20
     assert page.locator(".map-marker").count() == 500
-    for name in ["timeline", "comparison"]:
-        page.locator(f"#tab-{name}").click()
-        assert_single_screen(page)
+    assert_single_screen(page)
     if width <= 1000:
         page.locator("#workspace-tasks").click()
     page.locator("#target-search").fill("M500")
@@ -320,18 +318,17 @@ def test_reference_all_twenty_satellite_lanes_and_plan_switching(page: Any, lab_
     assert len(satellites) == 20
     page.locator("#satellite-filter").select_option("KENT_RIDGE_1_41167")
     assert page.locator(".satellite-lane").count() == 1
-    page.locator("#tab-comparison").click()
-    page.locator("#comparison-body button", has_text="SA · profit").click()
+    page.locator("#comparison-legend button", has_text="SA · profit").click()
     assert page.evaluate("state.currentPayload.evaluation.TP") == 2833
     assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 493
     assert page.evaluate("state.currentPayload.result.validation.is_feasible") is None
-    assert "Objectives differ" in page.locator("#comparison-context").inner_text()
+    assert "Different objectives" in page.locator("#comparison-scales").text_content()
     assert page.evaluate("state.currentPayload.result.validation.is_feasible") is None
-    with page.expect_download() as event:
-        page.locator("#export-run").click()
-    exported = json.loads(Path(event.value.path()).read_text())
-    assert exported["provenance"]["revision"] == "ee282656e8b2f6fd0d3cf84677b40966e2780ef3"
-    assert exported["result"]["validation"]["is_feasible"] is None
+    assert page.locator("#export-run, a[download]").count() == 0
+    assert (
+        page.evaluate("state.currentPayload.provenance.revision")
+        == "ee282656e8b2f6fd0d3cf84677b40966e2780ef3"
+    )
     assert_single_screen(page)
 
 
@@ -345,13 +342,137 @@ def test_plan_reload_resets_playback_but_never_changes_scenario(page: Any, lab_u
     page.wait_for_timeout(250)
     assert page.locator("#replay-scrub").input_value() == paused
     page.locator("#solver-select").select_option("eos-ppo-profit")
-    assert page.locator("#pending-state").is_visible()
-    page.keyboard.press("Control+Enter")
     assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 492
     assert page.locator("#replay-scrub").input_value() == "0"
     assert page.locator(".map-satellite").count() == 20
     assert page.locator(".map-marker").count() == 500
-    assert not page.locator("#pending-state").is_visible()
+    assert page.locator("#pending-state, #run-button").count() == 0
+    assert_single_screen(page)
+
+
+def test_radar_uses_source_values_correct_directions_and_distinct_csp_safe_colours(
+    page: Any, lab_url: str
+) -> None:
+    reference_ready(page, lab_url)
+    original = page.evaluate("JSON.stringify(state.referenceData)")
+    assert page.locator("#comparison-chart .radar-series").count() == 4
+    assert page.locator("#comparison-chart .radar-point").count() == 20
+    assert page.locator("#comparison-chart .radar-axis").evaluate_all(
+        "nodes => nodes.map(n => n.firstChild.textContent)"
+    ) == ["TP ↑", "TCR ↑", "TM ↓", "RT ↓", "BD ↑"]
+    series = page.locator(".radar-series").evaluate_all("""nodes => nodes.map(n => ({
+      id:n.dataset.planId, colour:getComputedStyle(n).color,
+      stroke:getComputedStyle(n.querySelector('polygon')).stroke,
+      dashes:n.querySelector('polygon').getAttribute('stroke-dasharray'),
+      points:[...n.querySelectorAll('circle')].map(p => ({key:p.dataset.metric,
+        raw:Number(p.dataset.raw), score:Number(p.dataset.score)}))
+    }))""")
+    assert len({item["colour"] for item in series}) == 4
+    assert len({item["dashes"] for item in series}) == 4
+    for item in series:
+        assert item["colour"] == item["stroke"], item
+        expected = page.evaluate(
+            "id => {const p = state.referenceData.plans.find(p => p.plan_id === id);"
+            "return {...p.recomputed_metrics, RT:p.source_metrics.RT};}",
+            item["id"],
+        )
+        for point in item["points"]:
+            assert point["raw"] == expected[point["key"]]
+            assert 0 <= point["score"] <= 1
+        tm = next(point for point in item["points"] if point["key"] == "TM")
+        assert tm["score"] == pytest.approx(1 - expected["TM"])
+    assert page.locator("#comparison-values dd").all_text_contents() == [
+        "2816",
+        "97.6%",
+        "0.307",
+        "87.4s",
+        "0.674",
+    ]
+    page.locator("#comparison-info").click()
+    assert page.locator("#comparison-scales").is_visible()
+    assert "no overall ranking" in page.locator("#comparison-scales").inner_text()
+    page.keyboard.press("Escape")
+    assert page.locator("#comparison-scales").is_hidden()
+    assert page.locator("#comparison-info").evaluate("n => n === document.activeElement")
+    assert page.evaluate("JSON.stringify(state.referenceData)") == original
+
+
+@pytest.mark.parametrize(("width", "height"), [(1440, 900), (800, 600), (375, 667)])
+def test_header_algorithm_switch_is_immediate_and_keeps_the_workspace_view(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    requests: list[str] = []
+    page.on(
+        "request", lambda request: requests.append(request.url) if "/api/" in request.url else None
+    )
+    reference_ready(page, lab_url)
+    select = page.get_by_label("Optimization Algorithm", exact=True)
+    assert select.evaluate("n => Boolean(n.closest('.header-actions'))")
+    assert page.get_by_text("Optimization Algorithm", exact=True).count() == 0
+    assert page.locator(".algorithm-control label").count() == 0
+    assert select.evaluate("""n => {
+      const select = n.getBoundingClientRect();
+      const header = document.querySelector('.masthead').getBoundingClientRect();
+      return Math.abs((select.top + select.bottom) / 2 - (header.top + header.bottom) / 2) < 1;
+    }""")
+    assert page.locator("#run-button, #solve-form, #pending-state, #tab-comparison").count() == 0
+    if width <= 1000:
+        page.locator("#workspace-tasks").click()
+    assert page.get_by_role("heading", name="Task List", exact=True).count() == 1
+    before = page.evaluate("elements.globe.getBoundingClientRect().toJSON()")
+    original = page.evaluate("JSON.stringify(state.referenceData)")
+    for plan in ["eos-sa-profit", "eos-greedy-profit", "eos-ppo-profit", "eos-sa-balanced"]:
+        select.select_option(plan)
+        assert page.evaluate("state.currentPayload.reference_plan.plan_id") == plan
+        assert (
+            page.locator("#comparison-legend button[aria-pressed=true]").get_attribute(
+                "data-plan-id"
+            )
+            == plan
+        )
+        assert page.locator(".radar-series").last.get_attribute("data-plan-id") == plan
+        assert page.evaluate("state.replay.time") == 0
+        assert page.locator("#comparison-chart").is_visible()
+        assert page.evaluate("elements.globe.getBoundingClientRect().toJSON()") == before
+    assert page.evaluate("JSON.stringify(state.referenceData)") == original
+    assert requests == [lab_url + "/api/reference/data"]
+    if width <= 1000:
+        assert page.locator(".shell").get_attribute("data-workspace-view") == "tasks"
+    assert_single_screen(page)
+
+
+def test_task_list_scroll_and_focus_survive_replay_resize_and_plan_switch(
+    page: Any, lab_url: str
+) -> None:
+    reference_ready(page, lab_url)
+    assert page.locator(".target-row").count() == 500
+    last = page.locator('.target-row[data-task-id="M500"]')
+    last.focus()
+    last.press("Enter")
+    assert page.locator("#selected-id").inner_text() == "M500"
+    top = page.locator("#target-list").evaluate("n => n.scrollTop")
+    assert top > 20000
+    page.evaluate("""() => {window._taskRow = document.activeElement;
+      setReplayTime(43200, true); refreshPanels();} """)
+    assert last.evaluate("n => n === window._taskRow && n === document.activeElement")
+    assert page.locator("#target-list").evaluate("n => n.scrollTop") == top
+    page.set_viewport_size({"width": 1440, "height": 860})
+    page.wait_for_timeout(100)
+    assert last.evaluate("n => n === window._taskRow && n === document.activeElement")
+    page.locator("#solver-select").select_option("eos-ppo-profit")
+    assert page.locator(".target-row").count() == 500
+    assert page.locator("#target-list").evaluate("n => n.scrollTop") > 20000
+    page.locator("#target-search").fill("DOES-NOT-EXIST")
+    assert page.locator("#target-list").inner_text() == "No matching tasks"
+    assert page.locator("#target-count").inner_text() == "0/500"
+    page.evaluate("selectTarget('M500', true, false)")
+    assert page.locator("#target-search").input_value() == ""
+    assert page.locator(".target-row").count() == 500
+    assert last.get_attribute("aria-pressed") == "true"
+    assert last.evaluate("""n => {const r = n.getBoundingClientRect();
+      const b = elements.targetList.getBoundingClientRect();
+      return r.top >= b.top - 1 && r.bottom <= b.bottom + 1;}""")
     assert_single_screen(page)
 
 
@@ -396,7 +517,6 @@ def test_static_reference_mode_uses_the_same_archive_without_api_calls(
     assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 488
     assert page.evaluate("state.currentPayload.provenance.revision") == REVISION
     page.locator("#solver-select").select_option("eos-ppo-profit")
-    page.locator("#run-button").click()
     assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 492
     assert not requests
     assert_single_screen(page)
@@ -446,7 +566,15 @@ def test_map_expansion_and_satellite_keyboard_selection_preserve_single_screen(
 ) -> None:
     page.set_viewport_size({"width": width, "height": height})
     reference_ready(page, lab_url)
-    assert page.locator("#orbit-hud").is_visible()
+    assert page.locator("#orbit-hud").is_hidden()
+    assert page.locator(".globe-frame #orbit-hud").count() == 1
+    assert page.locator(".viewport-tools .orbit-camera").count() == 1
+    assert page.evaluate("""() => {
+      const frame = document.querySelector('.globe-frame').getBoundingClientRect();
+      const controls = document.querySelector('.orbit-camera').getBoundingClientRect();
+      const playback = document.querySelector('.replay-bar').getBoundingClientRect();
+      return controls.bottom <= frame.top && Math.abs(frame.bottom - playback.top) < 1;
+    }""")
     assert page.locator("#camera-focus").count() == 0
     assert page.locator("#camera-follow").is_disabled()
     assert page.locator("#view-2d").get_attribute("aria-pressed") == "true"
@@ -454,6 +582,11 @@ def test_map_expansion_and_satellite_keyboard_selection_preserve_single_screen(
     marker = page.locator('.map-satellite[data-satellite-id="ALOS-2_39766"]')
     marker.focus()
     marker.press("Enter")
+    assert page.locator("#orbit-hud").is_visible()
+    map_height = page.locator("#mission-globe").bounding_box()["height"]
+    page.locator("#close-satellite-details").click()
+    assert page.locator("#orbit-hud").is_hidden()
+    assert page.locator("#mission-globe").bounding_box()["height"] == map_height
     assert page.locator("#satellite-name").get_attribute("title") == "ALOS-2_39766"
     assert marker.get_attribute("aria-pressed") == "true"
     page.locator("#toggle-layers").click()
@@ -530,7 +663,8 @@ def test_all_reference_targets_remain_reachable_and_selection_is_linked(
     page: Any, lab_url: str
 ) -> None:
     reference_ready(page, lab_url)
-    assert len(collect_pages(page, "target", ".target-row")) == 500
+    assert page.locator(".target-row").count() == 500
+    assert page.locator("#target-next, #target-prev").count() == 0
     task = page.locator(".target-row").last
     task_id = task.get_attribute("data-task-id")
     task.click()
@@ -538,9 +672,9 @@ def test_all_reference_targets_remain_reachable_and_selection_is_linked(
     assert "is-selected" in page.locator(f'.map-marker[data-task-id="{task_id}"]').get_attribute(
         "class"
     )
-    page.locator("#tab-timeline").focus()
+    page.locator("#tab-selection").focus()
     page.keyboard.press("ArrowRight")
-    assert page.locator("#tab-comparison").get_attribute("aria-selected") == "true"
+    assert page.locator("#tab-evaluation").get_attribute("aria-selected") == "true"
 
 
 def test_layer_menu_keyboard_dismissal_and_preserved_layer_controls(
@@ -564,8 +698,84 @@ def test_layer_menu_keyboard_dismissal_and_preserved_layer_controls(
     assert page.locator("#layer-options").is_hidden()
     assert page.locator("#toggle-layers").evaluate("node => node === document.activeElement")
     page.locator("#toggle-layers").click()
-    page.locator("#tab-comparison").click()
+    page.locator("#schedule-title").click()
     assert page.locator("#layer-options").is_hidden()
+
+
+@pytest.mark.parametrize(("width", "height"), [(1440, 900), (800, 600), (375, 667)])
+def test_map_actions_share_one_style_without_download_or_orbit_legend(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    assert page.locator("#export-run, #orbit-span, .orbit-legend, a[download]").count() == 0
+    assert page.locator("#inspector .panel-heading button").count() == 0
+    rail = page.get_by_role("group", name="Map actions", exact=True)
+    assert rail.locator(".map-action").count() == 5
+    assert rail.locator(".map-action").evaluate_all("nodes => nodes.map(node => node.id)") == [
+        "toggle-layers",
+        "reset-view",
+        "expand-map",
+        "camera-overview",
+        "camera-follow",
+    ]
+    assert rail.locator(".map-action svg[aria-hidden='true']").count() == 5
+    assert rail.evaluate("""node => {
+      const toolbar = document.querySelector('.viewport-toolbar').getBoundingClientRect();
+      const frame = document.querySelector('.globe-frame').getBoundingClientRect();
+      const box = node.getBoundingClientRect();
+      const styles = [...node.querySelectorAll('.map-action')].map(button => {
+        const style = getComputedStyle(button), svg = getComputedStyle(button.querySelector('svg'));
+        const bounds = button.getBoundingClientRect();
+        return {height:style.height,radius:style.borderRadius,border:style.borderTopWidth,
+          iconWidth:svg.width,iconHeight:svg.height,font:style.fontFamily,weight:style.fontWeight,
+          inside:bounds.left>=box.left && bounds.right<=box.right
+            && bounds.top>=box.top && bounds.bottom<=box.bottom};
+      });
+      return box.top>=toolbar.top && box.bottom<=toolbar.bottom && box.bottom<=frame.top
+        && box.left>=toolbar.left && box.right<=toolbar.right
+        && styles.every(style=>JSON.stringify(style)===JSON.stringify(styles[0]))
+        && styles[0].border==='0px' && styles[0].iconWidth==='14px' && styles[0].inside;
+    }""")
+    source = page.evaluate("JSON.stringify(state.currentPayload)")
+    page.locator("#toggle-layers").click()
+    page.wait_for_function("""() => !document.getElementById('toggle-layers').getAnimations()
+      .some(animation => animation.pending || animation.playState === 'running')""")
+    assert page.locator("#layer-options").is_visible()
+    selected_styles = page.evaluate("""() => {
+      const color = value => {
+        const rgba = value.match(/[0-9.]+/g).map(Number);
+        if (rgba.length === 3) rgba.push(1);
+        return rgba;
+      };
+      const selected = id => {
+        const style = getComputedStyle(document.getElementById(id));
+        return [color(style.backgroundColor),color(style.color),style.boxShadow];
+      };
+      return {layers:selected('toggle-layers'),overview:selected('camera-overview')};
+    }""")
+    assert selected_styles["layers"] == selected_styles["overview"], selected_styles
+    page.keyboard.press("Escape")
+    before = page.locator("#mission-globe").bounding_box()["height"]
+    page.locator("#expand-map").click()
+    page.wait_for_function("""() => !document.getElementById('expand-map').getAnimations()
+      .some(animation => animation.pending || animation.playState === 'running')""")
+    assert page.locator(".analysis-dock").is_hidden()
+    assert page.locator("#mission-globe").bounding_box()["height"] > before
+    assert page.evaluate("""() => {
+      const style = id => {
+        const rgba = getComputedStyle(document.getElementById(id)).backgroundColor
+          .match(/[0-9.]+/g).map(Number);
+        if (rgba.length === 3) rgba.push(1);
+        return JSON.stringify(rgba);
+      };
+      return style('expand-map') === style('camera-overview');
+    }""")
+    page.locator("#expand-map").click()
+    assert page.locator("#mission-globe").bounding_box()["height"] == before
+    assert page.evaluate("state.replay.time") == 0
+    assert page.evaluate("JSON.stringify(state.currentPayload)") == source
+    assert_single_screen(page)
 
 
 @pytest.mark.parametrize(("width", "height"), [(1440, 900), (1024, 768), (800, 600), (375, 667)])
@@ -607,9 +817,9 @@ def test_missing_reference_archive_reports_error_without_local_fallback(
     page.goto(lab_url + "?mode=local", wait_until="domcontentloaded")
     page.wait_for_function("document.getElementById('status').classList.contains('error')")
     assert "EOS-Bench reference data is unavailable" in page.locator("#status").inner_text()
-    assert page.locator("#run-button").is_disabled()
+    assert page.locator("#run-button").count() == 0
     assert page.locator("#solver-select").is_disabled()
-    assert page.locator("#export-run").is_disabled()
+    assert page.locator("#export-run").count() == 0
     assert not any("/api/scenarios" in url or "/api/solve" in url for url in requests)
 
 
@@ -687,7 +897,7 @@ def test_missing_font_uses_system_fallback_without_blocking_the_archive(
         "[...document.fonts].some(f => f.family === 'Inter' && f.status === 'loaded')"
     )
     assert page.locator(".map-marker").count() == 500
-    assert page.locator("#run-button").is_enabled()
+    assert page.locator("#solver-select").is_enabled()
     assert_single_screen(page)
 
 
@@ -716,14 +926,8 @@ def test_command_panels_fit_and_decorative_frames_do_not_block_controls(
             assert card["pointer"] == "none", card
         assert_single_screen(page)
     if width <= 1000:
-        page.locator("#workspace-map").click()
-    page.locator("#tab-comparison").click()
-    plans: set[str] = set()
-    for _ in range(4):
-        plans.update(page.locator("#comparison-body button").all_text_contents())
-        if page.locator("#comparison-next").is_disabled():
-            break
-        page.locator("#comparison-next").click()
+        page.locator("#workspace-tasks").click()
+    plans = set(page.locator("#comparison-legend button").all_text_contents())
     assert len(plans) == 4
     assert page.evaluate("JSON.stringify(state.currentPayload)") == source
     assert_single_screen(page)
@@ -738,6 +942,8 @@ def test_fov_footprints_and_all_layer_controls_remain_reachable_on_small_screens
     assert page.locator(".map-fov").count() == 20
     assert page.locator(".map-fov polyline").count() >= 20
     page.locator("#toggle-layers").click()
+    assert page.locator("#toggle-illumination").is_disabled()
+    assert page.locator("#sun-direction").count() == 0
     page.locator("#toggle-fov").click()
     assert page.locator("#toggle-fov").get_attribute("aria-pressed") == "false"
     assert page.locator(".map-fov:visible").count() == 0
@@ -756,7 +962,6 @@ def test_small_text_has_readable_contrast_in_default_and_selected_states(
     page: Any, lab_url: str
 ) -> None:
     reference_ready(page, lab_url)
-    page.locator("#tab-comparison").click()
     samples = page.evaluate("""() => {
       const rgb = value => value.match(/[\\d.]+/g).map(Number);
       const luminance = color => color.slice(0, 3).map(c => c / 255)
@@ -764,7 +969,7 @@ def test_small_text_has_readable_contrast_in_default_and_selected_states(
         .reduce((sum, c, i) => sum + c * [.2126, .7152, .0722][i], 0);
       return [...document.querySelectorAll(
         '.field-label, .target-row-name small, .target-state, .selection-details dt, '
-        + '.selection-details dd, .comparison-table th, .comparison-table .numeric, '
+        + '.selection-details dd, .radar-legend button, .radar-values dt, .radar-values dd, '
         + '.pager > span, .status')].map(node => {
           const foreground = rgb(getComputedStyle(node).color);
           let current = node, background;

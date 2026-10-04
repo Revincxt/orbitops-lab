@@ -23,6 +23,48 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("ORBITOPS_GLOBE_TESTS") != "1", reason="real WebGL verification is opt-in"
 )
 SCREENSHOTS = Path(__file__).parents[2] / "runs" / "ui-review"
+SCREEN_NORTH_BEARING = """() => {
+  const viewer = state.globe, camera = viewer.camera;
+  const north = viewer.scene.mode === Cesium.SceneMode.SCENE3D
+    ? Cesium.Matrix4.multiplyByPointAsVector(
+        Cesium.Transforms.eastNorthUpToFixedFrame(
+          viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(camera.positionWC)),
+        Cesium.Cartesian3.UNIT_Y,new Cesium.Cartesian3())
+    : Cesium.Cartesian3.UNIT_Z;
+  // Independently project a north-directed segment at the screen centre with
+  // native view/projection matrices, not the production bearing formula.
+  const centre = Cesium.Cartesian3.add(camera.positionWC,
+    Cesium.Cartesian3.multiplyByScalar(camera.directionWC,1000000,new Cesium.Cartesian3()),
+    new Cesium.Cartesian3());
+  const tip = Cesium.Cartesian3.add(centre,
+    Cesium.Cartesian3.multiplyByScalar(north,1000,new Cesium.Cartesian3()),
+    new Cesium.Cartesian3());
+  // Work in scene coordinates: distant unfolded cameras can be outside valid
+  // geographic latitudes, where a WGS84 conversion would wrap the test segment.
+  const project = point => {
+    const eye = Cesium.Matrix4.multiplyByVector(camera.viewMatrix,
+      new Cesium.Cartesian4(point.x,point.y,point.z,1),new Cesium.Cartesian4());
+    const clip = Cesium.Matrix4.multiplyByVector(camera.frustum.projectionMatrix,
+      eye,new Cesium.Cartesian4());
+    return {x:(clip.x/clip.w+1)*viewer.canvas.clientWidth/2,
+      y:(1-clip.y/clip.w)*viewer.canvas.clientHeight/2};
+  };
+  const a = project(centre), b = project(tip);
+  return (360 - Cesium.Math.toDegrees(Math.atan2(b.x-a.x,a.y-b.y))) % 360;
+}"""
+
+
+def assert_compass_matches_screen_north(page: Any) -> None:
+    snapshot = page.evaluate(f"""() => {{
+      const expected = ({SCREEN_NORTH_BEARING})();
+      const actual = Number(document.getElementById('north-view').dataset.heading);
+      const matrix = document.querySelector('.compass-north-label').getCTM();
+      return {{expected,actual,upright:Math.atan2(matrix.b,matrix.a)}};
+    }}""")
+    expected, actual = snapshot["expected"], snapshot["actual"]
+    error = (actual - expected + 180) % 360 - 180
+    assert error == pytest.approx(0, abs=0.006), (actual, expected)
+    assert snapshot["upright"] == pytest.approx(0, abs=1e-10)
 
 
 @pytest.fixture(scope="module")
@@ -119,6 +161,367 @@ def test_real_globe_has_startup_tracks_symbols_and_unmodified_source_positions(
       return (Cesium.Cartographic.fromCartesian(point).height / 1000).toFixed(1) + ' km';
     }""")
     assert globe_page.locator("#satellite-altitude").inner_text() == displayed_altitude
+    assert_single_screen(globe_page)
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+def test_compass_tracks_screen_north_with_upright_n_and_resets_without_moving_the_camera(
+    globe_page: Any, projection: str
+) -> None:
+    if projection != "3d":
+        globe_page.evaluate("mode => setMapViewMode(mode)", projection)
+        globe_page.wait_for_function(
+            "mode => state.viewMode === mode && !state.viewTransition", arg=projection
+        )
+    globe_page.evaluate("""() => {
+      const viewer = state.globe;
+      // Keep the tilted view within the map bounds, away from Cesium's native
+      // off-map inertia/correction, so we can isolate the reset control itself.
+      const planar = state.viewMode === '2.5d';
+      viewer.camera.setView({destination:planar ? new Cesium.Cartesian3(0,0,8000000) : undefined,
+        convert:!planar, orientation:{heading:Cesium.Math.toRadians(260),
+        pitch:planar ? Cesium.Math.toRadians(-55) : viewer.camera.pitch, roll:0}});
+      viewer.scene.requestRender();
+    }""")
+    globe_page.wait_for_timeout(150)
+    bearing = globe_page.evaluate(SCREEN_NORTH_BEARING)
+    assert_compass_matches_screen_north(globe_page)
+    assert globe_page.locator("#camera-heading, #north-view small").count() == 0
+    assert globe_page.locator("#north-view").get_attribute("title") == "Face north"
+    assert (
+        globe_page.locator("#north-view").get_attribute("aria-label")
+        == f"Face north, current heading {int(bearing + 0.5) % 360}°"
+    )
+    compass = globe_page.evaluate("""() => {
+      const dial = document.querySelector('.compass-dial');
+      const n = document.querySelector('.compass-north-label');
+      const matrix = n.getCTM();
+      return {heading:document.getElementById('north-view').dataset.heading,
+        rose:document.querySelector('.compass-rose').getAttribute('transform'),
+        label:n.getAttribute('transform'), upright:Math.atan2(matrix.b,matrix.a),
+        size:Math.min(dial.clientWidth,dial.clientHeight)};
+    }""")
+    assert float(compass["heading"]) == pytest.approx(bearing, abs=0.006)
+    assert compass["rose"] == f"rotate({-float(compass['heading']):g} 24 24)"
+    assert compass["label"] == f"rotate({compass['heading']} 24 9)"
+    assert compass["upright"] == pytest.approx(0, abs=1e-10)
+    assert compass["size"] == 48
+    before = globe_page.evaluate("""() => ({position:state.globe.camera.positionWC,
+      pitch:state.globe.camera.pitch,time:state.replay.time,source:JSON.stringify(state.currentPayload)})""")
+    globe_page.locator("#north-view").focus()
+    globe_page.keyboard.press("Enter")
+    globe_page.wait_for_function(
+        "Number(document.getElementById('north-view').dataset.heading) % 360 === 0"
+    )
+    after = globe_page.evaluate("""() => ({position:state.globe.camera.positionWC,
+      pitch:state.globe.camera.pitch,time:state.replay.time,source:JSON.stringify(state.currentPayload)})""")
+    for axis in ["x", "y", "z"]:
+        assert after["position"][axis] == pytest.approx(before["position"][axis], abs=0.001)
+    assert after["pitch"] == pytest.approx(before["pitch"], abs=1e-10)
+    assert after["time"] == before["time"]
+    assert after["source"] == before["source"]
+    assert_single_screen(globe_page)
+
+
+@pytest.mark.parametrize(
+    ("mode", "viewport"),
+    [("overview", (1440, 900)), ("overview", (375, 667)), ("follow", (1440, 900))],
+)
+def test_compass_tracks_tilted_screen_roll_without_a_heading_change(
+    globe_page: Any, mode: str, viewport: tuple[int, int]
+) -> None:
+    globe_page.set_viewport_size({"width": viewport[0], "height": viewport[1]})
+    globe_page.wait_for_timeout(150)
+    if mode == "follow":
+        globe_page.locator("#camera-follow").click()
+        globe_page.wait_for_function("state.globe.trackedEntity && state.cameraMode === 'follow'")
+        globe_page.wait_for_timeout(150)
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    globe_page.evaluate("""() => {
+      state.globe.camera.setView({orientation:{heading:0,pitch:Cesium.Math.toRadians(-55),roll:0}});
+      state.globe.scene.requestRender();
+    }""")
+    globe_page.wait_for_timeout(150)
+    original = globe_page.evaluate("""() => ({heading:state.globe.camera.heading,
+      position:Cesium.Cartesian3.clone(state.globe.camera.positionWC),time:state.replay.time,
+      north:document.getElementById('north-view').dataset.heading})""")
+    for angle in [45, -90, 180]:
+        globe_page.evaluate(
+            """angle => {
+          state.globe.camera.look(state.globe.camera.direction,Cesium.Math.toRadians(angle));
+          state.globe.scene.requestRender();
+        }""",
+            angle,
+        )
+        globe_page.wait_for_timeout(150)
+        assert_compass_matches_screen_north(globe_page)
+        difference = globe_page.evaluate(
+            "heading => Math.atan2(Math.sin(state.globe.camera.heading-heading),"
+            "Math.cos(state.globe.camera.heading-heading))",
+            original["heading"],
+        )
+        assert difference == pytest.approx(0, abs=1e-7)
+        assert globe_page.locator("#north-view").get_attribute("data-heading") != original["north"]
+    assert globe_page.evaluate("state.cameraMode") == mode
+    assert globe_page.evaluate("state.replay.time") == original["time"]
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+    assert globe_page.evaluate(
+        "position => Cesium.Cartesian3.distance(position,state.globe.camera.positionWC)",
+        original["position"],
+    ) < (0.01 if mode == "follow" else 0.001)
+    assert_single_screen(globe_page)
+
+
+@pytest.mark.parametrize(("projection", "mode"), [("3d", "overview"), ("2.5d", "overview")])
+def test_compass_tracks_subthreshold_roll_while_replay_is_paused(
+    globe_page: Any, projection: str, mode: str
+) -> None:
+    if projection != "3d":
+        globe_page.evaluate("mode => setMapViewMode(mode)", projection)
+        globe_page.wait_for_function("!state.viewTransition")
+    globe_page.wait_for_timeout(200)
+    globe_page.evaluate("""() => {
+      window.smallTurnEvents = 0;
+      state.globe.camera.changed.addEventListener(() => smallTurnEvents++);
+    }""")
+    previous = globe_page.locator("#north-view").get_attribute("data-heading")
+    globe_page.evaluate("""() => {
+      state.globe.camera.look(state.globe.camera.direction,Cesium.Math.toRadians(0.1));
+      state.globe.scene.requestRender();
+    }""")
+    globe_page.wait_for_timeout(150)
+    assert globe_page.evaluate("smallTurnEvents") == 0
+    assert_compass_matches_screen_north(globe_page)
+    assert globe_page.locator("#north-view").get_attribute("data-heading") != previous
+    assert globe_page.evaluate("!state.replay.playing && state.replay.time === 0")
+    assert globe_page.evaluate("state.cameraMode") == mode
+
+
+@pytest.mark.parametrize("mode", ["overview", "follow"])
+def test_compass_stays_aligned_during_real_mouse_camera_rotation(
+    globe_page: Any, mode: str
+) -> None:
+    if mode == "follow":
+        globe_page.locator("#camera-follow").click()
+        globe_page.wait_for_function("state.globe.trackedEntity && state.cameraMode === 'follow'")
+        globe_page.wait_for_timeout(150)
+    before = globe_page.evaluate("""() => ({
+      right:Cesium.Cartesian3.clone(state.globe.camera.rightWC),
+      source:JSON.stringify(state.currentPayload),time:state.replay.time})""")
+    box = globe_page.locator("#mission-globe").bounding_box()
+    x, y = box["x"] + box["width"] * 0.55, box["y"] + box["height"] * 0.5
+    globe_page.mouse.move(x, y)
+    globe_page.mouse.down(button="middle")
+    try:
+        for dx, dy in [(35, 5), (65, 15), (100, 25)]:
+            globe_page.mouse.move(x + dx, y + dy, steps=10)
+            globe_page.wait_for_timeout(100)
+            assert_compass_matches_screen_north(globe_page)
+    finally:
+        globe_page.mouse.up(button="middle")
+    after = globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.rightWC)")
+    assert after != before["right"]
+    assert globe_page.evaluate("state.cameraMode") == mode
+    assert globe_page.evaluate("state.replay.time") == before["time"]
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == before["source"]
+    assert_single_screen(globe_page)
+
+
+def test_compass_retains_last_valid_bearing_when_north_is_parallel_to_view_ray(
+    globe_page: Any,
+) -> None:
+    globe_page.evaluate("""() => {
+      state.globe.camera.setView({orientation:{heading:Cesium.Math.toRadians(45),
+        pitch:Cesium.Math.toRadians(-55),roll:0}});
+      state.globe.scene.requestRender();
+    }""")
+    globe_page.wait_for_timeout(150)
+    assert_compass_matches_screen_north(globe_page)
+    previous = globe_page.locator("#north-view").evaluate("node => node.outerHTML")
+    globe_page.evaluate("""() => {
+      const camera = state.globe.camera;
+      const surface = Cesium.Ellipsoid.WGS84.scaleToGeodeticSurface(camera.positionWC);
+      const frame = Cesium.Transforms.eastNorthUpToFixedFrame(surface);
+      camera.setView({orientation:{direction:Cesium.Matrix4.multiplyByPointAsVector(
+        frame,Cesium.Cartesian3.UNIT_Y,new Cesium.Cartesian3()),
+        up:Cesium.Matrix4.multiplyByPointAsVector(
+          frame,Cesium.Cartesian3.UNIT_Z,new Cesium.Cartesian3())}});
+      state.globe.scene.requestRender();
+    }""")
+    globe_page.wait_for_timeout(150)
+    assert globe_page.locator("#north-view").evaluate("node => node.outerHTML") == previous
+    globe_page.locator("#camera-overview").click()
+    globe_page.wait_for_timeout(750)
+    assert_compass_matches_screen_north(globe_page)
+
+
+def test_compass_frame_listener_is_not_duplicated_by_plan_reloads(globe_page: Any) -> None:
+    listeners = globe_page.evaluate("state.globe.scene.postRender.numberOfListeners")
+    for plan in ["eos-sa-profit", "eos-greedy-profit", "eos-sa-balanced"]:
+        globe_page.evaluate(
+            """id => {
+          renderResult(OrbitReplay.referencePayload(state.referenceData,
+            state.referenceData.plans.find(plan => plan.plan_id === id)));
+        }""",
+            plan,
+        )
+        globe_page.wait_for_timeout(150)
+        assert globe_page.evaluate("state.globe.scene.postRender.numberOfListeners") == listeners
+        assert_compass_matches_screen_north(globe_page)
+
+
+@pytest.mark.parametrize("viewport", [(1440, 900), (800, 600), (375, 667)])
+def test_camera_toolbar_is_compact_and_keeps_keyboard_follow_and_overview(
+    globe_page: Any, viewport: tuple[int, int]
+) -> None:
+    width, height = viewport
+    globe_page.set_viewport_size({"width": width, "height": height})
+    globe_page.wait_for_timeout(150)
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    time = globe_page.evaluate("state.replay.time")
+    group = globe_page.get_by_role("group", name="Satellite camera controls", exact=True)
+    assert group.get_by_role("button", name="Overview", exact=True).count() == 1
+    assert group.get_by_role("button", name="Follow", exact=True).count() == 1
+    assert group.locator("button svg[aria-hidden='true']").count() == 2
+    assert globe_page.evaluate("""() => {
+      const toolbar = document.querySelector('.viewport-toolbar').getBoundingClientRect();
+      const group = document.querySelector('.orbit-camera').getBoundingClientRect();
+      const frame = document.querySelector('.globe-frame').getBoundingClientRect();
+      const playback = document.querySelector('.replay-bar').getBoundingClientRect();
+      const expand = document.getElementById('expand-map').getBoundingClientRect();
+      return group.bottom <= frame.top && Math.abs(frame.bottom - playback.top) < 1
+        && group.left > expand.right && group.width <= 180 && group.left >= toolbar.left
+        && group.right <= toolbar.right && group.top >= toolbar.top
+        && group.bottom <= toolbar.bottom
+        && [...document.querySelectorAll('.orbit-camera button')].every(button => {
+          const box = button.getBoundingClientRect();
+          return getComputedStyle(button).borderTopWidth === '0px'
+            && box.height >= 28 && box.left >= group.left && box.right <= group.right;
+        });
+    }""")
+    assert globe_page.locator("#camera-overview").get_attribute("aria-pressed") == "true"
+    globe_page.locator("#camera-follow").focus()
+    globe_page.keyboard.press("Enter")
+    globe_page.wait_for_function("state.cameraMode === 'follow' && state.globe.trackedEntity")
+    assert globe_page.locator("#camera-follow").get_attribute("aria-pressed") == "true"
+    assert globe_page.locator("#camera-follow").get_attribute("title") == "Stop following satellite"
+    assert globe_page.locator("#camera-overview").get_attribute("aria-pressed") == "false"
+    globe_page.keyboard.press("Enter")
+    assert globe_page.evaluate("state.cameraMode === 'manual' && !state.globe.trackedEntity")
+    assert globe_page.locator("#camera-follow").get_attribute("aria-pressed") == "false"
+    assert (
+        globe_page.locator("#camera-follow").get_attribute("title") == "Follow selected satellite"
+    )
+    globe_page.locator("#camera-overview").focus()
+    globe_page.keyboard.press("Enter")
+    assert globe_page.locator("#camera-overview").get_attribute("aria-pressed") == "true"
+    assert globe_page.evaluate("state.replay.time") == time
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+    assert_single_screen(globe_page)
+
+
+def test_compass_north_reset_releases_satellite_follow(globe_page: Any) -> None:
+    globe_page.locator("#camera-follow").click()
+    globe_page.wait_for_function("state.globe.trackedEntity && state.cameraMode === 'follow'")
+    globe_page.locator("#north-view").click()
+    globe_page.wait_for_function(
+        "Number(document.getElementById('north-view').dataset.heading) % 360 === 0"
+    )
+    assert globe_page.evaluate(
+        "state.globe.trackedEntity === undefined && state.cameraMode === 'manual'"
+    )
+    assert globe_page.locator("#camera-follow").get_attribute("aria-pressed") == "false"
+
+
+def test_compass_north_reset_interrupts_a_camera_flight_and_freezes_during_morph(
+    globe_page: Any,
+) -> None:
+    globe_page.evaluate("""() => {
+      const compass = document.getElementById('north-view');
+      const snapshot = compass.outerHTML;
+      state.viewTransition = true;
+      updateCameraCompass();
+      window.frozenCompass = compass.outerHTML === snapshot;
+      state.viewTransition = false;
+      window.flightCancelled = false;
+      state.globe.camera.flyTo({destination:Cesium.Cartesian3.fromDegrees(35,0,12000000),
+        orientation:{heading:Cesium.Math.toRadians(150),pitch:Cesium.Math.toRadians(-65),roll:0},
+        duration:3,cancel:() => {window.flightCancelled = true;}});
+    }""")
+    assert globe_page.evaluate("frozenCompass")
+    globe_page.wait_for_function(
+        "Number(document.getElementById('north-view').dataset.heading) > 1"
+    )
+    globe_page.locator("#north-view").click()
+    assert globe_page.evaluate("flightCancelled")
+    globe_page.wait_for_function(
+        "Number(document.getElementById('north-view').dataset.heading) % 360 === 0"
+    )
+    position = globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)")
+    globe_page.wait_for_timeout(750)
+    assert globe_page.locator("#camera-heading").count() == 0
+    assert (
+        globe_page.evaluate("Number(document.getElementById('north-view').dataset.heading) % 360")
+        == 0
+    )
+    assert (
+        globe_page.evaluate(
+            "position => Cesium.Cartesian3.distance(position,state.globe.camera.positionWC)",
+            position,
+        )
+        < 0.001
+    )
+
+
+def test_attribution_is_an_accessible_icon_and_preserves_native_provider_credits(
+    globe_page: Any,
+) -> None:
+    globe_page.wait_for_function(
+        "elements.globe.dataset.imagerySource === 'natural-earth-fallback'"
+    )
+    credit = globe_page.get_by_role("button", name="Map credits", exact=True)
+    assert credit.is_visible()
+    assert credit.inner_text() == ""
+    assert credit.locator("svg").count() == 1
+    assert globe_page.get_by_text("Data attribution", exact=True).count() == 0
+    assert globe_page.locator(".cesium-credit-logoContainer img").is_visible()
+    assert globe_page.locator(".masthead").inner_text().find("Mission workspace") == -1
+    for key in ["Enter", "Space"]:
+        credit.focus()
+        globe_page.keyboard.press(key)
+        popup = globe_page.locator(".cesium-credit-lightbox")
+        assert popup.is_visible()
+        assert "Natural Earth II" in popup.inner_text()
+        globe_page.locator(".cesium-credit-lightbox-close").click()
+        assert not popup.is_visible()
+    globe_page.locator("#solver-select").select_option("eos-sa-profit")
+    globe_page.wait_for_function("!state.busy && state.globe.dataSourceDisplay.ready")
+    assert credit.inner_text() == ""
+    assert credit.locator("svg").count() == 1
+    credit.click()
+    assert "Natural Earth II" in globe_page.locator(".cesium-credit-lightbox").inner_text()
+    globe_page.locator(".cesium-credit-lightbox-close").click()
+    assert_single_screen(globe_page)
+
+
+@pytest.mark.parametrize("viewport", [(390, 844), (375, 667)])
+def test_compact_map_keeps_compass_and_credits_inside_and_camera_controls_outside(
+    globe_page: Any, viewport: tuple[int, int]
+) -> None:
+    width, height = viewport
+    globe_page.set_viewport_size({"width": width, "height": height})
+    globe_page.wait_for_timeout(200)
+    assert globe_page.evaluate("""() => {
+      const frame = document.querySelector('.globe-frame').getBoundingClientRect();
+      const compass = document.getElementById('north-view').getBoundingClientRect();
+      const controls = document.querySelector('.orbit-camera').getBoundingClientRect();
+      const credit = document.querySelector('.attribution-icon').getBoundingClientRect();
+      const legend = document.querySelector('.globe-overlay').getBoundingClientRect();
+      return compass.width >= 44 && compass.height >= 44 && compass.right < frame.right
+        && compass.bottom < frame.bottom && compass.top >= frame.top
+        && controls.bottom <= frame.top && credit.top >= frame.top && credit.bottom <= frame.bottom
+        && compass.top >= legend.bottom + 6;
+    }""")
     assert_single_screen(globe_page)
 
 
@@ -329,24 +732,202 @@ def test_native_starfield_loads_and_renders_behind_the_globe(globe_page: Any) ->
     assert_single_screen(globe_page)
 
 
-def test_satellite_canvas_picking_double_click_focus_follow_and_source_horizon(
+def test_solar_light_tracks_replay_utc_without_new_entities_or_boundary_geometry(
     globe_page: Any,
 ) -> None:
-    candidate = globe_page.wait_for_function(
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    directions = []
+    for time in [-86400, 0, 21600, 43200, 3 * 86400, 180 * 86400]:
+        globe_page.evaluate("time => setReplayTime(time, true)", time)
+        globe_page.wait_for_timeout(80)
+        geometry = globe_page.evaluate("""() => {
+          const viewer = state.globe;
+          viewer.scene.requestRender();
+          viewer.render();
+          const direction = viewer.scene.context.uniformState.sunDirectionWC;
+          const ephemeris = Cesium.Simon1994PlanetaryPositions;
+          const inertial = ephemeris.computeSunPositionInEarthInertialFrame(
+            viewer.clock.currentTime);
+          const expected = Cesium.Matrix3.multiplyByVector(
+            Cesium.Transforms.computeIcrfToCentralBodyFixedMatrix(viewer.clock.currentTime),
+            inertial,new Cesium.Cartesian3());
+          const epoch = Cesium.JulianDate.fromIso8601(state.currentPayload.scenario.epoch_utc);
+          return {
+            lighting:viewer.scene.globe.enableLighting, sun:viewer.scene.sun.show,
+            clock:Cesium.JulianDate.secondsDifference(viewer.clock.currentTime,epoch),
+            direction:[direction.x,direction.y,direction.z],
+            match:Cesium.Cartesian3.dot(Cesium.Cartesian3.normalize(expected,expected),direction),
+            distance:Cesium.Cartesian3.magnitude(inertial),
+            fadeOut:viewer.scene.globe.lightingFadeOutDistance,
+            fadeIn:viewer.scene.globe.lightingFadeInDistance,
+            entities:viewer.entities.values.filter(e=>!e.id.startsWith('ray-')).length};
+        }""")
+        assert geometry["lighting"] and geometry["sun"]
+        assert geometry["clock"] == time
+        assert geometry["entities"] == 580
+        assert geometry["match"] == pytest.approx(1, abs=1e-12)
+        assert 1.45e11 < geometry["distance"] < 1.53e11
+        assert geometry["fadeOut"] == 0 and geometry["fadeIn"] == 1
+        directions.append(geometry["direction"])
+    assert sum(a * b for a, b in zip(directions[1], directions[2], strict=True)) < 0.3
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+    assert globe_page.locator("#sun-direction").count() == 0
+
+
+@pytest.mark.parametrize("projection", ["2d", "2.5d"])
+def test_flat_views_have_no_terminator_or_day_night_shading(
+    globe_page: Any, projection: str
+) -> None:
+    globe_page.evaluate("setReplayTime(-86400, true)")
+    globe_page.evaluate("mode => setMapViewMode(mode)", projection)
+    globe_page.wait_for_function(
+        "mode => state.viewMode === mode && !state.viewTransition", arg=projection
+    )
+    globe_page.wait_for_timeout(80)
+    assert not globe_page.evaluate("state.globe.scene.globe.enableLighting")
+    assert not globe_page.evaluate("state.globe.scene.sun.show")
+    assert globe_page.locator("#sun-direction").count() == 0
+    globe_page.locator("#toggle-layers").click()
+    assert globe_page.locator("#toggle-illumination").is_disabled()
+    assert globe_page.locator("#toggle-sat-labels").is_visible()
+    globe_page.keyboard.press("Escape")
+    assert globe_page.evaluate("state.replay.time") == -86400
+    globe_page.evaluate("setMapViewMode('3d')")
+    globe_page.wait_for_function("state.viewMode === '3d' && !state.viewTransition")
+    globe_page.wait_for_timeout(80)
+    assert globe_page.evaluate("state.globe.scene.globe.enableLighting")
+    assert globe_page.evaluate("state.globe.scene.sun.show")
+    assert globe_page.evaluate("state.replay.time") == -86400
+    assert_single_screen(globe_page)
+
+
+def test_solar_layer_setting_survives_reload_without_new_render_listeners(
+    globe_page: Any,
+) -> None:
+    globe_page.locator("#toggle-layers").click()
+    globe_page.locator("#toggle-illumination").click()
+    assert not globe_page.evaluate("state.globe.scene.sun.show")
+    assert globe_page.locator("#sun-direction").count() == 0
+    globe_page.keyboard.press("Escape")
+    globe_page.evaluate("() => { window.originalSun = state.globe.scene.sun; }")
+    for plan in ["eos-sa-profit", "eos-greedy-profit", "eos-sa-balanced"]:
+        assert globe_page.evaluate(
+            """id => {
+          const listeners = state.globe.scene.preRender.numberOfListeners;
+          renderResult(OrbitReplay.referencePayload(state.referenceData,
+            state.referenceData.plans.find(p => p.plan_id === id)));
+          return state.globe.scene.sun === originalSun && !originalSun.show
+            && !state.globe.scene.globe.enableLighting
+            && state.globe.scene.preRender.numberOfListeners === listeners;
+        }""",
+            plan,
+        )
+    globe_page.locator("#toggle-layers").click()
+    globe_page.locator("#toggle-illumination").click()
+    globe_page.keyboard.press("Escape")
+    assert globe_page.evaluate(
+        "state.globe.scene.globe.enableLighting && state.globe.scene.sun.show"
+    )
+
+
+def test_day_night_and_sun_are_rendered_not_only_ui_flags(globe_page: Any) -> None:
+    pixels = globe_page.evaluate("""() => {
+      const viewer = state.globe, scene = viewer.scene;
+      viewer.scene.requestRender();
+      viewer.render();
+      const sunPosition = Cesium.Cartesian3.clone(scene.context.uniformState.sunPositionWC);
+      try {
+        const night = enabled => {
+          scene.globe.enableLighting = enabled;
+          scene.requestRender();
+          viewer.render();
+          return scene.context.readPixels();
+        };
+        const unshaded = night(false), shaded = night(true);
+        let nightPixels = 0;
+        for (let i=0; i<unshaded.length; i+=4) {
+          if (unshaded[i]+unshaded[i+1]+unshaded[i+2]
+              > shaded[i]+shaded[i+1]+shaded[i+2]+15) nightPixels++;
+        }
+        const direction = Cesium.Cartesian3.normalize(Cesium.Cartesian3.subtract(
+          sunPosition,viewer.camera.positionWC,new Cesium.Cartesian3()),
+          new Cesium.Cartesian3());
+        viewer.camera.setView({orientation:{direction,
+          up:Cesium.Cartesian3.normalize(Cesium.Cartesian3.cross(viewer.camera.rightWC,direction,
+            new Cesium.Cartesian3()),new Cesium.Cartesian3())}});
+        const disc = show => {
+          scene.sun.show = show;
+          scene.requestRender();
+          viewer.render();
+          return scene.context.readPixels({x:Math.floor(viewer.canvas.width/2)-48,
+            y:Math.floor(viewer.canvas.height/2)-48,width:96,height:96});
+        };
+        disc(true);
+        const dark = disc(false), lit = disc(true);
+        let sunPixels = 0;
+        for (let i=0; i<dark.length; i+=4) {
+          if (lit[i]+lit[i+1]+lit[i+2] > dark[i]+dark[i+1]+dark[i+2]+30) sunPixels++;
+        }
+        return {nightPixels, sunPixels};
+      } finally {
+        updateSolarEnvironment();
+      }
+    }""")
+    assert pixels["nightPixels"] > 100, pixels
+    assert pixels["sunPixels"] > 5, pixels
+    assert globe_page.locator("#sun-direction").count() == 0
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+def test_satellite_controls_stay_outside_the_map_after_projection_and_expansion(
+    globe_page: Any, projection: str
+) -> None:
+    globe_page.evaluate("setReplayTime(3600, true)")
+    if projection != "3d":
+        globe_page.evaluate("mode => setMapViewMode(mode)", projection)
+        globe_page.wait_for_function(
+            "mode => state.viewMode === mode && !state.viewTransition", arg=projection
+        )
+    assert globe_page.locator(".globe-frame .orbit-camera").count() == 0
+    assert globe_page.locator(".viewport-tools .orbit-camera").count() == 1
+    assert globe_page.locator("#orbit-hud").is_hidden()
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    selection = globe_page.evaluate("state.selectedSatelliteId")
+    for expanded in [False, True, False]:
+        if expanded != (globe_page.locator("#expand-map").get_attribute("aria-expanded") == "true"):
+            globe_page.locator("#expand-map").click()
+            globe_page.wait_for_timeout(100)
+        assert globe_page.evaluate("""() => {
+          const map = document.querySelector('.globe-frame').getBoundingClientRect();
+          const controls = document.querySelector('.viewport-toolbar').getBoundingClientRect();
+          const replay = document.querySelector('.replay-bar').getBoundingClientRect();
+          return map.height > 0 && controls.bottom <= map.top
+            && Math.abs(map.bottom - replay.top) < 1
+            && [...document.querySelectorAll('.orbit-camera button')].every(button => {
+              const box = button.getBoundingClientRect();
+              return box.top >= controls.top && box.bottom <= controls.bottom;
+            });
+        }""")
+        assert globe_page.evaluate("state.replay.time") == 3600
+        assert globe_page.evaluate("state.selectedSatelliteId") == selection
+        assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+        assert_single_screen(globe_page)
+
+
+def pickable_satellite(globe_page: Any) -> dict[str, Any]:
+    return globe_page.wait_for_function(
         """() => {
       const viewer = state.globe;
       const box = elements.globe.getBoundingClientRect();
-      const hud = document.getElementById('orbit-hud').getBoundingClientRect();
       const occluder = new Cesium.EllipsoidalOccluder(
         Cesium.Ellipsoid.WGS84, viewer.camera.positionWC);
       for (const entity of viewer.entities.values.filter(e => e.id.startsWith('satellite-'))) {
         const position = entity.position.getValue(viewer.clock.currentTime);
-        if (!occluder.isPointVisible(position)) continue;
+        if (state.viewMode === '3d' && !occluder.isPointVisible(position)) continue;
         const point = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, position);
         if (!point || point.x < 30 || point.x > box.width - 30
             || point.y < 30 || point.y > box.height - 30) continue;
         const x = box.left + point.x, y = box.top + point.y;
-        if (x >= hud.left && x <= hud.right && y >= hud.top && y <= hud.bottom) continue;
         if (document.elementFromPoint(x, y) !== viewer.canvas) continue;
         if (pickedMissionObject(viewer, point)?.id !== entity.id.slice(10)) continue;
         return {id:entity.id.slice(10), x, y};
@@ -355,9 +936,88 @@ def test_satellite_canvas_picking_double_click_focus_follow_and_source_horizon(
     }""",
         timeout=10000,
     ).json_value()
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+def test_satellite_popup_is_on_demand_translucent_and_dismissible(
+    globe_page: Any, projection: str
+) -> None:
+    if projection != "3d":
+        globe_page.evaluate("mode => setMapViewMode(mode)", projection)
+        globe_page.wait_for_function(
+            "mode => state.viewMode === mode && !state.viewTransition", arg=projection
+        )
+    popup = globe_page.get_by_role("region", name="Satellite details")
+    assert globe_page.locator("#orbit-hud").is_hidden()
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    time = globe_page.evaluate("state.replay.time")
+    height = globe_page.locator(".globe-frame").bounding_box()["height"]
+    camera = globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)")
+    candidate = pickable_satellite(globe_page)
+    globe_page.mouse.click(candidate["x"], candidate["y"])
+    assert popup.is_visible()
+    metadata = globe_page.evaluate("""() => {
+      const orbit = state.currentPayload.replay.orbits.find(
+        orbit => orbit.satellite_id === state.selectedSatelliteId);
+      const position = state.orbitPositions.get(orbit.satellite_id)
+        .getValue(state.globe.clock.currentTime);
+      return {name:satelliteName(orbit.satellite_id),
+        altitude:(Cesium.Cartographic.fromCartesian(position).height / 1000).toFixed(1) + ' km',
+        period:(orbit.period_s / 60).toFixed(1) + ' min'};
+    }""")
+    assert globe_page.locator("#satellite-name").inner_text() == metadata["name"]
+    assert globe_page.locator("#satellite-altitude").inner_text() == metadata["altitude"]
+    assert globe_page.locator("#satellite-period").inner_text() == metadata["period"]
+    assert popup.evaluate("""node => {
+      const style = getComputedStyle(node), box = node.getBoundingClientRect();
+      const map = elements.globe.getBoundingClientRect();
+      const alpha = Number(style.backgroundColor.match(/[0-9.]+/g).at(-1));
+      return style.position === 'absolute' && alpha > 0 && alpha < 1
+        && style.backdropFilter.includes('blur')
+        && box.left >= map.left && box.right <= map.right
+        && box.top >= map.top && box.bottom <= map.bottom;
+    }""")
+    assert globe_page.locator(".globe-frame").bounding_box()["height"] == height
+    assert globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)") == camera
+    assert globe_page.evaluate("state.replay.time") == time
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+    globe_page.keyboard.press("Escape")
+    assert globe_page.locator("#orbit-hud").is_hidden()
+    globe_page.mouse.click(candidate["x"], candidate["y"])
+    assert popup.is_visible()
+    globe_page.get_by_role("button", name="Close satellite details").click()
+    assert globe_page.locator("#orbit-hud").is_hidden()
+    globe_page.mouse.click(candidate["x"], candidate["y"])
+    blank = globe_page.evaluate("""() => {
+      const viewer = state.globe, box = elements.globe.getBoundingClientRect();
+      for (let y=30; y<box.height-30; y+=30) for (let x=30; x<box.width-30; x+=30) {
+        if (document.elementFromPoint(box.left+x,box.top+y) === viewer.canvas
+            && !pickedMissionObject(viewer,new Cesium.Cartesian2(x,y))) {
+          return {x:box.left+x,y:box.top+y};
+        }
+      }
+    }""")
+    assert blank
+    globe_page.mouse.click(blank["x"], blank["y"])
+    assert globe_page.locator("#orbit-hud").is_hidden()
+    assert globe_page.evaluate("state.selectedSatelliteId") == candidate["id"]
+    assert_single_screen(globe_page)
+
+
+@pytest.mark.parametrize("viewport", [(1440, 900), (375, 667)])
+def test_satellite_canvas_picking_double_click_focus_follow_and_source_horizon(
+    globe_page: Any, viewport: tuple[int, int]
+) -> None:
+    globe_page.set_viewport_size({"width": viewport[0], "height": viewport[1]})
+    globe_page.wait_for_timeout(200)
+    candidate = pickable_satellite(globe_page)
     globe_page.mouse.move(candidate["x"], candidate["y"])
     globe_page.wait_for_function("!document.getElementById('globe-hover').hidden")
     globe_page.mouse.click(candidate["x"], candidate["y"])
+    assert globe_page.locator("#orbit-hud").is_visible()
+    assert globe_page.evaluate(
+        "point => document.elementFromPoint(point.x,point.y) === state.globe.canvas", candidate
+    )
     assert globe_page.locator("#satellite-name").get_attribute("title") == candidate["id"]
     assert globe_page.locator("#camera-focus").count() == 0
     before_selection = globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)")
@@ -378,6 +1038,15 @@ def test_satellite_canvas_picking_double_click_focus_follow_and_source_horizon(
     globe_page.wait_for_timeout(300)
     after = globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)")
     assert before != after
+    globe_page.wait_for_function("""() => {
+      const viewer = state.globe, hud = document.getElementById('orbit-hud');
+      const point = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene,
+        state.orbitPositions.get(state.selectedSatelliteId).getValue(viewer.clock.currentTime));
+      const map = elements.globe.getBoundingClientRect(), popup = hud.getBoundingClientRect();
+      return point && !hud.hidden
+        && (popup.left >= map.left+point.x+11 || popup.right <= map.left+point.x-11)
+        && popup.top >= map.top && popup.bottom <= map.bottom;
+    }""")
     assert (
         globe_page.evaluate("""() => Cesium.Cartesian3.distance(
       state.globe.camera.positionWC,
@@ -437,11 +1106,10 @@ def test_plan_reload_clears_satellite_tracking_and_retains_source_geometry(globe
         .path.material === state.orbitStyles.get(orbit.satellite_id).dimmed.future)
     """)
     globe_page.locator("#solver-select").select_option("eos-ppo-profit")
-    globe_page.locator("#run-button").click()
     globe_page.wait_for_function(
         "state.currentPayload.reference_plan.plan_id === 'eos-ppo-profit' && !state.busy"
     )
-    assert globe_page.locator("#orbit-hud").is_visible()
+    assert globe_page.locator("#orbit-hud").is_hidden()
     assert globe_page.evaluate("!state.globe.trackedEntity && state.orbitPositions.size === 20")
     assert globe_page.evaluate(
         "state.globe.entities.values.filter(e=>e.id.startsWith('satellite-')).length === 20"
@@ -544,7 +1212,6 @@ def test_plan_reload_retains_planar_view_and_source_orbits(
         "mode => state.viewMode === mode && !state.viewTransition", arg=mode
     )
     globe_page.locator("#solver-select").select_option("eos-sa-profit")
-    globe_page.locator("#run-button").click()
     globe_page.wait_for_function(
         "state.currentPayload.reference_plan.plan_id === 'eos-sa-profit' && !state.busy"
     )
@@ -554,7 +1221,7 @@ def test_plan_reload_retains_planar_view_and_source_orbits(
     assert globe_page.evaluate(
         "state.globe.entities.values.filter(e=>e.id.startsWith('satellite-')).length === 20"
     )
-    assert globe_page.locator("#orbit-hud").is_visible()
+    assert globe_page.locator("#orbit-hud").is_hidden()
     assert_single_screen(globe_page)
 
 
@@ -600,7 +1267,6 @@ def test_loading_another_plan_during_a_view_transition_keeps_the_scene_healthy(
 ) -> None:
     globe_page.evaluate("setMapViewMode('2d')")
     globe_page.locator("#solver-select").select_option("eos-ppo-profit")
-    globe_page.locator("#run-button").click()
     globe_page.wait_for_function(
         "state.currentPayload.reference_plan.plan_id === 'eos-ppo-profit' && !state.busy "
         "&& !state.viewTransition"

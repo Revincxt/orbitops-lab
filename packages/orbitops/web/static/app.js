@@ -9,9 +9,9 @@ const state = {
   selectedTaskId: null,
   busy: false,
   pages: {},
-  layers: { targets: true, track: true, rays: true, fov: true, labels: false, satelliteLabels: true },
+  layers: { targets: true, track: true, rays: true, fov: true, illumination: true, labels: false, satelliteLabels: true },
   cameraHome: null,
-  lastRequest: null,
+  targetRowsKey: null,
   assignments: new Map(),
   taskById: new Map(),
   replay: { time: 0, playing: false, speed: 60, direction: 1, windowStart: 0, windowEnd: 43200, lastFrame: 0, lastPaint: 0 },
@@ -22,6 +22,7 @@ const state = {
   fovPrimitives: null,
   entityTaskStates: new Map(),
   selectedSatelliteId: null,
+  satelliteDetailsOpen: false,
   geometrySelectionKey: null,
   cameraMode: "overview",
   viewMode: "3d",
@@ -33,24 +34,19 @@ const staticDeployment = deployment.mode === "static";
 let staticDatasetPromise = null;
 
 const elements = {
-  form: document.getElementById("solve-form"),
   solver: document.getElementById("solver-select"),
-  button: document.getElementById("run-button"),
   status: document.getElementById("status"),
   results: document.getElementById("results"),
   timeline: document.getElementById("timeline-chart"),
   resources: document.getElementById("resource-chart"),
   globe: document.getElementById("mission-globe"),
   globeLoading: document.getElementById("globe-loading"),
-  comparisonBody: document.getElementById("comparison-body"),
-  comparisonContext: document.getElementById("comparison-context"),
-  comparisonNote: document.getElementById("comparison-note"),
+  comparisonChart: document.getElementById("comparison-chart"),
+  comparisonLegend: document.getElementById("comparison-legend"),
+  comparisonValues: document.getElementById("comparison-values"),
   shell: document.querySelector(".shell"),
-  runLabel: document.getElementById("run-label"),
   statusIndicator: document.getElementById("status-indicator"),
-  pending: document.getElementById("pending-state"),
   targetList: document.getElementById("target-list"),
-  export: document.getElementById("export-run"),
 };
 const TASK_COLORS = Object.fromEntries(Object.entries({
   Planned: "accent", Observing: "peach", Completed: "sage", Available: "peach", Unassigned: "danger",
@@ -85,16 +81,6 @@ function bindPager(name, render) {
       render();
     });
   }
-}
-
-function activeRequest() {
-  return { scenario_id: state.referenceData.scenario.scenario_id, solver_name: elements.solver.value };
-}
-
-function markConfigurationChanged() {
-  const dirty = Boolean(state.lastRequest && JSON.stringify(activeRequest()) !== JSON.stringify(state.lastRequest));
-  elements.pending.hidden = !dirty;
-  elements.button.dataset.pending = String(dirty);
 }
 
 function setWorkspaceView(view) {
@@ -141,10 +127,24 @@ function renderTargetCatalog() {
   if (!state.currentPayload) return;
   const { scenario, result } = state.currentPayload;
   const assignments = new Map((result.validation.simulation?.tasks || []).map((task) => [task.task_id, task]));
-  const capacity = Math.max(1, Math.floor(elements.targetList.clientHeight / layoutSize("target-row-height")));
-  const filtered = filteredTasks(scenario);
-  const tasks = pageItems("target", filtered, capacity);
-  textField("target-count", filtered.length === scenario.tasks.length ? scenario.tasks.length : `${filtered.length}/${scenario.tasks.length}`);
+  const tasks = filteredTasks(scenario);
+  textField("target-count", tasks.length === scenario.tasks.length ? scenario.tasks.length : `${tasks.length}/${scenario.tasks.length}`);
+  // Reuse list nodes during selection, playback and resize: preserve focus and
+  // scroll position even with all 500 tasks, including the live "Active now" filter.
+  const key = `${result.schedule.solver_name}:${tasks.map((task) => task.task_id).join(",")}`;
+  if (state.targetRowsKey === key) {
+    elements.targetList.querySelectorAll(".target-row").forEach((row) => {
+      const selected = row.dataset.taskId === state.selectedTaskId;
+      row.classList.toggle("is-selected", selected);
+      row.setAttribute("aria-pressed", String(selected));
+      row.dataset.state = taskState(row.dataset.taskId);
+      row.querySelector(".target-state").textContent = row.dataset.state;
+    });
+    return;
+  }
+  state.targetRowsKey = key;
+  const scrollTop = elements.targetList.scrollTop;
+  const focusedTaskId = elements.targetList.contains(document.activeElement) ? document.activeElement.dataset.taskId : null;
   const rows = tasks.map((task) => {
     const scheduled = assignments.has(task.task_id);
     const currentState = taskState(task.task_id);
@@ -172,6 +172,17 @@ function renderTargetCatalog() {
     return row;
   });
   elements.targetList.replaceChildren(...rows);
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "chart-empty";
+    empty.textContent = "No matching tasks";
+    elements.targetList.append(empty);
+  }
+  elements.targetList.scrollTop = scrollTop;
+  if (focusedTaskId) {
+    const row = rows.find((item) => item.dataset.taskId === focusedTaskId);
+    (row || elements.targetList).focus({ preventScroll: true });
+  }
 }
 
 function selectTarget(taskId, reveal = true, seek = reveal) {
@@ -179,6 +190,7 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
   if (!payload) return;
   const task = payload.scenario.tasks.find((item) => item.task_id === taskId);
   if (!task) return;
+  closeSatelliteDetails();
   state.selectedTaskId = taskId;
   const assignment = payload.result.validation.simulation?.tasks.find((item) => item.task_id === taskId);
   if (payload.mode === "reference") {
@@ -232,7 +244,6 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
     }
     const filtered = filteredTasks(payload.scenario);
     const index = filtered.findIndex((candidate) => candidate.task_id === taskId);
-    if (index >= 0) state.pages.target = Math.floor(index / Math.max(1, Math.floor(elements.targetList.clientHeight / layoutSize("target-row-height"))));
     const capacity = Math.max(1, Math.floor((elements.timeline.clientHeight - 33) / layoutSize("timeline-row-height")));
     if (payload.mode === "reference" && assignment) {
       const selectedSatellite = document.getElementById("satellite-filter").value;
@@ -242,9 +253,19 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
     } else if (index >= 0) state.pages.timeline = Math.floor(index / capacity);
   }
   renderTargetCatalog();
+  if (reveal) revealSelectedTask();
   if (!document.getElementById("pane-timeline").hidden) renderGantt(payload.scenario, payload.result);
   if (payload.mode === "reference") renderWorkloads();
   updateReplayVisuals();
+}
+
+function revealSelectedTask() {
+  const row = [...elements.targetList.children].find((item) => item.dataset.taskId === state.selectedTaskId);
+  if (!row) return;
+  const bounds = elements.targetList.getBoundingClientRect();
+  const box = row.getBoundingClientRect();
+  if (box.top < bounds.top) elements.targetList.scrollTop += box.top - bounds.top;
+  else if (box.bottom > bounds.bottom) elements.targetList.scrollTop += box.bottom - bounds.bottom;
 }
 
 function refreshPanels() {
@@ -252,7 +273,7 @@ function refreshPanels() {
   if (!payload) return;
   renderTargetCatalog();
   if (!document.getElementById("pane-timeline").hidden) renderGantt(payload.scenario, payload.result);
-  if (!document.getElementById("pane-comparison").hidden) renderComparison(payload.scenario.scenario_id, payload.result.schedule.solver_name);
+  renderComparison();
   if (elements.resources.clientHeight > 0) renderResources(payload.scenario, payload.result);
   state.globe?.resize();
 }
@@ -307,23 +328,12 @@ function populateSelect(select, items, valueKey, labelFactory) {
 
 function setBusy(busy, message) {
   state.busy = busy;
-  elements.button.disabled = busy;
   elements.solver.disabled = busy;
-  elements.runLabel.textContent = busy ? "Loading…" : "Load plan";
   elements.results.setAttribute("aria-busy", String(busy));
   elements.statusIndicator.classList.toggle("is-busy", busy);
   elements.statusIndicator.classList.remove("is-error");
   elements.status.classList.remove("error");
   if (message) elements.status.textContent = message;
-}
-
-function appendCell(row, text, className = "") {
-  const cell = document.createElement("td");
-  cell.textContent = text;
-  cell.title = String(text);
-  if (className) cell.className = className;
-  row.append(cell);
-  return cell;
 }
 
 function renderComparison() {
@@ -389,6 +399,9 @@ function renderGlobeFallback(scenario, scheduledIds) {
   map.append(svgElement("text", { x: 20, y: 485, class: "map-caption" }, "2D SCHEMATIC · WGS84"));
   if (state.currentPayload?.replay) addFallbackOrbits(map);
   elements.globe.replaceChildren(map);
+  map.addEventListener("click", (event) => {
+    if (!event.target.closest(".map-satellite")) closeSatelliteDetails();
+  });
   elements.globe.dataset.engine = "fallback";
   updateMapViewControls();
   elements.globeLoading.classList.add("is-hidden");
@@ -492,6 +505,26 @@ function nasaBlueMarbleLayer(Cesium) {
   return commandImageryLayer(Cesium, provider);
 }
 
+function styleMapAttribution() {
+  // Keep Cesium's original credit popup and required provider attribution.
+  const link = elements.globe.querySelector(".cesium-credit-expand-link");
+  if (!link) return;
+  const icon = svgElement("svg", {viewBox: "0 0 24 24", "aria-hidden": "true"});
+  icon.append(svgElement("circle", {cx: 12, cy: 12, r: 8}), svgElement("path", {d: "M12 11v6m0-10v.5"}));
+  link.replaceChildren(icon);
+  link.classList.add("attribution-icon");
+  link.setAttribute("role", "button");
+  link.setAttribute("aria-label", "Map credits");
+  link.title = "Map credits";
+  link.tabIndex = 0;
+  link.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      link.click();
+    }
+  });
+}
+
 function renderMissionGlobe(scenario, result) {
   const scheduledTasks = result.validation.simulation?.tasks || [];
   const scheduledIds = new Set(scheduledTasks.map((task) => task.task_id));
@@ -525,6 +558,7 @@ function renderMissionGlobe(scenario, result) {
         requestRenderMode: true,
         maximumRenderTimeChange: Infinity,
       });
+      styleMapAttribution();
       state.globe.imageryLayers.add(primaryImagery);
       state.globe.imageryLayers.add(geographicGridLayer(Cesium));
       bindGlobePicking(state.globe, Cesium);
@@ -546,13 +580,20 @@ function renderMissionGlobe(scenario, result) {
       });
       state.globe.scene.backgroundColor = Cesium.Color.fromCssColorString("#02060b");
       state.globe.scene.globe.baseColor = Cesium.Color.fromCssColorString("#0a2538");
-      state.globe.scene.globe.enableLighting = false;
+      state.globe.scene.globe.enableLighting = true;
+      // Keep the day/night distinction when following a low-orbit satellite.
+      state.globe.scene.globe.lightingFadeOutDistance = 0;
+      state.globe.scene.globe.lightingFadeInDistance = 1;
+      state.globe.scene.globe.dynamicAtmosphereLighting = true;
+      state.globe.scene.globe.dynamicAtmosphereLightingFromSun = true;
       state.globe.scene.globe.showGroundAtmosphere = true;
       state.globe.scene.globe.atmosphereBrightnessShift = -.22;
       state.globe.scene.skyAtmosphere.brightnessShift = -.05;
       // Native star map stays behind the Earth and fades out in planar views.
       state.globe.scene.skyBox.show = true;
-      state.globe.scene.sun.show = false;
+      state.globe.scene.sun.show = true;
+      state.globe.scene.sun.glowFactor = .4;
+      state.globe.scene.sunBloom = false;
       state.globe.scene.moon.show = false;
       state.globe.useBrowserRecommendedResolution = false;
       state.globe.resolutionScale = Math.min(2, window.devicePixelRatio || 1) / (window.devicePixelRatio || 1);
@@ -590,24 +631,20 @@ function renderResult(payload) {
     state.pages = {};
     state.selectedTaskId = result.validation.simulation?.tasks[0]?.task_id || scenario.tasks[0]?.task_id;
   }
-  state.lastRequest = { scenario_id: scenario.scenario_id, solver_name: result.schedule.solver_name };
   renderEvaluation(payload);
   configureModeDetails(payload);
-  elements.export.disabled = false;
   renderMissionGlobe(scenario, result);
   selectTarget(state.selectedTaskId, false);
   refreshPanels();
-  markConfigurationChanged();
 }
 
-async function runSolve() {
-  if (state.busy || !state.referenceData || !elements.form.reportValidity()) return;
+async function loadReferencePlan() {
+  if (state.busy || !state.referenceData || !elements.solver.reportValidity()) return;
   setBusy(true, "Loading plan…");
   try {
     const plan = state.referenceData.plans.find((item) => item.plan_id === elements.solver.value);
     if (!plan) throw new Error("Reference plan is unavailable.");
     renderResult(window.OrbitReplay.referencePayload(state.referenceData, plan));
-    if (window.matchMedia("(max-width: 1000px)").matches) setWorkspaceView("map");
     elements.status.textContent = `${plan.label} · Ready`;
   } catch (error) {
     setBusy(false);
@@ -632,10 +669,9 @@ async function initialize() {
     populateSelect(elements.solver, referenceData.plans, "plan_id", (plan) => plan.label);
     elements.solver.value = referenceData.plans.some((plan) => plan.plan_id === "eos-sa-balanced") ? "eos-sa-balanced" : referenceData.plans[0].plan_id;
     setBusy(false);
-    await runSolve();
+    await loadReferencePlan();
   } catch (error) {
     setBusy(false);
-    elements.button.disabled = true;
     elements.solver.disabled = true;
     elements.statusIndicator.classList.add("is-error");
     elements.status.classList.add("error");
@@ -643,26 +679,21 @@ async function initialize() {
   }
 }
 
-elements.form.addEventListener("submit", (event) => {
-  event.preventDefault();
-  runSolve();
-});
-elements.solver.addEventListener("change", markConfigurationChanged);
-elements.export.addEventListener("click", () => {
-  if (!state.currentPayload) return;
-  const payload = state.currentPayload;
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${payload.scenario.scenario_id}-${payload.result.schedule.solver_name}.json`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+elements.solver.addEventListener("change", loadReferencePlan);
+const comparisonInfo = document.getElementById("comparison-info");
+const comparisonScales = document.getElementById("comparison-scales");
+function setComparisonScalesOpen(open) {
+  comparisonInfo.setAttribute("aria-expanded", String(open));
+  comparisonScales.hidden = !open;
+}
+comparisonInfo.addEventListener("click", () => setComparisonScalesOpen(comparisonScales.hidden));
+document.addEventListener("pointerdown", (event) => {
+  if (!event.target.closest(".comparison-card")) setComparisonScalesOpen(false);
 });
 document.querySelectorAll(".workspace-nav button").forEach((button) => {
   button.addEventListener("click", () => setWorkspaceView(button.dataset.workspaceView));
 });
-for (const name of ["targets", "track", "rays", "fov", "labels"]) {
+for (const name of ["targets", "track", "rays", "fov", "illumination", "labels"]) {
   document.getElementById(`toggle-${name}`).addEventListener("click", (event) => {
     state.layers[name] = !state.layers[name];
     event.currentTarget.setAttribute("aria-pressed", String(state.layers[name]));
@@ -692,27 +723,27 @@ document.getElementById("reset-view").addEventListener("click", () => {
 });
 bindTabs();
 bindMissionControls();
-bindPager("target", renderTargetCatalog);
-for (const name of ["timeline", "comparison"]) bindPager(name, refreshPanels);
+bindPager("timeline", refreshPanels);
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !comparisonScales.hidden) {
+    event.preventDefault();
+    setComparisonScalesOpen(false);
+    comparisonInfo.focus();
+    return;
+  }
   if (event.key === "Escape" && !layerOptions.hidden) {
     event.preventDefault();
     setLayersOpen(false);
     layerToggle.focus();
     return;
   }
-  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-    event.preventDefault();
-    runSolve();
-  }
-
 });
 let resizeFrame;
 const resizeObserver = new ResizeObserver(() => {
   cancelAnimationFrame(resizeFrame);
   resizeFrame = requestAnimationFrame(refreshPanels);
 });
-for (const host of [elements.timeline, elements.resources, elements.targetList, document.querySelector(".comparison-table-host")]) resizeObserver.observe(host);
+for (const host of [elements.timeline, elements.resources, elements.targetList, elements.comparisonChart]) resizeObserver.observe(host);
 let globeResizeFrame;
 const globeResizeObserver = new ResizeObserver(() => {
   cancelAnimationFrame(globeResizeFrame);

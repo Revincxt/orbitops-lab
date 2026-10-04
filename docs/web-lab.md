@@ -47,25 +47,33 @@ synthetic scenario.
 ## Interaction model
 
 The fixed-viewport engineering workspace keeps configuration, mission geometry,
-and output inspection visible together. The page and its panels do not scroll:
-target catalogs, timeline rows and plan comparisons use height-aware pagination.
+and output inspection visible together. The page, map and inspector do not
+scroll. Task List is the only internally scrolling panel; all 500 source tasks
+remain reachable, with search and status filters. Timeline rows use height-aware
+pagination.
 Desktop side panels are fixed; there are no collapse controls. On narrow screens
 a compact Map / Tasks / Results navigation switches between full-width views.
 
-The left panel selects one of the four reference plans and contains the
-paginated target catalog. The centre prioritizes the orbit view, with a compact
+The top-right algorithm selector, beside Repository, switches
+between the four original plans immediately. There is no Load Plan button,
+pending-change prompt, visible selector label or separate configuration card. The left column contains
+the algorithm comparison radar above Task List. The centre prioritizes the orbit view, with a compact
 analysis dock below it. The right panel shows target details and satellite
 workload, without the former four primary metric cards. Projection controls live
-in the map toolbar;
-layer switches are grouped in a dismissible menu.
+in the map toolbar. Layer, fit, expand, Overview and Follow share one compact
+control rail with matching heights, icon sizes and interaction states;
+layer switches are grouped in a dismissible menu. Plan summary has no download
+button, and the toolbar has no Past/Future legend.
 
 The visual treatment follows an orbital command-room reference: a near-black
-workspace, cool cyan/blue header ribbons, thin technical frames and separated
-data cards surrounding the central globe. Corner brackets and the header rule
+workspace, restrained cyan accents, fine borders and softly rounded
+data cards surrounding the central globe. The map brackets and header rule
 are decorative only and never capture pointer events. No decorative charts,
-invented telemetry or additional metric panels are introduced. Inter typography,
+invented telemetry or aggregate rankings are introduced. Inter typography,
 tabular numeric alignment, restrained status colours and keyboard focus remain
-consistent across the panels. Compact table rows retain height-aware pagination.
+consistent across the panels. Desktop keeps the existing column widths and map
+height. On phones the radar and algorithm legend sit side by side; tablet Tasks
+views place Comparison beside the scrolling list.
 
 NASA and Natural Earth imagery share a darker, reduced-saturation presentation
 with a subtle blue atmospheric rim. This affects appearance only, not geometry,
@@ -76,24 +84,63 @@ A faint, transparent geographic tile grid is generated locally with Cesium's
 It is a map guide, not a sensor footprint, observation window or orbit. It adds
 no external requests or mission entities and works in all three projections.
 
-Changing a plan marks the current output as pending until Load plan is pressed.
-Ctrl+Enter (Cmd+Enter on macOS) loads the selected plan. Comparison rows can also
-activate a source plan. Reloading resets playback and camera tracking but
-preserves the selected projection; it never calls a local solver. Legacy
+Only the 3D view adds solar illumination with a natural day/night transition.
+There is no yellow boundary line, outline or extra terminator geometry. The
+native Sun uses Cesium's
+[Simon 1994 ephemeris](https://cesium.com/learn/cesiumjs/ref-doc/Simon1994PlanetaryPositions.html)
+and the same Earth-fixed transformation as the scene's SunLight, evaluated at
+the replay UTC rather than the wall clock. The boundary follows WGS84 surface
+normals perpendicular to that direction, not an equatorial circle or a camera
+shadow. It represents the Sun-centre geometric horizon, not atmospheric
+refraction, civil/nautical/astronomical twilight or satellite eclipse predictions.
+Source tasks, access windows, orbit samples and scores remain unchanged.
+
+The Sun stays at its physical ephemeris distance; it is not moved near Earth
+to fit the viewport. Looking towards an unobscured Sun displays the native disc
+and restrained glow. It can naturally be outside the camera's view or occulted
+by Earth; there is no extra solar direction marker or indicator.
+`Sun & day/night` in Layers toggles the 3D
+environment. The switch is unavailable in 2D, 2.5D and the offline schematic;
+those maps retain their previous unshaded appearance without a boundary or
+solar marker. Returning to 3D restores the stored setting and replay time.
+
+Cesium updates the solar position and lighting from the shared replay clock,
+including times before and after the original planning horizon. The environment
+adds no mission entities, extra geometry or render listeners. Plan reloads reuse
+the existing scene and Sun. The native ICRF transform can load
+Cesium's existing IAU XYS assets; no new service, custom texture or dependency
+is introduced. Day/night lighting remains enabled at satellite-follow altitudes
+instead of fading to a fully lit Earth when zooming in.
+
+Changing the top selector or activating a radar legend item loads the original
+source plan automatically. Reloading resets playback and camera tracking but
+preserves the selected projection and mobile workspace view; it never calls a
+local solver. Legacy
 `?mode=local` URLs no longer expose other scenarios.
 
-The analysis dock contains:
+The analysis dock contains only the Timeline: source observation intervals and
+the selected task's visibility windows, paginated across all 20 satellite lanes.
 
-- **Timeline:** source observation intervals and the selected task's visibility
-  windows, paginated across all 20 satellite lanes.
-- **Comparison:** TP/TCR/TM/BD, original runtime, check scope and objectives for
-  all four plans; different objectives are not collapsed into one ranking.
+Comparison uses a five-axis SVG radar for all four source algorithms. Each axis
+uses a 0–1 display scale with outward meaning better: TP / highest source TP,
+original TCR, 1 − TM, fastest source RT / RT, and original BD. This preserves
+natural completion and balance fractions rather than mapping the worst plan to
+zero completion. Runtime is source solver runtime, not viewer performance.
+Colours and line patterns distinguish the plans; the active series is drawn
+last and has a subtle fill. The footer shows its raw TP/TCR/TM/RT/BD values;
+axis and series tooltips preserve metric scales, exact source objectives and
+limited reference-consistency scope. The information button reveals the scale
+definitions on demand. No overall score or full-feasibility claim is inferred.
+
+Task rows retain their DOM nodes across selection, resize and playback so the
+scroll position and keyboard focus do not jump. A task selected elsewhere is
+revealed by scrolling only the list, never the page or map.
 
 The inspector has only Selection and Metrics tabs. Audit, Data and Run record
 views have been removed. The top scenario-summary strip and the live
 completed/observing text are also absent; playback retains its timestamp,
 scrubber, speed and play/reset controls. Source attribution, revision, hashes and
-verification scope remain in the exported reference JSON. Removing their panels
+verification scope remain in the reference archive and payload. Removing their panels
 does not change the archive, recomputed metrics or limited validation scope.
 Satellite workload bars support mouse and keyboard selection.
 
@@ -124,16 +171,16 @@ Labels use proportional type, numeric values use tabular figures, and only the
 UTC playback timestamp uses monospace. CSS density tokens are shared by the
 catalog, timeline, workload and comparison pagination, so larger readable type
 does not crop rows or alter any source data. Satellite names are human-readable
-throughout the interface, with full source IDs retained in titles and exports.
+throughout the interface, with full source IDs retained in titles and the payload.
 
 Selecting a target in the catalog, Gantt, or map updates the same inspector and
 selection highlight. The inspector exposes coordinates, priority, duration,
 satellite assignment, observation interval, data volume and source orbit number.
 The layers menu toggles targets, orbit paths, observation links, target IDs and
 satellite IDs. Escape, outside clicks and focus leaving the menu dismiss it.
-Export downloads the complete reference payload, including scenario, plan,
-provenance and verification scope. Load failures remain visible in the status
-bar. Targets on the far side of Earth are depth-occluded.
+The browser no longer offers a JSON download action. Scenario, plan, provenance
+and verification scope remain unchanged in the reference payload. Load failures
+remain visible in the status bar. Targets on the far side of Earth are depth-occluded.
 
 The shared playback clock supports pause, reset, scrubbing, selectable speed and
 forward/reverse playback. It is not bounded by the task-planning horizon. Previous
@@ -158,8 +205,8 @@ Observation activity is disabled outside the original half-open task interval.
 There are no new observation links, windows, resource events, assignments or
 evaluation metrics. Assigned tasks remain Planned before the scenario and
 Completed after it. The timeline retains the original schedule and hides its
-playhead outside the sample interval. Export still downloads the unchanged
-reference payload, not generated extension samples.
+playhead outside the sample interval. The reference payload remains unchanged;
+generated extension samples are display-only.
 
 Catalog, map, timeline cursor and task details share half-open interval
 semantics: observing at start, completed at end. Planned completion metrics stay
@@ -178,8 +225,16 @@ interpolated seam endpoints, rather than connecting them across the map.
 Satellites have screen-space engineering symbols and colour-matched names,
 tracks and selection halos. Symbols do not represent physical scale or attitude.
 Click a satellite/track to select it; double-click to focus the camera on it.
-There is no separate Focus button. The map readout
-shows display-interpolated WGS84 ellipsoid altitude and the source orbital period.
+There is no separate Focus button or Past/Future key. Overview/Follow are
+integrated to the right of the map toolbar's layer, fit and expand buttons in
+one shared control rail, with icon-only camera controls in compact panes.
+There is no extra row below the map; solid/dashed orbit geometry is unchanged.
+Satellite details are closed by default: selecting a satellite opens a small
+translucent popup beside its symbol, showing display-interpolated WGS84 ellipsoid
+altitude and the source orbital period. It follows the selected symbol during
+playback and camera changes, stays within the map bounds, and hides while the
+satellite is offscreen or occluded. Close, Escape, clicking empty map space or
+loading a plan dismisses it, without changing the replay clock or map dimensions.
 Overview and Follow are explicit camera modes; selecting a task links the
 associated satellite without automatically flying the camera. Overview and the fit button release
 tracking. Target IDs are distance-limited to avoid labelling all 500 targets at
@@ -189,9 +244,18 @@ for targets, satellite symbols and labels, so the far side is occluded.
 The map can temporarily expand within the centre workspace while the two side
 panels remain available; restore returns the analysis dock. Camera framing
 accounts for both viewport axes and all retained orbital altitudes, and refits
-when an overview viewport is resized. A north-reset compass reflects the current
-camera heading instead of showing a static orientation indicator. Small/short
-map viewports compact the satellite readout to keep the globe accessible.
+when an overview viewport is resized. A fine-tick north-reset compass projects
+geographic north onto the rendered camera's screen axes, accounting for tilt,
+roll and tracked transforms rather than using heading alone. It synchronizes
+after each rendered frame, including small turns below the camera event threshold
+while replay is paused, without an extra render loop. Unfolded views use map north;
+morphs and degenerate north projections retain the last valid bearing. There is
+no numeric readout, and its N label stays upright. Clicking it preserves position
+and pitch while releasing tracking and resetting heading and roll.
+The native credit popup remains available through a compact information icon,
+without the default attribution text. Required provider credits and the Cesium
+logo are retained. Small/short
+map panes compact the toolbar and separate the task legend from the compass.
 
 The map toolbar's projection controls switch between the native Cesium 3D
 globe, tilted 2.5D unfolded map (Columbus View), and 2D geographic map. All views
@@ -229,7 +293,7 @@ against source metrics. ID validity, uniqueness, horizon, required duration,
 containing source windows, per-satellite observation overlap and task partition
 are also checked. **These checks are not full feasibility validation.** Attitude
 transitions, per-orbit resource budgets, sensor geometry, battery dynamics and
-downlink are not independently verified. The exported payload therefore reports
+downlink are not independently verified. The reference payload therefore reports
 full feasibility as null, never PASS; comparison rows explicitly report limited
 scope. Unrecorded seeds, budgets and causal exclusion
 reasons remain unrecorded; no energy/storage trace is fabricated.
@@ -249,7 +313,7 @@ then run:
 python scripts/import_eos_reference.py /path/to/downloaded-source
 ```
 
-The export includes source URLs, hashes and verification scope. The pinned source
+The archive includes source URLs, hashes and verification scope. The pinned source
 tree contains no license declaration; the reference snapshot is kept distinct
 from OrbitOps-authored code and should be reviewed before external redistribution.
 Pushing this archive to `main` makes the reference snapshot public in the
@@ -348,7 +412,8 @@ regression checks; these do not certify long-range ephemeris accuracy.
 Optional browser regression checks run against the actual reference archive
 while blocking remote geometry dependencies. They verify eight viewport sizes,
 all 500 reachable targets, all 20 satellite lanes, linked selection, keyboard
-tabs, layer-menu dismissal, JSON export, single-scenario enforcement, missing
+tabs, layer-menu dismissal, removed download/legend controls, unified map actions,
+single-scenario enforcement, missing
 archive errors, plan switching and API-free static loading. Playback checks cover
 both horizon crossings, reverse playback, UTC jumps, source immutability and the
 absence of out-of-horizon task activity:

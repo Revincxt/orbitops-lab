@@ -34,7 +34,7 @@ function configureReplay(payload) {
   state.orbitEmphasis = false;
   if (!payload.replay?.orbits.some((orbit) => orbit.satellite_id === state.selectedSatelliteId)) state.selectedSatelliteId = null;
   document.getElementById("globe-hover").hidden = true;
-  document.getElementById("orbit-hud").hidden = payload.mode !== "reference";
+  closeSatelliteDetails();
   state.replay.playing = false;
   state.replay.time = payload.scenario.horizon_start_s;
   state.replay.lastFrame = 0;
@@ -235,7 +235,7 @@ function renderEvaluation(payload) {
 }
 
 function objectiveLabel(objective) {
-  // Presentation only: exact source coefficients remain in the title and export.
+  // Presentation only: exact source coefficients remain in the title and payload.
   return {
     "profit=.25 completion=.25 timeliness=.25 balance=.25": "Equal weights",
     "profit=1 completion=0 timeliness=0 balance=0": "Profit only",
@@ -243,43 +243,122 @@ function objectiveLabel(objective) {
   }[objective] || objective;
 }
 
-function setComparisonHeadings(labels) {
-  document.querySelectorAll(".comparison-table th").forEach((cell, index) => { cell.textContent = labels[index]; cell.title = labels[index]; });
+const RADAR_AXES = [
+  { key: "TP", label: "TP ↑", name: "Total profit", scale: "TP / highest TP across the four source plans", format: (value) => value.toFixed(0) },
+  { key: "TCR", label: "TCR ↑", name: "Task completion rate", scale: "Original completion fraction, 0–1", format: (value) => `${(value * 100).toFixed(1)}%` },
+  { key: "TM", label: "TM ↓", name: "Timeliness", scale: "1 − TM; lower source TM is better", format: (value) => value.toFixed(3) },
+  { key: "RT", label: "RT ↓", name: "Source solver runtime", scale: "Fastest source RT / RT; lower runtime is better", format: (value) => `${value.toFixed(1)}s` },
+  { key: "BD", label: "BD ↑", name: "Workload balance", scale: "Original balance score, 0–1", format: (value) => value.toFixed(3) },
+];
+
+// Display-only scales, not an aggregate score. Keep natural 0–1 metrics so a
+// slightly lower completion rate is not misleadingly drawn as zero completion.
+function radarSeries(plans) {
+  const values = plans.map((plan) => ({ ...plan.recomputed_metrics, RT: plan.source_metrics.RT }));
+  const maxTP = Math.max(0, ...values.map((metrics) => Number.isFinite(metrics.TP) ? metrics.TP : 0));
+  const runtimes = values.map((metrics) => metrics.RT).filter((value) => Number.isFinite(value) && value >= 0);
+  const minRT = runtimes.length ? Math.min(...runtimes) : 0;
+  return plans.map((plan, index) => ({
+    plan, metrics: RADAR_AXES.map((axis) => {
+      const raw = values[index][axis.key];
+      if (!Number.isFinite(raw) || raw < 0) return { ...axis, raw: null, score: null };
+      const score = axis.key === "TP" ? (maxTP ? raw / maxTP : 0)
+        : axis.key === "TM" ? 1 - raw
+        : axis.key === "RT" ? (raw === 0 ? 1 : minRT / raw) : raw;
+      return { ...axis, raw, score: Math.max(0, Math.min(1, score)) };
+    }),
+  }));
 }
 
 function renderReferenceComparison() {
-  setComparisonHeadings(["Plan", "TP ↑", "TCR ↑", "TM ↓", "Scope", "RT ↓", "BD ↑", "Objective"]);
-  const tableHost = document.querySelector(".comparison-table-host");
-  const capacity = Math.max(1, Math.floor((tableHost.clientHeight - layoutSize("comparison-header-height")) / layoutSize("comparison-row-height")));
-  const plans = pageItems("comparison", state.referenceData.plans, capacity);
-  const rows = plans.map((plan) => {
-    const row = document.createElement("tr");
-    if (plan.plan_id === state.currentPayload.reference_plan.plan_id) row.classList.add("is-focused");
-    const cell = appendCell(row, "", "method-name");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = plan.label;
-    button.disabled = state.busy;
-    button.addEventListener("click", () => {
-      elements.solver.value = plan.plan_id;
-      renderResult(window.OrbitReplay.referencePayload(state.referenceData, plan));
-      elements.status.textContent = `${plan.label} · Ready`;
-    });
-    cell.append(button);
-    const metrics = plan.recomputed_metrics;
-    appendCell(row, metrics.TP.toFixed(0), "numeric");
-    appendCell(row, `${(metrics.TCR * 100).toFixed(1)}%`, "numeric");
-    appendCell(row, metrics.TM.toFixed(3), "numeric");
-    appendCell(row, plan.checks.issues.length ? "ISSUES" : "LIMITED", "numeric");
-    appendCell(row, `${plan.source_metrics.RT.toFixed(1)}s`, "numeric");
-    appendCell(row, metrics.BD.toFixed(3), "numeric");
-    const objective = appendCell(row, objectiveLabel(plan.objective));
-    objective.title = plan.objective;
-    return row;
+  const plans = state.referenceData.plans;
+  const selectedId = state.currentPayload.reference_plan.plan_id;
+  const series = radarSeries(plans);
+  const colors = ["#6ad6ee", "#edc78a", "#75d9b6", "#bca9f5"];
+  const dashes = ["", "5 2", "2 2", "7 2 1 2"];
+  const selected = series.find((item) => item.plan.plan_id === selectedId);
+  const summary = (item) => item.metrics.map((metric) => `${metric.key} ${metric.raw === null ? "N/A" : metric.format(metric.raw)}`).join(" · ");
+  const description = "Outward is better on five 0–1 display scales: TP / best TP, TCR, 1 − TM, fastest RT / RT, BD. Different objectives; no overall ranking. Runtime is the recorded source solver runtime.";
+  const width = Math.max(160, elements.comparisonChart.clientWidth);
+  const height = Math.max(120, elements.comparisonChart.clientHeight);
+  const cx = width / 2, cy = height / 2 + 7;
+  const radius = Math.max(26, Math.min((width - 62) / 2, (height - 46) / 2));
+  const position = (index, distance) => {
+    const angle = -Math.PI / 2 + index * Math.PI * 2 / RADAR_AXES.length;
+    return [cx + Math.cos(angle) * distance, cy + Math.sin(angle) * distance];
+  };
+  const points = (scores) => scores.map((score, index) => position(index, radius * score).join(",")).join(" ");
+  const root = chart(width, height, "Optimization algorithm comparison", `${description} Selected: ${selected.plan.label}, ${summary(selected)}.`);
+  for (const scale of [.25, .5, .75, 1]) {
+    root.append(svgElement("polygon", { points: points(RADAR_AXES.map(() => scale)), class: `radar-grid${scale === 1 ? " radar-boundary" : ""}` }));
+  }
+  RADAR_AXES.forEach((axis, index) => {
+    const [x, y] = position(index, radius);
+    root.append(svgElement("line", { x1: cx, y1: cy, x2: x, y2: y, class: "radar-grid" }));
+    const [labelX, labelY] = position(index, radius + 17);
+    const label = svgElement("text", { x: labelX, y: labelY, "text-anchor": "middle", "dominant-baseline": "middle", class: "radar-axis" }, axis.label);
+    label.append(svgElement("title", {}, `${axis.name} · ${axis.scale}`));
+    root.append(label);
   });
-  elements.comparisonBody.replaceChildren(...rows);
-  textField("comparison-context", "Objectives differ");
-  textField("comparison-note", "Different objectives · no overall ranking. RT is source runtime.");
+  // Paint the active plan last; all four remain visible, with distinct dashes
+  // as well as colours. Polygons and vertices never alter source metric values.
+  [...series].sort((a, b) => Number(a.plan.plan_id === selectedId) - Number(b.plan.plan_id === selectedId)).forEach((item) => {
+    const index = plans.indexOf(item.plan);
+    const active = item.plan.plan_id === selectedId;
+    const group = svgElement("g", { class: `radar-series${active ? " is-selected" : ""}`, "data-plan-id": item.plan.plan_id });
+    // CSSOM updates are compatible with the local server's strict style CSP.
+    group.style.setProperty("--series-color", colors[index % colors.length]);
+    group.append(svgElement("title", {}, `${item.plan.label} · ${summary(item)}\nObjective: ${item.plan.objective}\nReference consistency only, not full feasibility.`));
+    if (item.metrics.every((metric) => metric.score !== null)) {
+      group.append(svgElement("polygon", { points: points(item.metrics.map((metric) => metric.score)), class: "radar-area", "stroke-dasharray": dashes[index % dashes.length] }));
+    }
+    item.metrics.forEach((metric, axisIndex) => {
+      if (metric.score === null) return;
+      const [x, y] = position(axisIndex, radius * metric.score);
+      const dot = svgElement("circle", { cx: x, cy: y, r: active ? 2.5 : 1.5, class: "radar-point", "data-metric": metric.key, "data-raw": metric.raw, "data-score": metric.score });
+      dot.append(svgElement("title", {}, `${item.plan.label} · ${metric.name}: ${metric.format(metric.raw)}\n${metric.scale}`));
+      group.append(dot);
+    });
+    root.append(group);
+  });
+  elements.comparisonChart.replaceChildren(root);
+  if (elements.comparisonLegend.childElementCount !== plans.length) {
+    elements.comparisonLegend.replaceChildren(...series.map((item, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.planId = item.plan.plan_id;
+      button.style.setProperty("--series-color", colors[index % colors.length]);
+      button.title = `${item.plan.label} · ${summary(item)}\nObjective: ${item.plan.objective}\nReference consistency only; no overall ranking or full feasibility claim.`;
+      const swatch = document.createElement("span");
+      swatch.className = "radar-swatch";
+      swatch.setAttribute("aria-hidden", "true");
+      swatch.style.borderTopStyle = index ? "dashed" : "solid";
+      const label = document.createElement("span");
+      label.textContent = item.plan.label;
+      button.append(swatch, label);
+      button.addEventListener("click", () => {
+        if (elements.solver.value === item.plan.plan_id) return;
+        elements.solver.value = item.plan.plan_id;
+        loadReferencePlan();
+      });
+      return button;
+    }));
+  }
+  elements.comparisonLegend.querySelectorAll("button").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.planId === selectedId));
+    button.disabled = state.busy;
+  });
+  elements.comparisonValues.setAttribute("aria-label", `${selected.plan.label} raw metrics`);
+  elements.comparisonValues.replaceChildren(...selected.metrics.map((metric) => {
+    const field = document.createElement("div");
+    field.title = `${metric.name} · ${metric.scale}`;
+    const label = document.createElement("dt");
+    label.textContent = metric.label;
+    const value = document.createElement("dd");
+    value.textContent = metric.raw === null ? "N/A" : metric.format(metric.raw);
+    field.append(label, value);
+    return field;
+  }));
 }
 
 function renderReferenceGantt() {
@@ -405,6 +484,15 @@ function satelliteGlyph() {
   context.fillRect(-5, -10, 10, 20);
   context.strokeRect(-5, -10, 10, 20);
   return canvas;
+}
+
+function updateSolarEnvironment() {
+  const viewer = state.globe;
+  if (!viewer) return;
+  const Cesium = window.Cesium;
+  const visible = state.layers.illumination && !state.viewTransition && viewer.scene.mode === Cesium.SceneMode.SCENE3D;
+  viewer.scene.globe.enableLighting = visible;
+  viewer.scene.sun.show = visible;
 }
 
 function clearSensorFovs() {
@@ -608,6 +696,7 @@ function updateCesiumReplay(active) {
     viewer.entities.getById(id).show = state.layers.rays;
   });
   updateSensorFovs();
+  updateSolarEnvironment();
   updatePlanarFollow();
   viewer.scene.requestRender();
 }
@@ -699,6 +788,7 @@ function releaseCameraTracking() {
 function selectSatellite(id) {
   if (!state.currentPayload?.replay?.orbits.some((orbit) => orbit.satellite_id === id)) return;
   state.selectedSatelliteId = id;
+  state.satelliteDetailsOpen = true;
   state.orbitEmphasis = true;
   updateReplayVisuals();
   renderWorkloads();
@@ -707,14 +797,16 @@ function selectSatellite(id) {
 
 function updateOrbitHud() {
   const reference = state.currentPayload?.mode === "reference";
-  document.getElementById("orbit-hud").hidden = !reference;
   const orbit = state.currentPayload?.replay?.orbits.find((item) => item.satellite_id === state.selectedSatelliteId);
+  document.getElementById("orbit-hud").hidden = !reference || !orbit || !state.satelliteDetailsOpen || state.viewTransition;
   const available = Boolean(!state.viewTransition && orbit && state.globe?.entities.getById(`satellite-${orbit.satellite_id}`));
   document.getElementById("camera-follow").disabled = !available;
   document.getElementById("north-view").disabled = !state.globe || state.viewTransition;
+  updateCameraCompass();
   document.getElementById("camera-overview").disabled = !state.globe || state.viewTransition;
   document.getElementById("reset-view").disabled = state.viewTransition;
   for (const mode of ["overview", "follow"]) document.getElementById(`camera-${mode}`).setAttribute("aria-pressed", String(state.cameraMode === mode));
+  document.getElementById("camera-follow").title = state.cameraMode === "follow" ? "Stop following satellite" : "Follow selected satellite";
   if (!reference) return;
   textField("satellite-name", orbit ? satelliteName(orbit.satellite_id) : "Select a satellite");
   document.getElementById("satellite-name").title = orbit?.satellite_id || "Pick a satellite symbol or select an assigned task";
@@ -722,13 +814,41 @@ function updateOrbitHud() {
   if (orbit) {
     textField("satellite-altitude", `${(satelliteAltitude(orbit) / 1000).toFixed(1)} km`);
     textField("satellite-period", `${(orbit.period_s / 60).toFixed(1)} min`);
-    textField("orbit-span", `${(Math.min(orbit.period_s, orbit.samples.at(-1)[0] - orbit.samples[0][0]) / 60).toFixed(1)} min window`);
-    document.getElementById("orbit-span").title = "One-period display window. Source samples inside the mission period; estimated two-body extension outside it.";
   } else {
     textField("satellite-altitude", "— km");
     textField("satellite-period", "— min");
-    textField("orbit-span", "One-period window");
   }
+  positionSatelliteDetails();
+}
+
+function closeSatelliteDetails() {
+  state.satelliteDetailsOpen = false;
+  document.getElementById("orbit-hud").hidden = true;
+}
+
+function positionSatelliteDetails() {
+  const hud = document.getElementById("orbit-hud");
+  if (!state.satelliteDetailsOpen || state.viewTransition) { hud.hidden = true; return; }
+  let point;
+  if (state.globe) {
+    const Cesium = window.Cesium, viewer = state.globe;
+    const position = state.orbitPositions.get(state.selectedSatelliteId)?.getValue(viewer.clock.currentTime);
+    const visible = position && (state.viewMode !== "3d" || new Cesium.EllipsoidalOccluder(
+      Cesium.Ellipsoid.WGS84, viewer.camera.positionWC).isPointVisible(position));
+    if (visible) point = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, position);
+  } else {
+    const marker = document.querySelector(`.map-satellite[data-satellite-id="${CSS.escape(state.selectedSatelliteId || "")}"]`);
+    const matrix = marker?.getScreenCTM(), rect = elements.globe.getBoundingClientRect();
+    if (matrix) point = {x: matrix.e - rect.left, y: matrix.f - rect.top};
+  }
+  const width = elements.globe.clientWidth, height = elements.globe.clientHeight;
+  if (!point || point.x < 0 || point.x > width || point.y < 0 || point.y > height) { hud.hidden = true; return; }
+  hud.hidden = false;
+  // Leave the symbol unobstructed so the second click of a double-click still
+  // reaches Cesium. The popup's responsive max-width guarantees side clearance.
+  const preferredX = point.x + hud.offsetWidth + 12 <= width - 12 ? point.x + 12 : point.x - hud.offsetWidth - 12;
+  hud.style.left = `${Math.max(12, Math.min(width - hud.offsetWidth - 12, preferredX))}px`;
+  hud.style.top = `${Math.max(12, Math.min(height - hud.offsetHeight - 12, point.y + 16))}px`;
 }
 
 function cameraMotionDuration() {
@@ -804,7 +924,8 @@ function bindGlobePicking(viewer, Cesium) {
   const inspect = (point, focus = false) => {
     if (state.viewTransition) return;
     const picked = pickedMissionObject(viewer, point);
-    if (!picked) return;
+    if (!picked) { closeSatelliteDetails(); return; }
+    tooltip.hidden = true;
     if (picked.kind === "task") selectTarget(picked.id);
     else selectSatellite(picked.id);
     if (focus) focusSelectedSatellite();
@@ -822,6 +943,7 @@ function bindGlobePicking(viewer, Cesium) {
     if (!picked) return;
     if (picked.kind === "task") tooltip.textContent = `${picked.id} · ${taskState(picked.id)}`;
     else {
+      if (state.satelliteDetailsOpen && picked.id === state.selectedSatelliteId) { tooltip.hidden = true; return; }
       const orbit = state.currentPayload?.replay?.orbits.find((item) => item.satellite_id === picked.id);
       if (!orbit) { tooltip.hidden = true; return; }
       tooltip.textContent = `${satelliteName(picked.id)} · ${(satelliteAltitude(orbit) / 1000).toFixed(1)} km`;
@@ -837,12 +959,51 @@ function bindGlobePicking(viewer, Cesium) {
   viewer.canvas.addEventListener("mouseleave", () => { clearTimeout(hoverTimer); tooltip.hidden = true; });
   viewer.camera.percentageChanged = .01;
   viewer.camera.changed.addEventListener(() => {
-    const heading = Cesium.Math.toDegrees(viewer.camera.heading);
-    document.querySelector(".compass-needle").style.transform = `rotate(${-heading}deg)`;
-    document.getElementById("camera-heading").textContent = `${Math.round(heading) % 360}°`;
+    updateCameraCompass();
+    positionSatelliteDetails();
     clearTimeout(hoverTimer);
     tooltip.hidden = true;
   });
+  // Camera.changed is thresholded; small turns can leave overlays stale while
+  // playback is paused. Read the final rendered camera in every camera mode,
+  // without requesting another frame or changing the replay clock.
+  viewer.scene.postRender.addEventListener(() => {
+    updateCameraCompass();
+    if (state.satelliteDetailsOpen) positionSatelliteDetails();
+  });
+}
+
+function updateCameraCompass() {
+  if (state.viewTransition) return;
+  const compass = document.getElementById("north-view");
+  let bearing = 0;
+  if (state.globe) {
+    const Cesium = window.Cesium, {camera, scene} = state.globe;
+    if (scene.mode === Cesium.SceneMode.MORPHING) return;
+    // Heading alone misses screen roll in tilted views. Project geographic north
+    // onto the rendered camera's right/up axes, including tracked transforms.
+    // In unfolded scenes world +Z is map north, not an Earth-fixed ENU tangent.
+    let north = Cesium.Cartesian3.UNIT_Z;
+    if (scene.mode === Cesium.SceneMode.SCENE3D) {
+      const {latitude, longitude} = camera.positionCartographic;
+      north = {x: -Math.sin(latitude) * Math.cos(longitude),
+        y: -Math.sin(latitude) * Math.sin(longitude), z: Math.cos(latitude)};
+    }
+    const right = Cesium.Cartesian3.dot(north, camera.rightWC);
+    const up = Cesium.Cartesian3.dot(north, camera.upWC);
+    // North can be parallel to the view ray. Retain the last valid bearing
+    // instead of flashing an arbitrary angle or writing NaN into the SVG.
+    if (!Number.isFinite(right) || !Number.isFinite(up) || Math.hypot(right, up) < 1e-7) return;
+    bearing = (Cesium.Math.toDegrees(Math.atan2(-right, up)) + 360) % 360;
+  }
+  const angle = (Math.round(bearing * 100) / 100 % 360).toFixed(2);
+  if (compass.dataset.heading === angle) return;
+  compass.dataset.heading = angle;
+  // Rotate the rose toward geographic north; counter-rotate N to keep it legible.
+  compass.querySelector(".compass-rose").setAttribute("transform", `rotate(${-angle} 24 24)`);
+  compass.querySelector(".compass-north-label").setAttribute("transform", `rotate(${angle} 24 9)`);
+  const display = `${Math.round(bearing) % 360}°`;
+  compass.setAttribute("aria-label", `Face north, current heading ${display}`);
 }
 
 const MAP_VIEWS = {"3d": {label: "3D", method: "morphTo3D"}, "2.5d": {label: "2.5D", method: "morphToColumbusView"}, "2d": {label: "2D", method: "morphTo2D"}};
@@ -862,12 +1023,15 @@ function updateMapViewControls() {
     button.disabled = !viewer || state.viewTransition;
   }
   document.getElementById("map-projections").title = viewer ? "Native Cesium scene views · same source data and replay clock" : "2D schematic fallback · 3D engine unavailable";
+  document.getElementById("toggle-illumination").disabled = !viewer || state.viewTransition || state.viewMode !== "3d";
+  updateSolarEnvironment();
 }
 
 function bindMapViewEvents(viewer) {
   viewer.scene.morphStart.addEventListener(() => {
     state.viewTransition = true;
     updateSensorFovs();
+    updateSolarEnvironment();
     document.getElementById("globe-hover").hidden = true;
     updateMapViewControls();
     updateOrbitHud();
@@ -892,6 +1056,10 @@ function setMapViewMode(mode) {
 }
 
 function bindOrbitControls() {
+  document.getElementById("close-satellite-details").addEventListener("click", closeSatelliteDetails);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.satelliteDetailsOpen) closeSatelliteDetails();
+  });
   for (const button of document.querySelectorAll(".map-projections button")) button.addEventListener("click", () => setMapViewMode(button.dataset.view));
   document.getElementById("camera-overview").addEventListener("click", () => fitMissionView(cameraMotionDuration()));
   document.getElementById("camera-follow").addEventListener("click", () => {
@@ -912,6 +1080,7 @@ function bindOrbitControls() {
   document.getElementById("north-view").addEventListener("click", () => {
     if (!state.globe) return;
     const viewer = state.globe;
+    viewer.camera.cancelFlight();
     releaseCameraTracking();
     if (state.cameraMode === "follow") state.cameraMode = "manual";
     viewer.camera.setView({orientation: {heading: 0, pitch: viewer.camera.pitch, roll: 0}});
@@ -981,7 +1150,7 @@ function bindMissionControls() {
   document.addEventListener("visibilitychange", () => { if (document.hidden) pauseReplay(); });
   for (const id of ["target-search", "target-filter", "satellite-filter"]) {
     document.getElementById(id).addEventListener(id === "target-search" ? "input" : "change", () => {
-      state.pages.target = 0;
+      elements.targetList.scrollTop = 0;
       state.pages.timeline = 0;
       if (id === "satellite-filter" && document.getElementById(id).value !== "all") selectSatellite(document.getElementById(id).value);
       refreshPanels();
