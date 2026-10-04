@@ -9,14 +9,17 @@ const state = {
   selectedTaskId: null,
   busy: false,
   pages: {},
-  layers: { targets: true, track: true, rays: true, labels: false, satelliteLabels: true },
+  layers: { targets: true, track: true, rays: true, fov: true, labels: false, satelliteLabels: true },
   cameraHome: null,
   lastRequest: null,
   assignments: new Map(),
   taskById: new Map(),
-  replay: { time: 0, playing: false, speed: 60, lastFrame: 0, lastPaint: 0 },
+  replay: { time: 0, playing: false, speed: 60, direction: 1, windowStart: 0, windowEnd: 43200, lastFrame: 0, lastPaint: 0 },
+  orbitModels: new Map(),
   orbitPositions: new Map(),
   orbitStyles: new Map(),
+  sensorFovs: new Map(),
+  fovPrimitives: null,
   entityTaskStates: new Map(),
   selectedSatelliteId: null,
   geometrySelectionKey: null,
@@ -49,11 +52,18 @@ const elements = {
   targetList: document.getElementById("target-list"),
   export: document.getElementById("export-run"),
 };
+const TASK_COLORS = Object.fromEntries(Object.entries({
+  Planned: "accent", Observing: "peach", Completed: "sage", Available: "peach", Unassigned: "danger",
+}).map(([status, token]) => [status, getComputedStyle(elements.shell).getPropertyValue(`--${token}`).trim()]));
 
 function textField(id, value) {
   const node = document.getElementById(id);
   node.textContent = value;
   node.title = String(value);
+}
+
+function layoutSize(name) {
+  return parseFloat(getComputedStyle(elements.shell).getPropertyValue(`--${name}`));
 }
 
 function pageItems(name, items, size) {
@@ -131,7 +141,7 @@ function renderTargetCatalog() {
   if (!state.currentPayload) return;
   const { scenario, result } = state.currentPayload;
   const assignments = new Map((result.validation.simulation?.tasks || []).map((task) => [task.task_id, task]));
-  const capacity = Math.max(1, Math.floor(elements.targetList.clientHeight / 42));
+  const capacity = Math.max(1, Math.floor(elements.targetList.clientHeight / layoutSize("target-row-height")));
   const filtered = filteredTasks(scenario);
   const tasks = pageItems("target", filtered, capacity);
   textField("target-count", filtered.length === scenario.tasks.length ? scenario.tasks.length : `${filtered.length}/${scenario.tasks.length}`);
@@ -179,12 +189,16 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
       state.cameraMode = "manual";
     }
   }
-  if (seek && assignment) setReplayTime(assignment.start_s, true);
+  if (seek && assignment) {
+    state.replay.windowStart = payload.scenario.horizon_start_s;
+    state.replay.windowEnd = payload.scenario.horizon_end_s;
+    setReplayTime(assignment.start_s, true);
+  }
   textField("selected-id", task.task_id);
   textField("selected-coordinates", `${task.target.latitude_deg.toFixed(2)}°, ${task.target.longitude_deg.toFixed(2)}°`);
   textField("selected-priority", `P${task.priority_value.toFixed(0)} / ${task.duration_s.toFixed(1)}s`);
   textField("selected-window", assignment ? `${timeLabel(assignment.start_s)}–${timeLabel(assignment.end_s)}` : "Not scheduled");
-  textField("selected-assignment", assignment ? (assignment.satellite_id || payload.scenario.satellite.satellite_id) : `${task.visibility_windows.length} candidate windows`);
+  textField("selected-assignment", assignment ? satelliteName(assignment.satellite_id || payload.scenario.satellite.satellite_id) : `${task.visibility_windows.length} candidate windows`);
   document.getElementById("selected-assignment").title = assignment ? `${assignment.satellite_id || payload.scenario.satellite.satellite_id} · ${assignment.window_id}` : "No selected assignment";
   textField("selected-resource-label", "Data / orbit");
   textField("selected-resources", payload.mode === "reference" ? (assignment ? `${(assignment.data_volume_gb * 1024).toFixed(2)} MB / #${assignment.orbit_number}` : "No source assignment") : `${task.energy_cost_wh.toFixed(1)} Wh / ${task.storage_cost_gb.toFixed(1)} GB`);
@@ -218,8 +232,8 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
     }
     const filtered = filteredTasks(payload.scenario);
     const index = filtered.findIndex((candidate) => candidate.task_id === taskId);
-    if (index >= 0) state.pages.target = Math.floor(index / Math.max(1, Math.floor(elements.targetList.clientHeight / 42)));
-    const capacity = Math.max(1, Math.floor((elements.timeline.clientHeight - 33) / 29));
+    if (index >= 0) state.pages.target = Math.floor(index / Math.max(1, Math.floor(elements.targetList.clientHeight / layoutSize("target-row-height"))));
+    const capacity = Math.max(1, Math.floor((elements.timeline.clientHeight - 33) / layoutSize("timeline-row-height")));
     if (payload.mode === "reference" && assignment) {
       const selectedSatellite = document.getElementById("satellite-filter").value;
       const satellites = payload.scenario.satellites.filter((satellite) => selectedSatellite === "all" || selectedSatellite === satellite.satellite_id);
@@ -442,12 +456,30 @@ function naturalEarthLayer(Cesium) {
     maximumLevel: 5,
     credit: new Cesium.Credit("Natural Earth II · CesiumJS"),
   });
+  return commandImageryLayer(Cesium, provider);
+}
+
+function commandImageryLayer(Cesium, provider) {
+  // Presentation only: keep geometry, task colours and source data untouched.
   return new Cesium.ImageryLayer(provider, {
-    brightness: 1.02,
-    contrast: 1.04,
-    saturation: .95,
-    gamma: 1.02,
+    brightness: .84,
+    contrast: .98,
+    saturation: .66,
+    gamma: 1.1,
   });
+}
+
+function geographicGridLayer(Cesium) {
+  // Geographic tile guides only: not sensor coverage, orbits or measured data.
+  const provider = new Cesium.GridImageryProvider({
+    tilingScheme: new Cesium.GeographicTilingScheme(),
+    cells: 4,
+    color: Cesium.Color.fromCssColorString("#6ad6ee").withAlpha(.16),
+    glowColor: Cesium.Color.TRANSPARENT,
+    glowWidth: 0,
+    backgroundColor: Cesium.Color.TRANSPARENT,
+  });
+  return new Cesium.ImageryLayer(provider);
 }
 
 function nasaBlueMarbleLayer(Cesium) {
@@ -457,12 +489,7 @@ function nasaBlueMarbleLayer(Cesium) {
     maximumLevel: 8,
     credit: new Cesium.Credit("NASA Earth Observatory · GIBS"),
   });
-  return new Cesium.ImageryLayer(provider, {
-    brightness: 1.06,
-    contrast: 1.06,
-    saturation: .98,
-    gamma: 1.02,
-  });
+  return commandImageryLayer(Cesium, provider);
 }
 
 function renderMissionGlobe(scenario, result) {
@@ -499,6 +526,7 @@ function renderMissionGlobe(scenario, result) {
         maximumRenderTimeChange: Infinity,
       });
       state.globe.imageryLayers.add(primaryImagery);
+      state.globe.imageryLayers.add(geographicGridLayer(Cesium));
       bindGlobePicking(state.globe, Cesium);
       bindMapViewEvents(state.globe);
       primaryImagery.imageryProvider.errorEvent.addEventListener(() => {
@@ -516,11 +544,14 @@ function renderMissionGlobe(scenario, result) {
           elements.globe.dataset.imageryReady = "true";
         }
       });
-      state.globe.scene.backgroundColor = Cesium.Color.fromCssColorString("#080d14");
-      state.globe.scene.globe.baseColor = Cesium.Color.fromCssColorString("#263a49");
+      state.globe.scene.backgroundColor = Cesium.Color.fromCssColorString("#02060b");
+      state.globe.scene.globe.baseColor = Cesium.Color.fromCssColorString("#0a2538");
       state.globe.scene.globe.enableLighting = false;
       state.globe.scene.globe.showGroundAtmosphere = true;
-      state.globe.scene.skyBox.show = false;
+      state.globe.scene.globe.atmosphereBrightnessShift = -.22;
+      state.globe.scene.skyAtmosphere.brightnessShift = -.05;
+      // Native star map stays behind the Earth and fades out in planar views.
+      state.globe.scene.skyBox.show = true;
       state.globe.scene.sun.show = false;
       state.globe.scene.moon.show = false;
       state.globe.useBrowserRecommendedResolution = false;
@@ -530,6 +561,7 @@ function renderMissionGlobe(scenario, result) {
 
     const viewer = state.globe;
     releaseCameraTracking();
+    clearSensorFovs();
     viewer.entities.removeAll();
     state.orbitPositions.clear();
     state.orbitStyles.clear();
@@ -540,6 +572,8 @@ function renderMissionGlobe(scenario, result) {
     console.warn("Cesium mission view unavailable", error);
     if (state.globe && !state.globe.isDestroyed()) state.globe.destroy();
     state.globe = null;
+    state.fovPrimitives = null;
+    state.sensorFovs.clear();
     state.imageryFallbackActive = false;
     renderGlobeFallback(scenario, scheduledIds);
   }
@@ -589,7 +623,10 @@ async function runSolve() {
 async function initialize() {
   setBusy(true, "Loading EOS-Bench…");
   try {
-    const referenceData = await api("/api/reference/data");
+    // Fonts must be ready before Cesium rasterizes labels or SVG measures text.
+    // A missing font must not prevent the source archive from opening.
+    const fontReady = document.fonts.load('500 12px "Inter"').catch(() => []);
+    const [referenceData] = await Promise.all([api("/api/reference/data"), fontReady]);
     if (!referenceData?.scenario || !referenceData.plans?.length) throw new Error("EOS-Bench reference data is unavailable.");
     state.referenceData = referenceData;
     populateSelect(elements.solver, referenceData.plans, "plan_id", (plan) => plan.label);
@@ -625,7 +662,7 @@ elements.export.addEventListener("click", () => {
 document.querySelectorAll(".workspace-nav button").forEach((button) => {
   button.addEventListener("click", () => setWorkspaceView(button.dataset.workspaceView));
 });
-for (const name of ["targets", "track", "rays", "labels"]) {
+for (const name of ["targets", "track", "rays", "fov", "labels"]) {
   document.getElementById(`toggle-${name}`).addEventListener("click", (event) => {
     state.layers[name] = !state.layers[name];
     event.currentTarget.setAttribute("aria-pressed", String(state.layers[name]));

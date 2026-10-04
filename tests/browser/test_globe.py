@@ -105,8 +105,8 @@ def test_real_globe_has_startup_tracks_symbols_and_unmodified_source_positions(
     assert scene["satellites"] == 20
     assert scene["targets"] == 500
     for orbit in scene["paths"]:
-        assert orbit["future"] == pytest.approx(orbit["period"])
-        assert orbit["futureShown"] and not orbit["pastShown"]
+        assert orbit["future"] == pytest.approx(orbit["period"] / 2)
+        assert orbit["futureShown"] and orbit["pastShown"]
         assert orbit["symbol"] and orbit["depth"] == 0
         assert orbit["sourceError"] < 0.001
     globe_page.wait_for_function(
@@ -119,6 +119,213 @@ def test_real_globe_has_startup_tracks_symbols_and_unmodified_source_positions(
       return (Cesium.Cartographic.fromCartesian(point).height / 1000).toFixed(1) + ' km';
     }""")
     assert globe_page.locator("#satellite-altitude").inner_text() == displayed_altitude
+    assert_single_screen(globe_page)
+
+
+def test_all_twenty_cone_tips_track_native_satellites_with_a_full_15_degree_fov(
+    globe_page: Any,
+) -> None:
+    globe_page.wait_for_function(
+        "[...state.sensorFovs.values()].every(s => s.solid.ready && s.wire.ready)"
+    )
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    assert globe_page.evaluate("state.fovPrimitives.length") == 40
+    assert globe_page.evaluate("state.sensorFovs.size") == 20
+    assert globe_page.evaluate("""() => {
+      const sensor = [...state.sensorFovs.values()][0];
+      const frame = sensor.frame, hierarchy = sensor.footprint.polygon.hierarchy.getValue();
+      updateReplayVisuals();
+      return sensor.frame === frame && sensor.footprint.polygon.hierarchy.isConstant
+        && sensor.footprint.polygon.hierarchy.getValue() === hierarchy;
+    }""")
+    for time in [-86400, 0, 3600, 43200, 43201, 3 * 86400]:
+        globe_page.evaluate("time => setReplayTime(time, true)", time)
+        geometry = globe_page.evaluate("""() => [...state.sensorFovs].map(([id, sensor]) => {
+          const Cesium = window.Cesium, matrix = sensor.solid.modelMatrix;
+          const origin = state.orbitPositions.get(id).getValue(state.globe.clock.currentTime);
+          const tip = Cesium.Matrix4.multiplyByPoint(matrix,new Cesium.Cartesian3(0,0,.5),
+            new Cesium.Cartesian3());
+          const up = Cesium.Matrix4.multiplyByPointAsVector(matrix,Cesium.Cartesian3.UNIT_Z,
+            new Cesium.Cartesian3());
+          const radius = Cesium.Cartesian3.magnitude(Cesium.Matrix4.multiplyByPointAsVector(
+            matrix,Cesium.Cartesian3.UNIT_X,new Cesium.Cartesian3()));
+          const length = Cesium.Cartesian3.magnitude(up);
+          const expected = Cesium.Cartesian3.normalize(origin,new Cesium.Cartesian3());
+          Cesium.Cartesian3.normalize(up,up);
+          return {tipError:Cesium.Cartesian3.distance(tip,origin),
+            direction:Cesium.Cartesian3.dot(up,expected),
+            angle:2*Math.atan(radius/length)*180/Math.PI, length,
+            alpha:sensor.solid.getGeometryInstanceAttributes('sensor-'+id).color[3]/255,
+            pickable:sensor.solid.allowPicking || sensor.wire.allowPicking,
+            outline:sensor.footprint.polygon.hierarchy.getValue().positions.length};
+        })""")
+        for cone in geometry:
+            assert cone["tipError"] < 1e-7, cone
+            assert cone["direction"] == pytest.approx(1, abs=1e-12), cone
+            assert cone["angle"] == pytest.approx(15, abs=1e-10), cone
+            assert 300000 < cone["length"] < 2000000, cone
+            assert 0.03 <= cone["alpha"] <= 0.04, cone
+            assert not cone["pickable"] and cone["outline"] == 48, cone
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+    assert (
+        globe_page.evaluate("state.globe.entities.values.filter(e=>e.id.startsWith('ray-')).length")
+        == 0
+    )
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+def test_fov_layers_use_native_cones_and_projected_footprints_without_resetting_time(
+    globe_page: Any, projection: str
+) -> None:
+    globe_page.evaluate("setReplayTime(-86400, true)")
+    if projection != "3d":
+        globe_page.evaluate("mode => setMapViewMode(mode)", projection)
+        globe_page.wait_for_function(
+            "mode => state.viewMode === mode && !state.viewTransition", arg=projection
+        )
+    assert globe_page.evaluate("state.replay.time") == -86400
+    assert globe_page.evaluate("state.fovPrimitives.show") == (projection == "3d")
+    assert globe_page.evaluate("[...state.sensorFovs.values()].every(s=>s.footprint.show)")
+    globe_page.locator("#toggle-layers").click()
+    globe_page.locator("#toggle-fov").click()
+    assert not globe_page.evaluate("state.fovPrimitives.show")
+    assert globe_page.evaluate("[...state.sensorFovs.values()].every(s=>!s.footprint.show)")
+    globe_page.locator("#toggle-fov").click()
+    assert globe_page.evaluate("state.fovPrimitives.show") == (projection == "3d")
+    assert globe_page.evaluate("[...state.sensorFovs.values()].every(s=>s.footprint.show)")
+    globe_page.keyboard.press("Escape")
+    assert globe_page.evaluate("state.replay.time") == -86400
+    assert_single_screen(globe_page)
+
+
+def test_plan_reload_disposes_previous_cones_instead_of_accumulating_primitives(
+    globe_page: Any,
+) -> None:
+    for plan in ["eos-sa-profit", "eos-greedy-profit", "eos-sa-balanced"]:
+        assert globe_page.evaluate(
+            """id => {
+          const previous = state.fovPrimitives;
+          const plan = state.referenceData.plans.find(p => p.plan_id === id);
+          renderResult(OrbitReplay.referencePayload(state.referenceData, plan));
+          return previous.isDestroyed() && !state.globe.scene.primitives.contains(previous);
+        }""",
+            plan,
+        )
+        assert globe_page.evaluate("state.sensorFovs.size") == 20
+        assert globe_page.evaluate("state.fovPrimitives.length") == 40
+        assert (
+            globe_page.evaluate(
+                "state.globe.entities.values.filter(e=>e.id.startsWith('fov-')).length"
+            )
+            == 20
+        )
+        globe_page.wait_for_function("state.globe.dataSourceDisplay.ready")
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+def test_geographic_grid_is_transparent_and_does_not_add_mission_entities(
+    globe_page: Any, projection: str
+) -> None:
+    if projection != "3d":
+        globe_page.evaluate("mode => setMapViewMode(mode)", projection)
+        globe_page.wait_for_function(
+            "mode => state.viewMode === mode && !state.viewTransition", arg=projection
+        )
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    grid = globe_page.evaluate("""async () => {
+      const viewer = state.globe, layer = viewer.imageryLayers.get(2);
+      const provider = layer.imageryProvider;
+      const canvas = await provider.requestImage(0,0,0);
+      const pixels = canvas.getContext('2d');
+      return {count:viewer.imageryLayers.length,
+        native:provider instanceof Cesium.GridImageryProvider,
+        geographic:provider.tilingScheme instanceof Cesium.GeographicTilingScheme,
+        alpha:provider.hasAlphaChannel,
+        empty:[...pixels.getImageData(10,10,1,1).data],
+        line:[...pixels.getImageData(0,0,1,1).data],
+        satellites:viewer.entities.values.filter(e=>e.id.startsWith('satellite-')).length,
+        targets:viewer.entities.values.filter(e=>e.id.startsWith('target-')).length};
+    }""")
+    assert grid["count"] == 3
+    assert grid["native"] and grid["geographic"] and grid["alpha"]
+    assert grid["empty"][3] == 0
+    assert 0 < grid["line"][3] < 128
+    assert grid["line"][0] < grid["line"][2]
+    assert grid["satellites"] == 20 and grid["targets"] == 500
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+    assert_single_screen(globe_page)
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+def test_extended_orbits_keep_native_positions_paths_and_follow_in_all_views(
+    globe_page: Any, projection: str
+) -> None:
+    if projection != "3d":
+        globe_page.evaluate("mode => setMapViewMode(mode)", projection)
+        globe_page.wait_for_function(
+            "mode => state.viewMode === mode && !state.viewTransition", arg=projection
+        )
+    initial = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    for time in [-3 * 86400, -1, 43200, 43201, 3 * 86400]:
+        globe_page.evaluate("time => setReplayTime(time, true)", time)
+        errors = globe_page.evaluate("""() => state.currentPayload.replay.orbits.map(orbit => {
+          const model = state.orbitModels.get(orbit.satellite_id);
+          const position = state.orbitPositions.get(orbit.satellite_id)
+            .getValue(state.globe.clock.currentTime);
+          const expected = Cesium.Cartesian3.fromArray(model.cartesian(state.replay.time));
+          return position ? Cesium.Cartesian3.distance(position,expected) : Infinity;
+        })""")
+        assert all(error < 1e-5 for error in errors), errors
+        assert globe_page.evaluate("state.replay.time") == time
+        assert globe_page.evaluate("state.globe.clock.clockRange === Cesium.ClockRange.UNBOUNDED")
+        assert (
+            globe_page.evaluate(
+                "state.globe.entities.values.filter(e=>e.id.startsWith('ray-')).length"
+            )
+            == 0
+        )
+        assert globe_page.locator("#selected-state").text_content() != "Observing"
+        globe_page.wait_for_function("state.globe.dataSourceDisplay.ready")
+        assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == initial
+    globe_page.locator("#camera-follow").click()
+    globe_page.evaluate("setReplayTime(4*86400, true)")
+    globe_page.wait_for_timeout(200)
+    assert globe_page.evaluate("state.cameraMode") == "follow"
+    assert globe_page.locator("#orbit-basis").is_visible()
+    assert globe_page.evaluate("state.globe.entities.values.length") == 580
+    SCREENSHOTS.mkdir(parents=True, exist_ok=True)
+    globe_page.screenshot(path=str(SCREENSHOTS / f"extended-orbit-{projection}.png"))
+    assert_single_screen(globe_page)
+
+
+def test_native_starfield_loads_and_renders_behind_the_globe(globe_page: Any) -> None:
+    assert globe_page.evaluate("state.globe.scene.skyBox.show")
+    # Cesium 1.143 delegates skybox texture loading to CubeMapPanorama.
+    globe_page.wait_for_function(
+        "Boolean(state.globe.scene.skyBox._panorama._cubeMap)", timeout=30000
+    )
+    pixels = globe_page.evaluate("""() => {
+      const viewer = state.globe;
+      const sky = viewer.scene.skyBox;
+      const render = show => {
+        sky.show = show;
+        viewer.scene.requestRender();
+        viewer.render();
+        return viewer.scene.context.readPixels({x:10, y:10, width:96, height:96});
+      };
+      const without = render(false), withStars = render(true);
+      let changed = 0;
+      for (let i = 0; i < withStars.length; i += 4) {
+        if (withStars[i] !== without[i] || withStars[i+1] !== without[i+1]
+            || withStars[i+2] !== without[i+2]) changed++;
+      }
+      return {changed, faces:Object.values(sky.sources)};
+    }""")
+    assert pixels["changed"] > 10, pixels
+    assert len(pixels["faces"]) == 6
+    assert all("/Assets/Textures/SkyBox/" in source for source in pixels["faces"])
+    SCREENSHOTS.mkdir(parents=True, exist_ok=True)
+    globe_page.screenshot(path=str(SCREENSHOTS / "starfield-3d.png"))
     assert_single_screen(globe_page)
 
 
@@ -183,7 +390,7 @@ def test_satellite_canvas_picking_double_click_focus_follow_and_source_horizon(
     assert globe_page.evaluate("""() => state.currentPayload.replay.orbits.every(orbit => {
       const past = state.globe.entities.getById('orbit-' + orbit.satellite_id).path;
       const future = state.globe.entities.getById('orbit-preview-' + orbit.satellite_id).path;
-      return past.show.getValue() && !future.show.getValue() && future.leadTime.getValue() === 0;
+      return past.show.getValue() && future.show.getValue() && future.leadTime.getValue() > 0;
     })""")
     globe_page.locator("#camera-overview").click()
     assert globe_page.evaluate("!state.globe.trackedEntity")

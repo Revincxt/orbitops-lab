@@ -50,6 +50,12 @@ jobs:
               "orbitops/web/static/index.html",
               "orbitops/web/static/app.css",
               "orbitops/web/static/app.js",
+              "orbitops/web/static/replay.js",
+              "orbitops/web/static/mission.js",
+              "orbitops/web/static/orbit-model.js",
+              "orbitops/web/static/sensor-fov.js",
+              "orbitops/web/static/fonts/InterVariable.woff2",
+              "orbitops/web/static/fonts/OFL.txt",
               "orbitops/web/static/favicon.svg",
           }
           with ZipFile(wheels[0]) as archive:

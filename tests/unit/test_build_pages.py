@@ -35,6 +35,24 @@ def test_pages_build_fails_if_reference_archive_is_missing(
         pages.build_dataset(application)
 
 
+def test_pages_build_bundles_fonts_and_orbit_extension(tmp_path: Path) -> None:
+    output = tmp_path / "site"
+    pages.build_pages(output)
+    for filename in ["InterVariable.woff2", "OFL.txt", "README.txt"]:
+        assert (output / "fonts" / filename).read_bytes() == (
+            pages.STATIC_DIR / "fonts" / filename
+        ).read_bytes()
+    assert 'href="./fonts/InterVariable.woff2"' in (output / "index.html").read_text()
+    assert (output / "orbit-model.js").read_bytes() == (
+        pages.STATIC_DIR / "orbit-model.js"
+    ).read_bytes()
+    assert "./orbit-model.js?v=0.9.0" in (output / "index.html").read_text()
+    assert (output / "sensor-fov.js").read_bytes() == (
+        pages.STATIC_DIR / "sensor-fov.js"
+    ).read_bytes()
+    assert "./sensor-fov.js?v=0.11.0" in (output / "index.html").read_text()
+
+
 def test_pages_builder_refuses_unmarked_nonempty_output(tmp_path: Path) -> None:
     output = tmp_path / "foreign-directory"
     output.mkdir()

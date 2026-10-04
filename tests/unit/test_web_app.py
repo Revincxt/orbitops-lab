@@ -131,10 +131,14 @@ def test_static_and_scenario_routes_are_fixed_and_safe(tmp_path: Path) -> None:
     homepage = application.dispatch("GET", "/")
     stylesheet = application.dispatch("GET", "/app.css")
     script = application.dispatch("GET", "/app.js")
+    orbit_model = application.dispatch("GET", "/orbit-model.js")
+    sensor_fov = application.dispatch("GET", "/sensor-fov.js")
     cesium_config = application.dispatch("GET", "/cesium-config.js")
     deployment_config = application.dispatch("GET", "/deployment-config.js")
     social_card = application.dispatch("GET", "/orbitops-social-card.jpg")
     favicon = application.dispatch("GET", "/favicon.svg?v=0.2.0")
+    font = application.dispatch("GET", "/fonts/InterVariable.woff2")
+    font_license = application.dispatch("GET", "/fonts/OFL.txt")
     scenario = application.dispatch("GET", "/api/scenarios/demo-001")
     missing_scenario = application.dispatch("GET", "/api/scenarios/unknown")
     traversal = application.dispatch("GET", "/../pyproject.toml")
@@ -145,19 +149,30 @@ def test_static_and_scenario_routes_are_fixed_and_safe(tmp_path: Path) -> None:
         homepage.status
         == stylesheet.status
         == script.status
+        == orbit_model.status
+        == sensor_fov.status
         == cesium_config.status
         == deployment_config.status
         == social_card.status
         == favicon.status
+        == font.status
+        == font_license.status
         == 200
     )
     assert homepage.content_type.startswith("text/html")
     assert stylesheet.content_type.startswith("text/css")
     assert script.content_type.startswith("text/javascript")
+    assert orbit_model.content_type.startswith("text/javascript")
+    assert sensor_fov.content_type.startswith("text/javascript")
     assert cesium_config.content_type.startswith("text/javascript")
     assert deployment_config.content_type.startswith("text/javascript")
     assert social_card.content_type == "image/jpeg"
     assert favicon.content_type == "image/svg+xml"
+    assert font.content_type == "font/woff2"
+    assert font.body.startswith(b"wOF2")
+    assert font_license.content_type.startswith("text/plain")
+    assert b"SIL OPEN FONT LICENSE" in font_license.body
+    assert application.dispatch("GET", "/fonts/../app.py").status == 404
     assert payload(scenario)["scenario_id"] == "demo-001"
     assert missing_scenario.status == traversal.status == wrong_method.status == 404
     assert missing_asset.status == 404

@@ -207,6 +207,8 @@ class LabApplication:
             "/app.css": ("app.css", "text/css; charset=utf-8"),
             "/app.js": ("app.js", "text/javascript; charset=utf-8"),
             "/replay.js": ("replay.js", "text/javascript; charset=utf-8"),
+            "/orbit-model.js": ("orbit-model.js", "text/javascript; charset=utf-8"),
+            "/sensor-fov.js": ("sensor-fov.js", "text/javascript; charset=utf-8"),
             "/mission.js": ("mission.js", "text/javascript; charset=utf-8"),
             "/favicon.svg": ("favicon.svg", "image/svg+xml"),
             "/cesium-config.js": ("cesium-config.js", "text/javascript; charset=utf-8"),
@@ -215,6 +217,8 @@ class LabApplication:
                 "text/javascript; charset=utf-8",
             ),
             "/orbitops-social-card.jpg": ("orbitops-social-card.jpg", "image/jpeg"),
+            "/fonts/InterVariable.woff2": ("fonts/InterVariable.woff2", "font/woff2"),
+            "/fonts/OFL.txt": ("fonts/OFL.txt", "text/plain; charset=utf-8"),
         }
         if method == "GET" and route in static_routes:
             return self._static(*static_routes[route])

@@ -59,6 +59,23 @@ workload, without the former four primary metric cards. Projection controls live
 in the map toolbar;
 layer switches are grouped in a dismissible menu.
 
+The visual treatment follows an orbital command-room reference: a near-black
+workspace, cool cyan/blue header ribbons, thin technical frames and separated
+data cards surrounding the central globe. Corner brackets and the header rule
+are decorative only and never capture pointer events. No decorative charts,
+invented telemetry or additional metric panels are introduced. Inter typography,
+tabular numeric alignment, restrained status colours and keyboard focus remain
+consistent across the panels. Compact table rows retain height-aware pagination.
+
+NASA and Natural Earth imagery share a darker, reduced-saturation presentation
+with a subtle blue atmospheric rim. This affects appearance only, not geometry,
+source coordinates, orbital samples, tasks or scores. Native starfield, map
+projections, double-click focus, follow and extended playback remain available.
+A faint, transparent geographic tile grid is generated locally with Cesium's
+[GridImageryProvider](https://cesium.com/learn/cesiumjs/ref-doc/GridImageryProvider.html).
+It is a map guide, not a sensor footprint, observation window or orbit. It adds
+no external requests or mission entities and works in all three projections.
+
 Changing a plan marks the current output as pending until Load plan is pressed.
 Ctrl+Enter (Cmd+Enter on macOS) loads the selected plan. Comparison rows can also
 activate a source plan. Reloading resets playback and camera tracking but
@@ -80,6 +97,35 @@ verification scope remain in the exported reference JSON. Removing their panels
 does not change the archive, recomputed metrics or limited validation scope.
 Satellite workload bars support mouse and keyboard selection.
 
+Every satellite has an illustrative, geocentric circular field of view with a
+15° **full** cone angle (7.5° half-angle). Its tip follows the exact displayed
+satellite position, including estimated orbit extensions; its axis points at
+Earth's centre. Cone surfaces use 3.5% opacity with subtle satellite-coloured
+edges. Earth intersections are computed against the WGS84 ellipsoid, not by
+guessing a flat ground-disc radius. A slightly buried primitive cap avoids a
+floating base, and the georeferenced surface boundary is displayed separately.
+These are display assumptions, not source sensor attitudes, verified coverage,
+terrain visibility, access windows or task executions; the reference archive,
+schedules and scores remain unchanged.
+
+The existing Layers menu toggles `Sensor FOV · 15°`. 3D shows the translucent
+volume and ground boundary. The unfolded 2D/2.5D views and offline schematic
+show the ground boundary only, rather than a distorted 3D cone. This follows
+Cesium's [3D-only primitive model-matrix support](https://cesium.com/learn/cesiumjs/ref-doc/Primitive.html#modelMatrix).
+Cone geometry is built once and moved with model transforms, not rebuilt on
+each playback tick. Cone primitives are non-pickable; ground-boundary hits pass
+through to mission objects. Plan reloads dispose of the previous FOV primitives.
+Ground-boundary geometry is updated only when the replay clock changes; camera
+movement and paused frames reuse the same hierarchy instead of rebuilding it.
+
+The interface bundles the unmodified Inter variable font and its SIL Open Font
+License locally; no font CDN request is needed in either the API or Pages build.
+Labels use proportional type, numeric values use tabular figures, and only the
+UTC playback timestamp uses monospace. CSS density tokens are shared by the
+catalog, timeline, workload and comparison pagination, so larger readable type
+does not crop rows or alter any source data. Satellite names are human-readable
+throughout the interface, with full source IDs retained in titles and exports.
+
 Selecting a target in the catalog, Gantt, or map updates the same inspector and
 selection highlight. The inspector exposes coordinates, priority, duration,
 satellite assignment, observation interval, data volume and source orbit number.
@@ -89,18 +135,44 @@ Export downloads the complete reference payload, including scenario, plan,
 provenance and verification scope. Load failures remain visible in the status
 bar. Targets on the far side of Earth are depth-occluded.
 
-The shared playback clock supports pause, reset, scrubbing and selectable speed.
-Reference times use an explicit UTC epoch. Catalog, map, timeline cursor and
-task details share half-open interval
+The shared playback clock supports pause, reset, scrubbing, selectable speed and
+forward/reverse playback. It is not bounded by the task-planning horizon. Previous
+and next buttons shift the scrubber's 12-hour viewing window; clicking the UTC
+timestamp opens a direct date/time jump. Dates use UTC regardless of the browser's
+local time zone. Crossing either source boundary does not stop, loop or freeze the
+satellites. Date input is limited to calendar years 0001–9999, not to the source
+scenario's 12-hour horizon.
+
+Inside the original closed sample interval, the native globe retains the exact
+source Cartesian linear interpolation and the fallback retains its geodetic
+interpolation. Outside it, a browser-only elliptic two-body model uses the source
+six orbital elements and their UTC epoch. Its orientation is calibrated against
+two nearby source samples at each boundary, with WGS84 conversion and constant
+Earth rotation, to avoid a position discontinuity. This is not a new Orekit/IERS
+propagation, SGP4 calculation or operational ephemeris: J2, drag, manoeuvres,
+changing Earth orientation and other perturbations are not modelled. Long-range
+prediction accuracy is not certified. An `Estimated orbit` badge distinguishes
+these times from source replay.
+
+Observation activity is disabled outside the original half-open task interval.
+There are no new observation links, windows, resource events, assignments or
+evaluation metrics. Assigned tasks remain Planned before the scenario and
+Completed after it. The timeline retains the original schedule and hides its
+playhead outside the sample interval. Export still downloads the unchanged
+reference payload, not generated extension samples.
+
+Catalog, map, timeline cursor and task details share half-open interval
 semantics: observing at start, completed at end. Planned completion metrics stay
 separate from the playback-completed count. Task search, status and satellite
 filters keep large scenes reachable without scrollbars.
 
-The orbit display uses a bounded one-period window, shifted inside the source
-sample horizon at its ends. Past trajectory is solid; future sampled trajectory
-is dashed. Tracks are visible even when paused at the initial epoch. These are
-source-replay samples, not a new orbit prediction or a closed ellipse invented
-from orbital elements. The 2D fallback splits lines at the date line with
+The orbit display uses a one-period window centred on the current time: half a
+period of solid past trajectory and half a period of dashed future trajectory.
+Either side can include the estimated extension outside the source interval.
+The native position property combines source samples with before/after model
+callbacks; the 2D fallback computes only its current one-period track, without
+accumulating an unbounded sample cache. Tracks are visible even when paused at
+the initial epoch. The 2D fallback splits lines at the date line with
 interpolated seam endpoints, rather than connecting them across the map.
 
 Satellites have screen-space engineering symbols and colour-matched names,
@@ -223,6 +295,10 @@ The lab loads the official CesiumJS 1.143 browser build from `cesium.com` and
 renders NASA's Blue Marble shaded-relief layer through the public
 GIBS Web Mercator service (`GoogleMapsCompatible_Level8`). Cesium's bundled
 Natural Earth II tiles remain underneath as a token-free raster fallback.
+The 3D globe uses Cesium's native star-map skybox behind the Earth and orbital
+paths. It fades out when switching to 2D or Columbus View (2.5D), keeping unfolded
+maps clean. It uses the same official Cesium asset origin, without a new API key
+or additional star catalog; stars are visual context, not observation evidence.
 Scenario coordinates stay in the browser and are
 not uploaded to Cesium ion or NASA. If both remote imagery paths or the 3D engine
 are unavailable, a selectable two-dimensional coordinate map preserves target
@@ -261,14 +337,21 @@ static routes, accessible interface structure, Cesium/Gantt/training-view
 contracts, the GitHub Pages reproducibility build, safe DOM construction,
 security headers, CLI wiring, and server cleanup. JavaScript is syntax-checked
 separately, and wheel inspection confirms that the HTML, stylesheet, application
-script, deployment configuration, Cesium configuration, and social preview
-asset ship with the Python package.
+scripts, orbit extension model, deployment configuration, Cesium configuration,
+local font and its license, and social preview asset ship with the Python package.
+
+Pure JavaScript tests check all 20 orbits against the unchanged source samples,
+boundary continuity, WGS84 conversion, finite multi-year propagation and bounded
+track sampling. Withheld source segments provide forward/backward prediction
+regression checks; these do not certify long-range ephemeris accuracy.
 
 Optional browser regression checks run against the actual reference archive
 while blocking remote geometry dependencies. They verify eight viewport sizes,
 all 500 reachable targets, all 20 satellite lanes, linked selection, keyboard
 tabs, layer-menu dismissal, JSON export, single-scenario enforcement, missing
-archive errors, plan switching and API-free static loading:
+archive errors, plan switching and API-free static loading. Playback checks cover
+both horizon crossings, reverse playback, UTC jumps, source immutability and the
+absence of out-of-horizon task activity:
 
 ```bash
 python -m pip install -e '.[dev]' playwright
@@ -280,8 +363,10 @@ Chromium executable. These checks are skipped in the normal Python suite.
 
 Real WebGL checks run against the official Cesium engine rather than a mocked
 renderer. They verify initial-epoch tracks, exact source-sample positions,
-canvas picking, double-click focus, follow, end-of-horizon bounds, responsive framing, map
-expansion and retaining source geometry when changing reference plans. NASA
+canvas picking, double-click focus, follow, centred one-period tracks, responsive
+framing, map expansion and retaining source geometry when changing reference
+plans. They also check extended positions, paths and follow in all three native
+projections, plus the built-in starfield. NASA
 imagery is deliberately blocked to check the Natural Earth fallback. The
 official Cesium CDN must be reachable:
 

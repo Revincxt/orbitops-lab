@@ -15,13 +15,16 @@
   <link rel="preconnect" href="https://cesium.com">
   <link rel="preconnect" href="https://gibs.earthdata.nasa.gov">
   <link id="cesium-styles" rel="preload" as="style" href="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Widgets/widgets.css">
-  <link rel="stylesheet" href="./app.css?v=0.7.0">
+  <link rel="preload" href="./fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="./app.css?v=0.11.0">
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="i-orbit" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><ellipse cx="12" cy="12" rx="11" ry="4" transform="rotate(-35 12 12)"/><circle cx="20" cy="6" r="1.5"/></symbol>
     <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+    <symbol id="i-direction" viewBox="0 0 24 24"><path d="M4 8h16m-4-4 4 4-4 4M20 16H4m4-4-4 4 4 4"/></symbol>
     <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 10a8 8 0 1 1 2 8M4 4v6h6"/></symbol>
     <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/></symbol>
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
@@ -36,6 +39,7 @@
       <a class="brand" href="./" aria-label="OrbitOps Mission Control home"><svg class="brand-mark"><use href="#i-orbit"/></svg><span>ORBIT<span class="brand-accent">OPS</span><small>MISSION CONTROL</small></span></a>
       <span class="header-divider"></span>
       <h1 id="page-title" class="app-title">Mission workspace</h1>
+      <span class="header-rule" aria-hidden="true"></span>
       <div class="header-actions">
         <a class="repository-link" href="https://github.com/Revincxt/orbitops-lab" rel="noreferrer" target="_blank">Repository <span aria-hidden="true">↗</span></a>
       </div>
@@ -47,12 +51,14 @@
     </nav>
     <div class="workspace">
       <aside id="experiment" class="config-panel" aria-labelledby="controls-title">
-        <div class="panel-heading"><h2 id="controls-title">Mission plan</h2><span class="panel-tag">EOS-Bench</span></div>
-        <form id="solve-form">
-          <label><span class="field-label">REFERENCE PLAN</span><select id="solver-select" name="solver_name" required aria-label="Reference plan"></select></label>
-          <button id="run-button" class="run-button" type="submit" title="Load plan · Ctrl/Cmd + Enter"><span id="run-label">Load plan</span><svg><use href="#i-play"/></svg></button>
-        </form>
-        <section class="target-catalog" aria-labelledby="targets-title">
+        <div class="plan-card command-card">
+          <div class="panel-heading"><h2 id="controls-title">Mission plan</h2><span class="panel-tag">EOS-Bench</span></div>
+          <form id="solve-form">
+            <label><span class="field-label">REFERENCE PLAN</span><select id="solver-select" name="solver_name" required aria-label="Reference plan"></select></label>
+            <button id="run-button" class="run-button" type="submit" title="Load plan · Ctrl/Cmd + Enter"><span id="run-label">Load plan</span><svg><use href="#i-play"/></svg></button>
+          </form>
+        </div>
+        <section class="target-catalog command-card" aria-labelledby="targets-title">
           <div class="section-heading"><h3 id="targets-title">Target catalog</h3><span id="target-count" class="count-badge">—</span></div>
           <div class="catalog-filters"><input id="target-search" type="search" placeholder="Find task / target" aria-label="Find task or target"><select id="target-filter" aria-label="Filter task status"><option value="all">All tasks</option><option value="planned">Planned</option><option value="unassigned">Unassigned</option><option value="active">Active now</option></select></div>
           <div class="catalog-head"><span>TARGET / PRIORITY</span><span>STATE</span></div>
@@ -61,12 +67,22 @@
         </section>
       </aside>
       <section id="results" class="center-workspace" aria-label="Mission workspace">
-        <article class="globe-card" aria-labelledby="globe-title">
+        <article class="globe-card command-card" aria-labelledby="globe-title">
           <div class="viewport-toolbar">
             <div class="viewport-title"><h2 id="globe-title">Orbit view</h2></div>
             <div id="map-projections" class="map-projections" role="group" aria-label="Map projection"><button id="view-3d" data-view="3d" type="button" aria-pressed="true" title="3D · globe with orbital altitude" disabled>3D</button><button id="view-2_5d" data-view="2.5d" type="button" aria-pressed="false" title="2.5D · tilted unfolded map with orbital altitude (Columbus View)" disabled>2.5D</button><button id="view-2d" data-view="2d" type="button" aria-pressed="false" title="2D · unfolded geographic map; altitude is not represented spatially" disabled>2D</button></div>
             <div class="viewport-tools">
-              <div id="layer-controls" class="layer-controls"><button id="toggle-layers" class="icon-button" type="button" aria-label="Map layers" aria-expanded="false" aria-controls="layer-options" title="Map layers"><svg><use href="#i-layers"/></svg></button><div id="layer-options" class="layer-options" role="group" aria-label="Visible map layers" hidden><button id="toggle-targets" class="tool-button" type="button" aria-pressed="true">Targets</button><button id="toggle-track" class="tool-button" type="button" aria-pressed="true" title="Source orbit samples: solid past, dashed future">Orbit paths</button><button id="toggle-rays" class="tool-button" type="button" aria-pressed="true">Observation links</button><button id="toggle-labels" class="tool-button" type="button" aria-pressed="false" title="Target IDs appear when zoomed in; selected target stays labelled">Target IDs</button><button id="toggle-sat-labels" class="tool-button" type="button" aria-pressed="true">Satellite IDs</button></div></div>
+              <div id="layer-controls" class="layer-controls">
+                <button id="toggle-layers" class="icon-button" type="button" aria-label="Map layers" aria-expanded="false" aria-controls="layer-options" title="Map layers"><svg><use href="#i-layers"/></svg></button>
+                <div id="layer-options" class="layer-options" role="group" aria-label="Visible map layers" hidden>
+                  <button id="toggle-targets" class="tool-button" type="button" aria-pressed="true">Targets</button>
+                  <button id="toggle-track" class="tool-button" type="button" aria-pressed="true" title="Source orbit samples: solid past, dashed future">Orbit paths</button>
+                  <button id="toggle-rays" class="tool-button" type="button" aria-pressed="true">Observation links</button>
+                  <button id="toggle-fov" class="tool-button" type="button" aria-pressed="true" title="Illustrative geocentric field of view: full cone angle 15°, half-angle 7.5°. Not source sensor attitude or task execution.">Sensor FOV · 15°</button>
+                  <button id="toggle-labels" class="tool-button" type="button" aria-pressed="false" title="Target IDs appear when zoomed in; selected target stays labelled">Target IDs</button>
+                  <button id="toggle-sat-labels" class="tool-button" type="button" aria-pressed="true">Satellite IDs</button>
+                </div>
+              </div>
               <button id="reset-view" class="icon-button" type="button" title="Fit mission to view" aria-label="Fit mission to view"><svg><use href="#i-reset"/></svg></button><button id="expand-map" class="icon-button" type="button" title="Expand map pane" aria-label="Expand map pane" aria-expanded="false" aria-controls="mission-globe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5"/></svg></button>
             </div>
           </div>
@@ -74,6 +90,7 @@
             <div id="mission-globe" role="img" aria-label="Interactive three-dimensional mission geometry"></div>
             <div id="globe-loading" class="globe-loading" aria-live="polite"><span class="orbit-loader" aria-hidden="true"></span><span>Preparing mission geometry</span></div>
             <div class="globe-overlay"><span><i></i>Planned</span><span class="state-observing"><i></i>Observing</span><span class="state-completed"><i></i>Completed</span><span class="state-unassigned"><i></i>Unassigned</span></div>
+            <span id="orbit-basis" class="orbit-basis" title="Display-only two-body orbit extension. No task execution, new planning, or operational ephemeris." hidden>Estimated orbit</span>
             <div id="orbit-hud" class="orbit-hud" hidden>
               <div class="satellite-readout"><i id="satellite-swatch" aria-hidden="true"></i><div><strong id="satellite-name">Select a satellite</strong></div><div class="orbit-telemetry"><span title="Display-interpolated altitude above the WGS84 ellipsoid, not telemetry"><b id="satellite-altitude">— km</b> ALT</span><span title="Orbital period recorded in source CZML"><b id="satellite-period">— min</b> PERIOD</span></div></div>
               <div class="orbit-camera" role="group" aria-label="Satellite camera controls"><button id="camera-overview" type="button" aria-pressed="true">Overview</button><button id="camera-follow" type="button" aria-pressed="false" disabled>Follow</button></div>
@@ -82,9 +99,26 @@
             <div id="globe-hover" class="globe-hover" role="tooltip" hidden></div>
             <button id="north-view" class="viewport-compass" type="button" title="Face north" aria-label="Face north" disabled><span class="compass-needle" aria-hidden="true">N</span><small id="camera-heading">0°</small></button>
           </div>
-          <div class="replay-bar" aria-label="Mission playback"><div class="replay-controls"><button id="replay-play" type="button" class="page-button" aria-label="Play mission replay" aria-pressed="false">▶</button><button id="replay-reset" type="button" class="page-button" aria-label="Reset mission replay">↤</button><time id="replay-time">T+00:00:00</time><label class="speed-label"><span>Speed</span><select id="replay-speed" aria-label="Replay speed"><option value="1">1×</option><option value="30">30×</option><option value="60" selected>60×</option><option value="300">300×</option><option value="900">900×</option></select></label></div><input id="replay-scrub" type="range" min="0" max="1" step="0.1" value="0" aria-label="Mission replay time"></div>
+          <div class="replay-bar" aria-label="Mission playback">
+            <div class="replay-controls">
+              <button id="replay-play" type="button" class="page-button" aria-label="Play mission replay" aria-pressed="false"><svg aria-hidden="true"><use href="#i-play"/></svg></button>
+              <button id="replay-reset" type="button" class="page-button" aria-label="Reset mission replay"><svg aria-hidden="true"><use href="#i-reset"/></svg></button>
+              <button id="replay-direction" type="button" class="page-button" aria-label="Switch to reverse playback" aria-pressed="false" title="Playing forwards"><svg aria-hidden="true"><use href="#i-direction"/></svg></button>
+              <button id="replay-time-button" type="button" class="replay-time-button" aria-label="Choose replay time in UTC" aria-expanded="false" aria-controls="replay-time-picker"><time id="replay-time">T+00:00:00</time></button>
+              <label class="speed-label"><span>Speed</span><select id="replay-speed" aria-label="Replay speed"><option value="1">1×</option><option value="30">30×</option><option value="60" selected>60×</option><option value="300">300×</option><option value="900">900×</option></select></label>
+            </div>
+            <div class="replay-window-controls">
+              <button id="replay-window-prev" class="page-button previous" type="button" aria-label="Previous 12-hour playback window" title="Previous 12 hours"><svg aria-hidden="true"><use href="#i-chevron"/></svg></button>
+              <input id="replay-scrub" type="range" min="0" max="1" step="0.1" value="0" aria-label="Mission replay time">
+              <button id="replay-window-next" class="page-button" type="button" aria-label="Next 12-hour playback window" title="Next 12 hours"><svg aria-hidden="true"><use href="#i-chevron"/></svg></button>
+            </div>
+            <form id="replay-time-picker" class="replay-time-picker" aria-label="Jump to UTC time" hidden>
+              <label for="replay-utc-input"><span class="field-label">UTC time</span><input id="replay-utc-input" type="datetime-local" min="0001-01-01T00:00:00" max="9999-12-31T23:59:59" step="1" required></label>
+              <button type="submit" class="time-jump-button">Go</button>
+            </form>
+          </div>
         </article>
-        <section class="analysis-dock" aria-label="Schedule analysis">
+        <section class="analysis-dock command-card" aria-label="Schedule analysis">
           <div class="dock-header"><div class="analysis-tabs" role="tablist" aria-label="Analysis views"><button id="tab-timeline" type="button" role="tab" aria-selected="true" aria-controls="pane-timeline" data-tab="timeline">Timeline</button><button id="tab-comparison" type="button" role="tab" aria-selected="false" aria-controls="pane-comparison" tabindex="-1" data-tab="comparison">Comparison</button></div></div>
           <article id="pane-timeline" class="analysis-pane gantt-block" role="tabpanel" aria-labelledby="tab-timeline">
             <div class="visual-heading"><h3 id="timeline-title">Observation schedule</h3><div class="timeline-tools"><select id="satellite-filter" aria-label="Filter satellite"><option value="all">All satellites</option></select><div class="legend" aria-label="Gantt chart legend"><span><i class="swatch visibility"></i>Visibility</span><span><i class="swatch observation"></i>Observation</span><span class="slew-legend"><i class="swatch slew"></i>Slew</span></div></div></div>
@@ -101,11 +135,13 @@
         </section>
       </section>
       <aside id="inspector" class="inspector-panel" aria-labelledby="results-title">
+        <div class="inspector-card command-card">
         <div class="panel-heading"><h2 id="results-title">Plan summary</h2><button id="export-run" class="icon-button" type="button" aria-label="Export evaluated run as JSON" title="Export run JSON" disabled><svg><use href="#i-export"/></svg></button></div>
         <div class="inspector-tabs" role="tablist" aria-label="Inspector views"><button id="tab-selection" type="button" role="tab" aria-selected="true" aria-controls="inspector-selection" data-inspector-tab="selection">Selection</button><button id="tab-evaluation" type="button" role="tab" aria-selected="false" aria-controls="inspector-evaluation" tabindex="-1" data-inspector-tab="evaluation">Metrics</button></div>
         <section id="inspector-selection" class="selection-panel" role="tabpanel" aria-labelledby="tab-selection"><div class="selection-heading"><svg><use href="#i-target"/></svg><div><h3 id="selected-id">No target selected</h3></div><span id="selected-state" class="target-state">—</span></div><dl class="selection-details"><div><dt>Coordinates</dt><dd id="selected-coordinates">—</dd></div><div><dt>Priority / duration</dt><dd id="selected-priority">—</dd></div><div><dt>Satellite</dt><dd id="selected-assignment">—</dd></div><div><dt>Observation · UTC</dt><dd id="selected-window">—</dd></div><div><dt id="selected-resource-label">Data / orbit</dt><dd id="selected-resources">—</dd></div></dl></section>
         <section id="inspector-evaluation" class="metrics-panel" role="tabpanel" aria-labelledby="tab-evaluation" hidden><dl class="metric-details"><div title="BD = 1 − Σ|satellite workload − mean| / (2 × all required task duration)"><dt>Balance · BD ↑</dt><dd id="metric-balance">—</dd></div><div title="Recorded solver runtime; not viewer performance"><dt>Runtime · RT ↓</dt><dd id="metric-runtime">—</dd></div><div><dt>Slew time ↓</dt><dd id="metric-motion">—</dd></div><div><dt>Objective</dt><dd id="metric-objective">—</dd></div><div><dt>Metric basis</dt><dd id="metric-basis">—</dd></div></dl></section>
-        <article class="resource-block visual-block" aria-labelledby="resources-title"><div class="section-heading"><h3 id="resources-title">Satellite workload</h3><span class="count-badge">s</span></div><div id="resource-chart" class="chart-host"><p class="chart-empty">Awaiting plan</p></div><div class="resource-readouts"><span>ACTIVE SATELLITES<strong id="energy-readout">—</strong></span><span>OBSERVATION TIME<strong id="storage-readout">—</strong></span></div></article>
+        </div>
+        <article class="resource-block visual-block command-card" aria-labelledby="resources-title"><div class="section-heading"><h3 id="resources-title">Satellite workload</h3><span class="count-badge">s</span></div><div id="resource-chart" class="chart-host"><p class="chart-empty">Awaiting plan</p></div><div class="resource-readouts"><span>ACTIVE SATELLITES<strong id="energy-readout">—</strong></span><span>OBSERVATION TIME<strong id="storage-readout">—</strong></span></div></article>
       </aside>
     </div>
     <footer class="status-bar"><span id="status-indicator" class="live-dot"></span><p id="status" class="status" aria-live="polite">Loading EOS-Bench…</p><span id="pending-state" class="pending-state" hidden>Plan changed · load to apply</span><span class="status-end">WGS84 · UTC</span></footer>
@@ -113,8 +149,10 @@
   <script src="./deployment-config.js?v=0.2.0"></script>
   <script src="./cesium-config.js?v=0.2.0"></script>
   <script id="cesium-engine" src="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Cesium.js" async></script>
-  <script src="./replay.js?v=0.7.0" defer></script>
-  <script src="./mission.js?v=0.7.0" defer></script>
-  <script src="./app.js?v=0.7.0" defer></script>
+  <script src="./replay.js?v=0.9.0" defer></script>
+  <script src="./orbit-model.js?v=0.9.0" defer></script>
+  <script src="./sensor-fov.js?v=0.11.0" defer></script>
+  <script src="./mission.js?v=0.11.0" defer></script>
+  <script src="./app.js?v=0.11.0" defer></script>
 </body>
 </html>

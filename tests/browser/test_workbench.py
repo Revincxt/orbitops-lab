@@ -138,7 +138,9 @@ def test_analysis_views_fit_without_scrolling(
 
 def collect_pages(page: Any, name: str, selector: str) -> set[str]:
     seen: set[str] = set()
-    for _ in range(70):
+    # Readable rows can require more pages on compact screens. Every source task
+    # must remain reachable even when only one fits, without an arbitrary cap.
+    for _ in range(500):
         seen.update(
             page.locator(selector).evaluate_all("nodes => nodes.map(node => node.dataset.taskId)")
         )
@@ -216,6 +218,91 @@ def test_reference_half_open_task_states_utc_and_no_local_solves(page: Any, lab_
     )
     assert page.locator("#replay-time").inner_text() == "2025-11-19 00:00:00 UTC"
     assert not solve_requests
+
+
+def test_playback_windows_and_utc_jump_extend_without_executing_tasks(
+    page: Any, lab_url: str
+) -> None:
+    reference_ready(page, lab_url)
+    initial = page.evaluate("JSON.stringify(state.currentPayload)")
+    page.locator("#replay-window-prev").click()
+    assert page.evaluate("state.replay.time") == -43200
+    assert page.locator("#orbit-basis").is_visible()
+    assert page.locator("#mission-globe").get_attribute("data-orbit-basis") == "estimated"
+    assert page.locator("#replay-time").inner_text() == "2025-11-18 00:00:00 UTC"
+    assert page.locator(".map-ray").count() == 0
+    assert page.locator("#selected-state").inner_text() == "Planned"
+    assert page.locator(".map-track-past").count() >= 20
+    assert page.locator(".map-track-future").count() >= 20
+    page.locator("#replay-time-button").click()
+    page.locator("#replay-utc-input").fill("2025-11-21T12:00")
+    page.locator("#replay-time-picker button").click()
+    assert page.evaluate("state.replay.time") == 3 * 86400
+    assert page.locator("#replay-time").inner_text() == "2025-11-21 12:00:00 UTC"
+    assert page.locator("#selected-state").inner_text() == "Completed"
+    assert page.locator(".map-ray").count() == 0
+    assert page.locator(".time-cursor").is_hidden()
+    assert page.locator("#replay-time-picker").is_hidden()
+    assert page.evaluate("JSON.stringify(state.currentPayload)") == initial
+    page.locator("#replay-reset").click()
+    assert page.evaluate("[state.replay.time,state.replay.windowStart,state.replay.windowEnd]") == [
+        0,
+        0,
+        43200,
+    ]
+    assert page.locator("#orbit-basis").is_hidden()
+    assert page.locator("#selected-state").inner_text() == "Observing"
+    assert_single_screen(page)
+
+
+def test_playback_continues_across_both_source_boundaries(page: Any, lab_url: str) -> None:
+    reference_ready(page, lab_url)
+    page.locator("#replay-speed").select_option("900")
+    page.evaluate("setReplayTime(43199.9, true)")
+    page.locator("#replay-play").click()
+    page.wait_for_function("state.replay.time > 43300 && state.replay.playing")
+    page.locator("#replay-play").click()
+    assert page.locator("#orbit-basis").is_visible()
+    assert page.locator(".map-ray").count() == 0
+    page.evaluate("setReplayTime(.1, true)")
+    page.locator("#replay-direction").click()
+    assert page.locator("#replay-direction").get_attribute("aria-pressed") == "true"
+    page.locator("#replay-play").click()
+    page.wait_for_function("state.replay.time < -100 && state.replay.playing")
+    page.locator("#replay-play").click()
+    assert page.locator("#orbit-basis").is_visible()
+    assert page.locator(".map-ray").count() == 0
+    assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 488
+    assert_single_screen(page)
+
+
+@pytest.mark.parametrize(("width", "height"), [(1440, 900), (800, 600), (375, 667)])
+def test_extended_playback_controls_and_time_picker_fit_without_scroll(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    page.locator("#replay-window-next").click()
+    page.locator("#replay-time-button").click()
+    assert page.locator("#replay-utc-input").is_visible()
+    bounds = page.locator("#replay-time-picker").bounding_box()
+    assert 0 <= bounds["x"] <= width - bounds["width"]
+    assert 0 <= bounds["y"] <= height - bounds["height"]
+    page.keyboard.press("Escape")
+    assert page.locator("#replay-time-picker").is_hidden()
+    assert page.locator("#replay-time-button").evaluate("n => n === document.activeElement")
+    assert_single_screen(page)
+
+
+def test_invalid_time_does_not_corrupt_the_clock_or_start_a_local_solve(
+    page: Any, lab_url: str
+) -> None:
+    reference_ready(page, lab_url)
+    assert not page.evaluate("setReplayTime(NaN, true)")
+    assert page.evaluate("state.replay.time") == 0
+    assert page.locator("#status").get_attribute("class") == "status error"
+    assert page.evaluate("setReplayTime(-86400, true)")
+    assert page.locator("#status").get_attribute("class") == "status"
 
 
 def test_reference_all_twenty_satellite_lanes_and_plan_switching(page: Any, lab_url: str) -> None:
@@ -316,7 +403,7 @@ def test_static_reference_mode_uses_the_same_archive_without_api_calls(
 
 
 @pytest.mark.parametrize("time", [0, 0.1, 14400, 43199.9, 43200])
-def test_reference_orbit_windows_are_present_at_start_and_stay_inside_source(
+def test_reference_orbit_windows_are_centered_and_extend_beyond_source_boundaries(
     page: Any, lab_url: str, time: float
 ) -> None:
     reference_ready(page, lab_url)
@@ -324,19 +411,18 @@ def test_reference_orbit_windows_are_present_at_start_and_stay_inside_source(
     windows = page.evaluate("""() => state.currentPayload.replay.orbits.map(orbit => ({
       ...windowForOrbit(orbit), period: orbit.period_s,
       segments: OrbitReplay.trackSegments(
-        orbit.samples, windowForOrbit(orbit).start, windowForOrbit(orbit).end)
+        state.orbitModels.get(orbit.satellite_id).trackSamples(windowForOrbit(orbit).start,
+          windowForOrbit(orbit).end), windowForOrbit(orbit).start, windowForOrbit(orbit).end)
     }))""")
     assert len(windows) == 20
     for bounds in windows:
-        assert 0 <= bounds["start"] <= time <= bounds["end"] <= 43200
+        assert bounds["start"] == pytest.approx(time - bounds["period"] / 2)
+        assert bounds["end"] == pytest.approx(time + bounds["period"] / 2)
         assert bounds["past"] + bounds["future"] == pytest.approx(bounds["period"])
         assert bounds["segments"]
     assert page.locator(".map-orbit polyline").count() >= 20
-    if time == 0:
-        assert page.locator(".map-track-past").count() == 0
-        assert page.locator(".map-track-future").count() >= 20
-    elif time == 43200:
-        assert page.locator(".map-track-future").count() == 0
+    assert page.locator(".map-track-past").count() >= 20
+    assert page.locator(".map-track-future").count() >= 20
     assert_single_screen(page)
 
 
@@ -541,3 +627,155 @@ def test_workload_selection_matches_satellite_highlight(page: Any, lab_url: str)
         == "true"
     )
     assert page.locator(".workload-bar.is-selected").count() == 1
+    assert page.locator(f'.workload-row[data-satellite-id="{satellite}"]').evaluate(
+        "node => node === document.activeElement"
+    )
+
+
+@pytest.mark.parametrize(("width", "height"), [(1440, 900), (1024, 768), (375, 667)])
+def test_local_font_and_readable_typography_fit_all_workspace_views(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    requests: list[str] = []
+    page.on("request", lambda request: requests.append(request.url))
+    reference_ready(page, lab_url)
+    assert page.evaluate(
+        "[...document.fonts].some(f => f.family === 'Inter' && f.status === 'loaded')"
+    )
+    font_requests = [url for url in requests if ".woff" in url or ".ttf" in url]
+    assert font_requests == [lab_url + "/fonts/InterVariable.woff2"]
+    if width <= 1000:
+        page.locator("#workspace-tasks").click()
+    assert (
+        page.locator(".target-row-name strong").first.evaluate(
+            "n => parseFloat(getComputedStyle(n).fontSize)"
+        )
+        >= 12
+    )
+    assert (
+        page.locator(".target-row-name small").first.evaluate(
+            "n => parseFloat(getComputedStyle(n).fontSize)"
+        )
+        >= 10
+    )
+    if width <= 1000:
+        page.locator("#workspace-summary").click()
+    for tab in ["selection", "evaluation"]:
+        page.locator(f"#tab-{tab}").click()
+        details = page.locator(f"#inspector-{tab} dd").evaluate_all("""nodes => nodes.map(n => ({
+          id:n.id, size:parseFloat(getComputedStyle(n).fontSize),
+          width:n.clientWidth, content:n.scrollWidth
+        }))""")
+        for detail in details:
+            assert detail["size"] >= 11, detail
+            assert detail["content"] <= detail["width"] + 1, detail
+    if width <= 1000:
+        page.locator("#workspace-map").click()
+    page.locator("#satellite-filter").select_option("KENT_RIDGE_1_41167")
+    assert page.locator(".satellite-lane .task-label").text_content() == "KENT RIDGE 1"
+    assert page.locator("#satellite-filter option:checked").inner_text() == "KENT RIDGE 1"
+    assert_single_screen(page)
+
+
+def test_missing_font_uses_system_fallback_without_blocking_the_archive(
+    page: Any, lab_url: str
+) -> None:
+    page.route("**/fonts/InterVariable.woff2", lambda route: route.abort())
+    reference_ready(page, lab_url)
+    assert not page.evaluate(
+        "[...document.fonts].some(f => f.family === 'Inter' && f.status === 'loaded')"
+    )
+    assert page.locator(".map-marker").count() == 500
+    assert page.locator("#run-button").is_enabled()
+    assert_single_screen(page)
+
+
+@pytest.mark.parametrize(("width", "height"), [(1920, 1080), (1440, 900), (375, 667)])
+def test_command_panels_fit_and_decorative_frames_do_not_block_controls(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    source = page.evaluate("JSON.stringify(state.currentPayload)")
+    assert page.locator(".command-card").count() == 6
+    assert page.locator(".header-rule").get_attribute("aria-hidden") == "true"
+    for view in ["map", "tasks", "summary"]:
+        if width <= 1000:
+            page.locator(f"#workspace-{view}").click()
+        cards = page.locator(".command-card:visible").evaluate_all("""nodes => nodes.map(n => {
+          const box = n.getBoundingClientRect();
+          return {name:n.className, x:box.x, y:box.y, right:box.right, bottom:box.bottom,
+            scroll:n.scrollHeight, height:n.clientHeight,
+            pointer:getComputedStyle(n,'::after').pointerEvents};
+        })""")
+        for card in cards:
+            assert 0 <= card["x"] < card["right"] <= width, card
+            assert 0 <= card["y"] < card["bottom"] <= height, card
+            assert card["scroll"] <= card["height"] + 1, card
+            assert card["pointer"] == "none", card
+        assert_single_screen(page)
+    if width <= 1000:
+        page.locator("#workspace-map").click()
+    page.locator("#tab-comparison").click()
+    plans: set[str] = set()
+    for _ in range(4):
+        plans.update(page.locator("#comparison-body button").all_text_contents())
+        if page.locator("#comparison-next").is_disabled():
+            break
+        page.locator("#comparison-next").click()
+    assert len(plans) == 4
+    assert page.evaluate("JSON.stringify(state.currentPayload)") == source
+    assert_single_screen(page)
+
+
+@pytest.mark.parametrize(("width", "height"), [(1440, 900), (800, 600), (375, 667)])
+def test_fov_footprints_and_all_layer_controls_remain_reachable_on_small_screens(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    assert page.locator(".map-fov").count() == 20
+    assert page.locator(".map-fov polyline").count() >= 20
+    page.locator("#toggle-layers").click()
+    page.locator("#toggle-fov").click()
+    assert page.locator("#toggle-fov").get_attribute("aria-pressed") == "false"
+    assert page.locator(".map-fov:visible").count() == 0
+    page.locator("#toggle-fov").click()
+    assert page.locator(".map-fov:visible").count() == 20
+    page.locator("#toggle-sat-labels").click()
+    assert page.locator("#toggle-sat-labels").get_attribute("aria-pressed") == "false"
+    page.keyboard.press("Escape")
+    page.evaluate("setReplayTime(-3*86400, true)")
+    assert page.locator(".map-fov polyline").count() >= 20
+    assert page.locator(".map-ray").count() == 0
+    assert_single_screen(page)
+
+
+def test_small_text_has_readable_contrast_in_default_and_selected_states(
+    page: Any, lab_url: str
+) -> None:
+    reference_ready(page, lab_url)
+    page.locator("#tab-comparison").click()
+    samples = page.evaluate("""() => {
+      const rgb = value => value.match(/[\\d.]+/g).map(Number);
+      const luminance = color => color.slice(0, 3).map(c => c / 255)
+        .map(c => c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4)
+        .reduce((sum, c, i) => sum + c * [.2126, .7152, .0722][i], 0);
+      return [...document.querySelectorAll(
+        '.field-label, .target-row-name small, .target-state, .selection-details dt, '
+        + '.selection-details dd, .comparison-table th, .comparison-table .numeric, '
+        + '.pager > span, .status')].map(node => {
+          const foreground = rgb(getComputedStyle(node).color);
+          let current = node, background;
+          while (current) {
+            const color = rgb(getComputedStyle(current).backgroundColor);
+            if (color.length === 3 || color[3] === 1) { background = color; break; }
+            current = current.parentElement;
+          }
+          const a = luminance(foreground), b = luminance(background);
+          return {label:node.textContent, contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05)};
+        });
+    }""")
+    for sample in samples:
+        assert sample["contrast"] >= 4.5, sample

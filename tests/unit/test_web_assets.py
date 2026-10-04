@@ -49,10 +49,12 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     )
     assert "Schedule the orbit" not in html
     assert 'src="./deployment-config.js?v=0.2.0"' in html
-    assert 'src="./app.js?v=0.7.0"' in html
-    assert 'src="./replay.js?v=0.7.0"' in html
-    assert 'src="./mission.js?v=0.7.0"' in html
-    assert 'href="./app.css?v=0.7.0"' in html
+    assert 'src="./app.js?v=0.11.0"' in html
+    assert 'src="./replay.js?v=0.9.0"' in html
+    assert 'src="./orbit-model.js?v=0.9.0"' in html
+    assert 'src="./sensor-fov.js?v=0.11.0"' in html
+    assert 'src="./mission.js?v=0.11.0"' in html
+    assert 'href="./app.css?v=0.11.0"' in html
     assert 'href="./favicon.svg?v=0.2.0"' in html
 
 
@@ -68,8 +70,12 @@ def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     assert "new Cesium.Viewer" in script
     assert "scene3DOnly: false" in script
     assert "Cesium.MapMode2D.ROTATE" in script
+    assert "state.globe.scene.skyBox.show = true" in script
+    assert "state.globe.scene.skyBox.show = false" not in script
     assert "BlueMarble_ShadedRelief/default" in script
     assert "NaturalEarthII" in script
+    assert "new Cesium.GridImageryProvider" in script
+    assert "backgroundColor: Cesium.Color.TRANSPARENT" in script
     assert "WebMercatorTilingScheme" in script
     assert "GoogleMapsCompatible_Level8" in script
     assert "visibility_windows" in script
@@ -108,13 +114,17 @@ def test_web_lab_styles_use_a_fixed_viewport_engineering_workspace() -> None:
     assert "--canvas:" in stylesheet
     assert ".globe-card" in stylesheet
     assert ".window-bar" in stylesheet
-    assert ".td-line" in stylesheet
+    assert ".workload-track" in stylesheet
     assert ".comparison-table" in stylesheet
     assert ".audit-grid" not in stylesheet
     assert ".metric-grid" not in stylesheet
     assert ".metric-details" in stylesheet
     assert ".center-workspace" in stylesheet
     assert ".analysis-dock" in stylesheet
+    assert ".command-card::after" in stylesheet
+    assert "pointer-events: none" in stylesheet
+    assert ".header-rule" in stylesheet
+    assert "transform: skew(-18deg)" in stylesheet
     assert "height: 100dvh" in stylesheet
     assert "overscroll-behavior: none" in stylesheet
     assert "overflow-y: auto" not in stylesheet
@@ -122,6 +132,36 @@ def test_web_lab_styles_use_a_fixed_viewport_engineering_workspace() -> None:
     assert "min-width: 0" in stylesheet
     assert "@media (max-width: 640px)" in stylesheet
     assert ":focus-visible" in stylesheet
+
+
+def test_web_typography_is_self_hosted_and_density_has_one_source_of_truth() -> None:
+    import hashlib
+
+    stylesheet = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    mission = (STATIC_DIR / "mission.js").read_text(encoding="utf-8")
+    font = (STATIC_DIR / "fonts" / "InterVariable.woff2").read_bytes()
+
+    assert font.startswith(b"wOF2")
+    assert hashlib.sha256(font).hexdigest() == (
+        "693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3"
+    )
+    assert "SIL OPEN FONT LICENSE" in (STATIC_DIR / "fonts" / "OFL.txt").read_text()
+    assert 'href="./fonts/InterVariable.woff2" as="font"' in html
+    assert "font-variant-numeric: tabular-nums" in stylesheet
+    assert "document.fonts.load" in script
+    assert "font: '500 12px \"Inter\", sans-serif'" in mission
+    assert 'satellite_id.split("_")[0]' not in mission
+    for token in [
+        "target-row-height",
+        "timeline-row-height",
+        "workload-row-height",
+        "comparison-header-height",
+        "comparison-row-height",
+    ]:
+        assert f"--{token}:" in stylesheet
+        assert f'layoutSize("{token}")' in script + mission
 
 
 def test_github_pages_build_is_reproducible_and_uses_official_actions() -> None:
