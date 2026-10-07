@@ -12,9 +12,9 @@ const original = JSON.stringify(archive);
 const metric = (series, key) => series.metrics.find(axis => axis.key === key);
 const source = (metrics) => ({recomputed_metrics: {...metrics}, source_metrics: {RT: metrics.RT}});
 
-test("all four original plans retain exact raw metrics on five bounded radar axes", () => {
+test("all seven selected plans retain exact raw metrics on five bounded radar axes", () => {
   const series = context.radarSeries(archive.plans);
-  assert.equal(series.length, 4);
+  assert.equal(series.length, 7);
   for (const item of series) {
     assert.equal(item.metrics.map(m => m.key).join(","), "TP,TCR,TM,RT,BD");
     for (const axis of item.metrics) {

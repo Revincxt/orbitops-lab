@@ -29,7 +29,7 @@ ROOT = Path(__file__).parents[2]
 
 @pytest.fixture(scope="module")
 def lab_url() -> Iterator[str]:
-    server = make_server(ROOT / "scenarios", port=0)
+    server = make_server(ROOT / "data/eos-bench/reference.json", port=0)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -149,10 +149,10 @@ def assert_centered_playback_controls(page: Any) -> None:
     assert group.locator("button, select").evaluate_all("nodes => nodes.map(n => n.id)") == [
         "replay-window-prev",
         "replay-play",
+        "replay-window-next",
         "replay-reset",
         "replay-direction",
         "replay-speed",
-        "replay-window-next",
     ]
     assert group.evaluate("""node => {
       const group = node.getBoundingClientRect();
@@ -310,7 +310,7 @@ def test_task_list_precedes_comparison_and_preserves_panel_space(
           : task.bottom + 7 <= comparison.top && Math.abs(comparison.bottom - panel.bottom) < 1);
     }""")
     assert page.locator(".target-row").count() == 500
-    assert page.locator("#comparison-legend button").count() == 4
+    assert page.locator("#comparison-legend button").count() == 7
     page.locator("#target-filter").select_option("unassigned")
     assert page.locator(".target-row").count() == 12
     page.locator("#target-filter").select_option("all")
@@ -534,7 +534,8 @@ def test_reference_half_open_task_states_utc_and_no_local_solves(page: Any, lab_
         "node => {node.value = 7.9; node.dispatchEvent(new Event('input'));}"
     )
     assert page.locator("#selected-state").text_content() == "Observing"
-    assert page.locator('.map-ray[data-task-id="M350"]').count() == 1
+    assert page.locator('.map-ray[data-task-id="M350"]').count() == 0
+    assert page.locator("#toggle-rays").count() == 0
     page.locator("#replay-scrub").evaluate(
         "node => {node.value = 8; node.dispatchEvent(new Event('input'));}"
     )
@@ -837,7 +838,7 @@ def test_reference_all_twenty_satellite_lanes_and_plan_switching(page: Any, lab_
     assert page.locator("#timeline-prev, #timeline-next, #timeline-range").count() == 0
     page.locator("#satellite-filter").select_option("KENT_RIDGE_1_41167")
     assert page.locator(".satellite-lane").count() == 1
-    page.locator("#comparison-legend button", has_text="SA · profit").click()
+    page.locator('#comparison-legend button[data-plan-id="eos-sa-profit"]').click()
     assert page.evaluate("state.currentPayload.evaluation.TP") == 2833
     assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 493
     assert page.evaluate("state.currentPayload.result.validation.is_feasible") is None
@@ -849,6 +850,31 @@ def test_reference_all_twenty_satellite_lanes_and_plan_switching(page: Any, lab_
         == "ee282656e8b2f6fd0d3cf84677b40966e2780ef3"
     )
     assert_single_screen(page)
+
+
+def test_fallback_footprints_never_accumulate_history_and_observation_links_are_removed(
+    page: Any, lab_url: str
+) -> None:
+    reference_ready(page, lab_url)
+    assert page.locator("#toggle-rays").count() == 0
+    for time in [-86400, 0, 3.5, 8, 125.5, 43201, 125.5, 0, -86400]:
+        page.evaluate("time => setReplayTime(time,true)", time)
+        assert page.locator(".map-fov").count() == 20
+        assert page.locator(".map-ray").count() == 0
+        assert page.evaluate("""() => [...document.querySelectorAll('.map-fov')].every(node => {
+          const id = node.dataset.satelliteId, model = state.orbitModels.get(id);
+          const attitude = satelliteFrame(id), time = state.replay.time;
+          const frame = SensorFov.frame(model.cartesian(time),attitude?.direction,attitude?.x);
+          return frame?.footprint.length ? node.children.length > 0
+            : node.children.length === 0 && node.style.display === 'none';
+        })""")
+    page.evaluate("setReplayTime(0,true); selectSatellite('KENT_RIDGE_1_41167')")
+    page.locator("#toggle-layers").click()
+    assert page.get_by_role("button", name="Observation links", exact=True).count() == 0
+    assert page.locator(".map-ray").count() == 0
+    page.evaluate("setReplayTime(8,true)")
+    assert page.locator(".map-ray").count() == 0
+    page.keyboard.press("Escape")
 
 
 def test_plan_reload_resets_playback_but_never_changes_scenario(page: Any, lab_url: str) -> None:
@@ -874,8 +900,8 @@ def test_radar_uses_source_values_correct_directions_and_distinct_csp_safe_colou
 ) -> None:
     reference_ready(page, lab_url)
     original = page.evaluate("JSON.stringify(state.referenceData)")
-    assert page.locator("#comparison-chart .radar-series").count() == 4
-    assert page.locator("#comparison-chart .radar-point").count() == 20
+    assert page.locator("#comparison-chart .radar-series").count() == 7
+    assert page.locator("#comparison-chart .radar-point").count() == 35
     assert page.locator("#comparison-chart .radar-axis").evaluate_all(
         "nodes => nodes.map(n => n.firstChild.textContent)"
     ) == ["TP ↑", "TCR ↑", "TM ↓", "RT ↓", "BD ↑"]
@@ -886,8 +912,8 @@ def test_radar_uses_source_values_correct_directions_and_distinct_csp_safe_colou
       points:[...n.querySelectorAll('circle')].map(p => ({key:p.dataset.metric,
         raw:Number(p.dataset.raw), score:Number(p.dataset.score)}))
     }))""")
-    assert len({item["colour"] for item in series}) == 4
-    assert len({item["dashes"] for item in series}) == 4
+    assert len({item["colour"] for item in series}) == 7
+    assert len({item["dashes"] for item in series}) == 7
     for item in series:
         assert item["colour"] == item["stroke"], item
         expected = page.evaluate(
@@ -910,6 +936,52 @@ def test_radar_uses_source_values_correct_directions_and_distinct_csp_safe_colou
     assert page.locator("#comparison-info, #comparison-scales").count() == 0
     assert "no overall ranking" in page.locator("#comparison-chart svg desc").text_content()
     assert page.evaluate("JSON.stringify(state.referenceData)") == original
+
+
+def test_precise_orbit_chunks_and_scoped_checks_survive_plan_switch_and_time_jumps(
+    page: Any,
+    lab_url: str,
+) -> None:
+    reference_ready(page, lab_url)
+    original = page.evaluate("JSON.stringify(state.referenceData)")
+    assert page.locator("#mission-globe").get_attribute("data-orbit-precision") == "1s"
+    for plan, count in [("eos-mip-profit", 355), ("eos-ga-profit", 488), ("eos-aco-profit", 488)]:
+        page.locator("#solver-select").select_option(plan)
+        page.wait_for_function(
+            "id => !state.busy && state.currentPayload.reference_plan.plan_id === id", arg=plan
+        )
+        assert page.evaluate("state.assignments.size") == count
+        page.locator("#tab-evaluation").click()
+        assert page.locator("#metric-budget").inner_text() == "pass"
+        assert "gaps" in page.locator("#metric-transitions").inner_text()
+        assert "/" in page.locator("#metric-occlusion").inner_text()
+        assert page.locator("#metric-occlusion").is_visible()
+        assert_single_screen(page)
+    for time in [3599.5, 3600, 3600.5, 22000, -86400, 43199, 43200, 86400]:
+        page.evaluate("t => {setReplayTime(t,true);}", time)
+        page.wait_for_function("state.ephemeris.pendingCount === 0")
+        if 0 <= time <= 43200:
+            page.wait_for_function("elements.globe.dataset.orbitPrecision === '1s'")
+        else:
+            assert (
+                page.locator("#mission-globe").get_attribute("data-orbit-precision") == "estimated"
+            )
+            assert page.locator(".map-ray").count() == 0
+        assert page.evaluate("state.ephemeris.cacheSize") <= 4
+    assert page.evaluate("JSON.stringify(state.referenceData)") == original
+
+
+def test_failed_dense_ephemeris_is_reported_as_preview_and_pauses_playback(
+    page: Any,
+    lab_url: str,
+) -> None:
+    page.route("**/orbit-data/**", lambda route: route.fulfill(status=503, body="unavailable"))
+    reference_ready(page, lab_url)
+    assert "30 s preview" in page.locator("#status").inner_text()
+    assert page.locator("#mission-globe").get_attribute("data-orbit-precision") == "preview-30s"
+    assert page.evaluate("state.ephemeris.cacheSize") == 0
+    assert page.evaluate("state.replay.playing") is False
+    assert page.locator(".map-satellite").count() == 20
 
 
 @pytest.mark.parametrize(
@@ -1108,7 +1180,7 @@ def test_static_reference_mode_uses_the_same_archive_without_api_calls(
 ) -> None:
     from scripts.import_eos_reference import REVISION
 
-    dataset = build_dataset(LabApplication(ROOT / "scenarios"))
+    dataset = build_dataset(LabApplication(ROOT / "data/eos-bench/reference.json"))
     assert set(dataset) == {"metadata", "reference"}
     requests: list[str] = []
     page.on(
@@ -1211,6 +1283,41 @@ def test_map_expansion_and_satellite_keyboard_selection_preserve_single_screen(
     assert_single_screen(page)
 
 
+@pytest.mark.parametrize("viewport", [(1440, 900), (375, 667)])
+def test_offline_satellite_details_keep_live_geodetic_and_ecef_coordinates(
+    page: Any, lab_url: str, viewport: tuple[int, int]
+) -> None:
+    page.set_viewport_size({"width": viewport[0], "height": viewport[1]})
+    reference_ready(page, lab_url)
+    page.evaluate("selectSatellite('KENT_RIDGE_1_41167')")
+    original = page.evaluate("JSON.stringify(state.currentPayload)")
+    for time in [-86400, 0, 3.5, 3600, 43200, 3 * 86400, 0]:
+        snapshot = page.evaluate(
+            """time => {
+          setReplayTime(time,true);
+          const p=state.orbitModels.get(state.selectedSatelliteId).cartesian(time);
+          const geo=OrbitModel.toGeodetic(p),text=id=>document.getElementById(id).textContent;
+          return {xyz:['x','y','z'].map(axis=>Number(text('satellite-position-'+axis))),
+            expected:p.map(v=>v/1000),latitude:Number(text('satellite-latitude').slice(0,-1)),
+            longitude:Number(text('satellite-longitude').slice(0,-1)),
+            expectedLatitude:geo[1],expectedLongitude:geo[0]};
+        }""",
+            time,
+        )
+        assert snapshot["xyz"] == pytest.approx(snapshot["expected"], abs=0.000501), snapshot
+        assert snapshot["latitude"] == pytest.approx(snapshot["expectedLatitude"], abs=0.000501)
+        assert snapshot["longitude"] == pytest.approx(snapshot["expectedLongitude"], abs=0.000501)
+    assert page.evaluate("JSON.stringify(state.currentPayload)") == original
+    assert page.locator("#orbit-hud").is_visible()
+    assert page.locator("#orbit-hud").evaluate("""node => {
+      const box=node.getBoundingClientRect(),map=elements.globe.getBoundingClientRect();
+      return node.scrollWidth<=node.clientWidth && node.scrollHeight<=node.clientHeight
+        && box.top>=map.top && box.bottom<=map.bottom
+        && box.left>=map.left && box.right<=map.right;
+    }""")
+    assert_single_screen(page)
+
+
 @pytest.mark.parametrize("aspect", [3.2, 1, 0.5])
 def test_tilted_map_camera_range_contains_world_and_source_altitudes(
     page: Any, lab_url: str, aspect: float
@@ -1252,7 +1359,7 @@ def test_demo_has_only_eos_bench_and_no_irrelevant_controls(
         "globe-coordinate",
     ]:
         assert page.locator(f"#{removed}").count() == 0
-    assert page.locator("#solver-select option").count() == 4
+    assert page.locator("#solver-select option").count() == 7
     assert all(
         "eos-" in value
         for value in page.locator("#solver-select option").evaluate_all(
@@ -1560,7 +1667,7 @@ def test_command_panels_fit_and_decorative_frames_do_not_block_controls(
     if width <= 1000:
         page.locator("#workspace-tasks").click()
     plans = set(page.locator("#comparison-legend button").all_text_contents())
-    assert len(plans) == 4
+    assert len(plans) == 7
     assert page.evaluate("JSON.stringify(state.currentPayload)") == source
     assert_single_screen(page)
 
@@ -1571,14 +1678,19 @@ def test_fov_footprints_and_all_layer_controls_remain_reachable_on_small_screens
 ) -> None:
     page.set_viewport_size({"width": width, "height": height})
     reference_ready(page, lab_url)
-    assert page.evaluate("SensorFov.ANGLE_DEG") == 30
-    assert page.evaluate("SensorFov.HALF_ANGLE") == pytest.approx(15 * math.pi / 180)
-    assert page.locator("#toggle-fov").text_content() == "Sensor FOV · 30°"
-    assert "full cone angle 30°, half-angle 15°" in page.locator("#toggle-fov").get_attribute(
+    assert page.evaluate("SensorFov.ANGLE_DEG") == 45
+    assert page.evaluate("SensorFov.HALF_ANGLE") == pytest.approx(22.5 * math.pi / 180)
+    assert page.locator("#toggle-fov").text_content() == "Sensor FOV · 45°"
+    assert "full cone angle 45°, half-angle 22.5°" in page.locator("#toggle-fov").get_attribute(
         "title"
     )
     assert page.locator(".map-fov").count() == 20
-    assert page.locator(".map-fov polyline").count() >= 20
+    grounded = page.evaluate("""() => state.currentPayload.replay.orbits.filter(o => {
+      const attitude = satelliteFrame(o.satellite_id);
+      return SensorFov.frame(state.orbitModels.get(o.satellite_id).cartesian(state.replay.time),
+        attitude.direction, attitude.x).footprint.length;
+    }).length""")
+    assert page.locator(".map-fov polyline").count() >= grounded
     page.locator("#toggle-layers").click()
     assert page.locator("#toggle-illumination").is_disabled()
     assert page.locator("#sun-direction").count() == 0
@@ -1586,7 +1698,7 @@ def test_fov_footprints_and_all_layer_controls_remain_reachable_on_small_screens
     assert page.locator("#toggle-fov").get_attribute("aria-pressed") == "false"
     assert page.locator(".map-fov:visible").count() == 0
     page.locator("#toggle-fov").click()
-    assert page.locator(".map-fov:visible").count() == 20
+    assert page.locator(".map-fov:visible").count() == grounded
     page.locator("#toggle-sat-labels").click()
     assert page.locator("#toggle-sat-labels").get_attribute("aria-pressed") == "false"
     page.keyboard.press("Escape")

@@ -68,7 +68,7 @@ from orbitops.solvers import (
     exact_solvers,
     get_solver,
 )
-from orbitops.web import LabApplication, SolveRequest, WebResponse, make_server, serve_lab
+from orbitops.web import LabApplication, WebResponse, make_server, serve_lab
 
 __all__ = [
     "FEATURE_NAMES",
@@ -105,7 +105,6 @@ __all__ = [
     "SchedulingEnvironment",
     "SchedulingState",
     "SimulationResult",
-    "SolveRequest",
     "SolveResult",
     "Solver",
     "SolverConfig",

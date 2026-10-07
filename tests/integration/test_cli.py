@@ -15,8 +15,8 @@ runner = CliRunner()
 def test_lab_command_launches_configured_local_server(monkeypatch: Any) -> None:
     called: dict[str, object] = {}
 
-    def fake_serve(scenario_dir: Path, *, host: str, port: int) -> None:
-        called.update(scenario_dir=scenario_dir, host=host, port=port)
+    def fake_serve(reference_path: Path, *, host: str, port: int) -> None:
+        called.update(reference_path=reference_path, host=host, port=port)
 
     monkeypatch.setattr(cli_module, "serve_lab", fake_serve)
 
@@ -24,8 +24,8 @@ def test_lab_command_launches_configured_local_server(monkeypatch: Any) -> None:
         app,
         [
             "lab",
-            "--scenarios",
-            str(PROJECT_ROOT / "scenarios"),
+            "--reference",
+            str(PROJECT_ROOT / "data/eos-bench/reference.json"),
             "--host",
             "127.0.0.2",
             "--port",
@@ -36,10 +36,25 @@ def test_lab_command_launches_configured_local_server(monkeypatch: Any) -> None:
     assert result.exit_code == 0
     assert result.stdout == "OrbitOps Web Lab: http://127.0.0.2:8123\n"
     assert called == {
-        "scenario_dir": PROJECT_ROOT / "scenarios",
+        "reference_path": PROJECT_ROOT / "data/eos-bench/reference.json",
         "host": "127.0.0.2",
         "port": 8123,
     }
+
+
+def test_lab_defaults_to_the_reference_archive(monkeypatch: Any) -> None:
+    called: list[Path] = []
+    monkeypatch.setattr(
+        cli_module, "serve_lab", lambda reference_path, **kwargs: called.append(reference_path)
+    )
+    monkeypatch.chdir(PROJECT_ROOT)
+    assert runner.invoke(app, ["lab"]).exit_code == 0
+    assert called == [Path("data/eos-bench/reference.json")]
+
+
+def test_lab_rejects_the_retired_scenario_directory_option() -> None:
+    result = runner.invoke(app, ["lab", "--scenarios", str(PROJECT_ROOT / "scenarios")])
+    assert result.exit_code == 2
 
 
 def test_check_command_accepts_golden_schedule() -> None:

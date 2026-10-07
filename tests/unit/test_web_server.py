@@ -3,12 +3,12 @@ from pathlib import Path
 from typing import Any
 
 import orbitops.web.server as server_module
+import pytest
 from orbitops.web import LabApplication, WebResponse
-from orbitops.web.app import MAX_REQUEST_BYTES
 from orbitops.web.server import LabRequestHandler
 
 PROJECT_ROOT = Path(__file__).parents[2]
-SCENARIO_DIR = PROJECT_ROOT / "scenarios"
+REFERENCE_PATH = PROJECT_ROOT / "data/eos-bench/reference.json"
 
 
 def bare_handler(application: LabApplication) -> Any:
@@ -18,7 +18,7 @@ def bare_handler(application: LabApplication) -> Any:
 
 
 def test_handler_writes_security_headers_and_body() -> None:
-    handler = bare_handler(LabApplication(SCENARIO_DIR))
+    handler = bare_handler(LabApplication(REFERENCE_PATH))
     statuses: list[int] = []
     headers: dict[str, str] = {}
     handler.send_response = statuses.append
@@ -43,8 +43,8 @@ def test_handler_writes_security_headers_and_body() -> None:
     assert handler.wfile.getvalue() == response.body
 
 
-def test_handler_dispatches_get_and_valid_post() -> None:
-    handler = bare_handler(LabApplication(SCENARIO_DIR))
+def test_handler_dispatches_get_and_refuses_post() -> None:
+    handler = bare_handler(LabApplication(REFERENCE_PATH))
     responses: list[WebResponse] = []
     handler._send = responses.append
     handler.path = "/api/health"
@@ -57,21 +57,39 @@ def test_handler_dispatches_get_and_valid_post() -> None:
     handler.rfile = BytesIO(body)
     handler.do_POST()
 
-    assert [response.status for response in responses] == [200, 200]
+    assert [response.status for response in responses] == [200, 405]
+    assert handler.rfile.tell() == 0
 
 
-def test_handler_rejects_invalid_or_oversized_content_lengths() -> None:
-    handler = bare_handler(LabApplication(SCENARIO_DIR))
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+def test_handler_refuses_writes_without_reading_any_body(method: str) -> None:
+    handler = bare_handler(LabApplication(REFERENCE_PATH))
     responses: list[WebResponse] = []
     handler._send = responses.append
     handler.path = "/api/solve"
-    handler.rfile = BytesIO()
 
-    for content_length in ("invalid", "-1", str(MAX_REQUEST_BYTES + 1)):
+    class UnreadableBody:
+        def read(self, *args: object) -> bytes:
+            raise AssertionError("Read-only service must not buffer request bodies")
+
+    handler.rfile = UnreadableBody()
+
+    for content_length in ("invalid", "-1", str(10**12)):
         handler.headers = {"Content-Length": content_length}
-        handler.do_POST()
+        getattr(handler, f"do_{method}")()
 
-    assert [response.status for response in responses] == [400, 400, 413]
+    assert [response.status for response in responses] == [405, 405, 405]
+
+
+def test_method_not_allowed_advertises_only_get() -> None:
+    handler = bare_handler(LabApplication(REFERENCE_PATH))
+    headers: dict[str, str] = {}
+    handler.send_response = lambda status: None
+    handler.send_header = headers.__setitem__
+    handler.end_headers = lambda: None
+    handler.wfile = BytesIO()
+    handler._send(handler.application.dispatch("POST", "/api/solve"))
+    assert headers["Allow"] == "GET"
 
 
 def test_make_server_configures_application(monkeypatch: Any) -> None:
@@ -83,7 +101,7 @@ def test_make_server_configures_application(monkeypatch: Any) -> None:
 
     monkeypatch.setattr(server_module, "ThreadingHTTPServer", fake_server)
 
-    result = server_module.make_server(SCENARIO_DIR, host="127.0.0.2", port=8123)
+    result = server_module.make_server(REFERENCE_PATH, host="127.0.0.2", port=8123)
 
     assert result is not None
     assert captured["address"] == ("127.0.0.2", 8123)
@@ -103,6 +121,6 @@ def test_serve_lab_always_closes_server(monkeypatch: Any) -> None:
 
     monkeypatch.setattr(server_module, "make_server", lambda *args, **kwargs: FakeServer())
 
-    server_module.serve_lab(SCENARIO_DIR)
+    server_module.serve_lab(REFERENCE_PATH)
 
     assert events == ["serve", "close"]

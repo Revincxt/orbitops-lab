@@ -8,11 +8,36 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+ATTITUDE_DISPLAY = {
+    "rendering": (
+        "Source Euler replay with display-only Earthward reversal and a 29.5-degree "
+        "off-nadir limit; no target-lock correction."
+    ),
+    "sample_interpolation": (
+        "Raw samples use quaternion SLERP; "
+        "Earthward horizon crossings use continuous axis/twist arcs."
+    ),
+    "display_correction": (
+        "Reverse skyward boresights by 180 degrees about body X, then limit off-nadir "
+        "deflection to 29.5 degrees with a minimal inward rotation; preserve raw Euler arrays."
+    ),
+    "max_display_off_nadir_deg": 29.5,
+    "display_transitions": (
+        "Angle-timed preparation/recovery in idle gaps, minimum 30 simulation seconds, "
+        "nominal 0.5 degrees per simulation second; short gaps retarget directly. "
+        "Deterministic replay-time interpolation, not certified spacecraft dynamics."
+    ),
+    "fixed_frame_transform": (
+        "Source orbit anchors and constant Earth rotation; illustrative, not Orekit/IERS."
+    ),
+}
+
 
 class ReferenceArchive:
     """Serve a pinned, integrity-checked EOS-Bench snapshot without solving it."""
 
     def __init__(self, path: Path) -> None:
+        self.path = path
         self.data: dict[str, Any] | None = None
         if path.is_file():
             raw = path.read_bytes()
@@ -27,94 +52,20 @@ class ReferenceArchive:
                 raise ValueError("unsupported reference archive schema")
             self.data = data
 
-    def catalog(self) -> dict[str, Any]:
-        if self.data is None:
-            return {"scenarios": [], "plans": []}
-        scenario = self.data["scenario"]
-        return {
-            "scenarios": [
-                {
-                    "scenario_id": scenario["scenario_id"],
-                    "name": scenario["name"],
-                    "task_count": len(scenario["tasks"]),
-                    "satellite_count": len(scenario["satellites"]),
-                    "horizon_start_s": scenario["horizon_start_s"],
-                    "horizon_end_s": scenario["horizon_end_s"],
-                    "mode": "reference",
-                    "geometry_note": (
-                        "EOS-Bench source orbits and visibility windows; "
-                        "simulation benchmark, not telemetry."
-                    ),
-                }
-            ],
-            "plans": [
-                {
-                    "solver_name": plan["plan_id"],
-                    "label": plan["label"],
-                    "category": "reference",
-                    "stochastic": False,
-                    "max_tasks": None,
-                }
-                for plan in self.data["plans"]
-            ],
-            "provenance": self.data["provenance"],
-        }
-
-    def payload(self, plan_id: str) -> dict[str, Any]:
-        if self.data is None:
-            raise ValueError("reference archive is unavailable")
-        plan = next((p for p in self.data["plans"] if p["plan_id"] == plan_id), None)
-        if plan is None:
-            raise ValueError("unknown reference plan")
-        scenario = self.data["scenario"]
-        metrics = plan["recomputed_metrics"]
-        return {
-            "mode": "reference",
-            "scenario": scenario,
-            "replay": self.data["replay"],
-            "provenance": self.data["provenance"],
-            "reference_plan": plan,
-            "result": {
-                "schedule": {
-                    "scenario_id": scenario["scenario_id"],
-                    "solver_name": plan_id,
-                    "seed": None,
-                    "tasks": plan["assignments"],
-                    "metadata": {
-                        "stop_reason": "imported_reference",
-                        "objective": plan["objective"],
-                    },
-                },
-                "validation": {
-                    "is_feasible": None,
-                    "reference_consistent": not plan["checks"]["issues"],
-                    "scope": (
-                        "identity, intervals, source windows, satellite overlaps "
-                        "and metric reconciliation only"
-                    ),
-                    "issues": plan["checks"]["issues"],
-                    "simulation": {"tasks": plan["assignments"]},
-                },
-                "metrics": {
-                    "total_value": metrics["TP"],
-                    "completed_tasks": len(plan["assignments"]),
-                    "total_slew_time_s": None,
-                },
-                "runtime_s": plan["source_metrics"]["RT"],
-            },
-            "evaluation": {**metrics, "RT": plan["source_metrics"]["RT"]},
-            "convergence": [],
-            "run_metadata": {
-                "seed": "not recorded",
-                "evaluation_budget": "not recorded",
-                "evaluations": None,
-                "stop_reason": "imported_reference",
-                "source_revision": self.data["provenance"]["revision"],
-                "software_version": "EOS-Bench source snapshot",
-                "budget_profile": "source not recorded",
-            },
-        }
-
     def export(self) -> dict[str, Any] | None:
         """Copy data for a static build; no run is recomputed or re-labelled."""
-        return deepcopy(self.data)
+        data = deepcopy(self.data)
+        if data is not None:
+            data["replay"]["attitude"].update(ATTITUDE_DISPLAY)
+        return data
+
+    def orbit_chunk(self, filename: str) -> bytes:
+        """Read only manifest-listed files; validate content before serving/building."""
+        entries = self.data["replay"].get("ephemeris", {}).get("chunks", []) if self.data else []
+        entry = next((e for e in entries if e["filename"] == filename), None)
+        if entry is None or Path(filename).name != filename:
+            raise ValueError("unknown orbit chunk")
+        raw = (self.path.parent / "orbits" / filename).read_bytes()
+        if len(raw) != entry["bytes"] or hashlib.sha256(raw).hexdigest() != entry["sha256"]:
+            raise ValueError("orbit chunk integrity check failed")
+        return raw

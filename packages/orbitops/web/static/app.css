@@ -184,8 +184,8 @@ input::placeholder { color: var(--subtle); opacity: 1; }
 .radar-series.is-selected .radar-area { fill-opacity: 1; stroke-width: 1.7; stroke-opacity: 1; filter: url(#radar-depth); }
 .radar-point { fill: currentColor; stroke: #112032; stroke-width: .8; }
 .radar-point-halo { fill: currentColor; fill-opacity: .12; stroke: currentColor; stroke-opacity: .18; stroke-width: .6; pointer-events: none; }
-.radar-legend { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3px; flex-shrink: 0; padding: 2px 8px 7px; }
-.radar-legend button { display: flex; align-items: center; gap: 6px; min-width: 0; height: 28px; padding: 0 6px; border: 1px solid #2a405344; border-radius: var(--control-radius); background: #0a142166; color: var(--muted); font-size: 10px; text-align: left; }
+.radar-legend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; flex-shrink: 0; padding: 2px 8px 7px; }
+.radar-legend button { display: flex; align-items: center; gap: 5px; min-width: 0; height: 24px; padding: 0 5px; border: 1px solid #2a405344; border-radius: var(--control-radius); background: #0a142166; color: var(--muted); font-size: 10px; text-align: left; }
 .radar-legend button > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .radar-legend button:hover:enabled { color: var(--ink); background: #123247; }
 .radar-legend button[aria-pressed="true"] { background: var(--control-active); border-color: #4b7288; color: var(--ink); box-shadow: inset 0 1px #cbf0ff0c, 0 2px 5px #0003; }
@@ -239,7 +239,7 @@ input::placeholder { color: var(--subtle); opacity: 1; }
 .globe-overlay .state-observing i { background: var(--peach); }
 .globe-overlay .state-completed i { background: var(--sage); }
 .globe-overlay .state-unassigned i { background: var(--danger); }
-.orbit-hud { position: absolute; z-index: 4; width: 220px; max-width: calc(50% - 24px); padding: 10px 12px; border: 1px solid #53718b80; border-radius: 6px; background: #0e1e2fc7; backdrop-filter: blur(10px); box-shadow: 0 8px 24px #0005, inset 0 1px #e0efff0c; }
+.orbit-hud { position: absolute; left: 0; top: 0; z-index: 4; width: 220px; max-width: calc(50% - 32px); padding: 10px 12px; border: 1px solid #53718b80; border-radius: 6px; background: #0e1e2fc7; backdrop-filter: blur(10px); box-shadow: 0 8px 24px #0005, inset 0 1px #e0efff0c; will-change: transform; }
 .satellite-readout { display: flex; align-items: center; gap: 8px; min-width: 0; }
 #satellite-swatch { width: 2px; height: 20px; border-radius: 2px; flex-shrink: 0; }
 .satellite-readout > div { min-width: 0; flex: 1; }
@@ -249,6 +249,12 @@ input::placeholder { color: var(--subtle); opacity: 1; }
 .orbit-telemetry { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #31576e80; }
 .orbit-telemetry span { display: flex; flex-direction: column-reverse; gap: 3px; color: var(--muted); font-size: 9px; white-space: nowrap; }
 .orbit-telemetry b { color: var(--ink); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.satellite-geodetic { border-top: 0; padding-top: 0; }
+.satellite-position { margin-top: 8px; padding-top: 8px; border-top: 1px solid #31576e80; font-size: 10px; font-variant-numeric: tabular-nums; }
+.satellite-position-label { display: flex; justify-content: space-between; margin-bottom: 5px; color: var(--muted); font-size: 9px; letter-spacing: .05em; }
+.satellite-position > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.satellite-position > div > span { color: var(--muted); }
+.satellite-position b { color: var(--ink); font: 500 10px var(--mono); white-space: nowrap; }
 .orbit-camera { display: inline-flex; flex-shrink: 0; align-items: center; gap: 2px; margin-left: 4px; padding-left: 6px; border-left: 1px solid #31576e80; }
 .viewport-compass { position: absolute; bottom: 28px; right: 12px; z-index: 2; display: grid; place-items: center; width: 56px; height: 56px; padding: 4px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); }
 .viewport-compass .compass-dial { width: 48px; height: 48px; fill: none; stroke: none; }
@@ -320,6 +326,7 @@ input::placeholder { color: var(--subtle); opacity: 1; }
 .inspector-tabs button:hover { color: var(--ink); background: #ffffff08; }
 .inspector-tabs button[aria-selected="true"] { color: #d9f5ff; background: var(--control-active); box-shadow: inset 0 1px #b6efff14, 0 1px 3px #0003; }
 .selection-panel, .metrics-panel { padding: 16px 14px; flex-shrink: 0; height: 228px; overflow: hidden; }
+.metrics-panel { padding-top: 12px; padding-bottom: 12px; }
 .selection-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .selection-heading > svg { width: 30px; height: 30px; color: var(--accent); background: var(--control-active); padding: 6px; border: 1px solid var(--line-strong); border-radius: var(--control-radius); box-shadow: inset 0 1px #e0efff0a, 0 3px 7px #0003; flex-shrink: 0; }
 .selection-heading > div { flex: 1; min-width: 0; }
@@ -337,8 +344,8 @@ input::placeholder { color: var(--subtle); opacity: 1; }
 .console-panel .selection-heading > .target-state[data-state="Unassigned"] { border-color: #f39ca820; background: #f39ca807; }
 .console-panel :is(.selection-details, .metric-details) > div { border-bottom-color: #8aa4c514; }
 .console-panel .selection-details dd { color: #e1eaf5; font-weight: 450; }
-.console-panel .metric-details > div { padding: 7px 0; }
-.console-panel .metric-details dd { color: #e1eaf5; }
+.console-panel .metric-details > div { padding: 2px 0; }
+.console-panel .metric-details dd { color: #e1eaf5; line-height: 18px; }
 .console-panel .metric-details dd:not(#metric-basis, #metric-objective) { font-size: 13px; font-weight: 560; letter-spacing: -.1px; }
 .metric-details > div { padding: 9px 0; border-bottom: 1px solid var(--line); }
 .resource-block { display: flex; flex-direction: column; min-height: 0; flex: 1; padding: 0 0 8px; }
@@ -400,7 +407,6 @@ input::placeholder { color: var(--subtle); opacity: 1; }
 .map-satellite .satellite-antenna { fill: #b9c5cf; stroke: #b9c5cf; stroke-width: .8; }
 .map-satellite.is-selected .satellite-panel, .map-satellite.is-selected .satellite-bus { stroke: currentColor; stroke-width: 1.3; }
 .satellite-label { fill: currentColor; font: 600 10px var(--sans); paint-order: stroke; stroke: #08131e; stroke-width: 2.8; stroke-linejoin: round; pointer-events: none; }
-.map-ray { stroke: var(--peach); stroke-width: 1.5; opacity: .9; }
 .map-fov { fill: none; stroke-width: .7; stroke-opacity: .28; pointer-events: none; }
 .map-marker { cursor: pointer; }
 .map-marker circle { fill: var(--peach); stroke: #101820; stroke-width: 1.5; }
@@ -445,14 +451,14 @@ input::placeholder { color: var(--subtle); opacity: 1; }
   .comparison-card { flex-basis: 244px; }
   .comparison-plot { flex-direction: row; align-items: stretch; padding: 5px 10px; gap: 6px; }
   .radar-legend { grid-template-columns: minmax(0, 1fr); width: 138px; align-content: center; padding: 0; }
-  .radar-legend button { height: 30px; font-size: 11px; }
+  .radar-legend button { height: 21px; font-size: 11px; }
 }
 @media (min-width: 701px) and (max-width: 1000px) {
   .config-panel { display: grid; grid-template-columns: minmax(0, .58fr) minmax(260px, .42fr); }
   .comparison-card { height: min(100%, 350px); align-self: start; }
   .comparison-plot { flex-direction: column; padding: 0; }
-  .radar-legend { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); width: auto; padding: 2px 8px 7px; }
-  .radar-legend button { height: 28px; }
+  .radar-legend { grid-template-columns: repeat(3, minmax(0, 1fr)); width: auto; padding: 2px 8px 7px; }
+  .radar-legend button { height: 24px; }
 }
 @media (max-width: 700px) {
   .comparison-card { flex-basis: min(270px, 52%); }
@@ -507,6 +513,13 @@ input::placeholder { color: var(--subtle); opacity: 1; }
 @container (max-height: 220px) {
   .globe-overlay { display: grid; grid-template-columns: repeat(2, max-content); gap: 3px 10px; top: 12px; right: 12px; padding: 6px 8px; }
   .viewport-compass { bottom: 12px; }
+}
+@container (max-height: 260px) {
+  .orbit-hud { padding-top: 6px; padding-bottom: 6px; }
+  .orbit-telemetry { margin-top: 6px; padding-top: 6px; }
+  .satellite-geodetic { padding-top: 0; }
+  .satellite-position { margin-top: 6px; padding-top: 6px; }
+  .satellite-position > div { padding-top: 1px; padding-bottom: 1px; }
 }
 @media (pointer: coarse) {
   .viewport-tools .map-action { height: 32px; }

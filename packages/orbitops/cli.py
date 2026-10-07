@@ -38,16 +38,16 @@ class SchemaTarget(StrEnum):
 
 @app.command("lab")
 def launch_lab(
-    scenario_dir: Annotated[
+    reference_path: Annotated[
         Path,
         typer.Option(
-            "--scenarios",
-            file_okay=False,
+            "--reference",
+            dir_okay=False,
             exists=True,
             readable=True,
-            help="Directory containing Scenario JSON files.",
+            help="Integrity-checked EOS-Bench reference archive.",
         ),
-    ] = Path("scenarios"),
+    ] = Path("data/eos-bench/reference.json"),
     host: Annotated[
         str,
         typer.Option(help="Interface for the local HTTP server."),
@@ -57,11 +57,11 @@ def launch_lab(
         typer.Option(min=1, max=65535, help="Port for the local HTTP server."),
     ] = 8000,
 ) -> None:
-    """Launch the interactive local scheduling laboratory."""
+    """Launch the read-only EOS-Bench replay workspace."""
 
     typer.echo(f"OrbitOps Web Lab: http://{host}:{port}")
     try:
-        serve_lab(scenario_dir, host=host, port=port)
+        serve_lab(reference_path, host=host, port=port)
     except KeyboardInterrupt:
         typer.echo("\nOrbitOps Web Lab stopped.")
     except (OSError, ValueError) as exc:

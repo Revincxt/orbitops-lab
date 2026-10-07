@@ -7,13 +7,10 @@ from itertools import pairwise
 from pathlib import Path
 
 import pytest
-from orbitops.solvers.registry import get_solver
 from orbitops.web import LabApplication
-from orbitops.web.evaluation import evaluation_metrics
 from orbitops.web.reference import ReferenceArchive
 
 from scripts.import_eos_reference import REVISION, check_plan, read_source, utc
-from tests.factories import make_seeded_scenario
 
 ROOT = Path(__file__).parents[2]
 ARCHIVE = ROOT / "data" / "eos-bench" / "reference.json"
@@ -32,13 +29,22 @@ def test_reference_keeps_source_identity_time_and_provenance(archive: dict) -> N
     assert scenario["epoch_utc"] == "2025-11-18T12:00:00Z"
     assert scenario["horizon_end_s"] == 43200
     assert archive["provenance"]["revision"] == REVISION
-    assert len(archive["provenance"]["files"]) == 6
+    assert len(archive["provenance"]["files"]) == 9
     assert all(len(f["sha256"]) == 64 for f in archive["provenance"]["files"])
     assert "not operational telemetry" in archive["provenance"]["data_kind"]
 
 
 @pytest.mark.parametrize(
-    "index, count, profit", [(0, 488, 2816), (1, 493, 2833), (2, 412, 2568), (3, 492, 2832)]
+    "index, count, profit",
+    [
+        (0, 488, 2816),
+        (1, 493, 2833),
+        (2, 412, 2568),
+        (3, 492, 2832),
+        (4, 355, 2271),
+        (5, 488, 2816),
+        (6, 488, 2816),
+    ],
 )
 def test_reference_metrics_and_intervals_reconcile(
     archive: dict, index: int, count: int, profit: int
@@ -78,14 +84,81 @@ def test_reference_orbits_cover_the_same_epoch_horizon_and_satellites(archive: d
         assert utc(orbit["epoch_utc"]) == utc(archive["scenario"]["epoch_utc"])
 
 
+def test_precise_chunks_preserve_all_satellites_samples_and_shared_boundaries(
+    archive: dict,
+) -> None:
+    entries = archive["replay"]["ephemeris"]["chunks"]
+    assert len(entries) == 12
+    reference = ReferenceArchive(ARCHIVE)
+    previous = None
+    for entry in entries:
+        raw = reference.orbit_chunk(entry["filename"])
+        assert len(raw) == entry["bytes"] < 25 * 1024 * 1024
+        chunk = json.loads(raw)
+        assert chunk["step_s"] == 1
+        assert chunk["end_s"] - chunk["start_s"] == 3600
+        assert chunk["epoch_utc"] == archive["scenario"]["epoch_utc"]
+        orbits = {o["satellite_id"]: o["cartographic_degrees"] for o in chunk["orbits"]}
+        assert set(orbits) == {o["satellite_id"] for o in archive["replay"]["orbits"]}
+        for orbit in archive["replay"]["orbits"]:
+            values = orbits[orbit["satellite_id"]]
+            assert len(values) == 3601 * 3
+            for sample in orbit["samples"]:
+                if chunk["start_s"] <= sample[0] <= chunk["end_s"]:
+                    offset = int(sample[0] - chunk["start_s"]) * 3
+                    assert values[offset : offset + 3] == sample[1:]
+            if previous:
+                assert previous[orbit["satellite_id"]][-3:] == values[:3]
+        previous = orbits
+
+
+def test_chunk_routes_only_serve_manifest_listed_integrity_checked_files(tmp_path: Path) -> None:
+    app = LabApplication(ARCHIVE)
+    assert app.dispatch("GET", "/orbit-data/00000.json").status == 200
+    for route in [
+        "/orbit-data/../reference.json",
+        "/orbit-data/%2e%2e/reference.json",
+        "/orbit-data/reference.sha256",
+        "/orbit-data/99999.json",
+    ]:
+        assert app.dispatch("GET", route).status == 404
+    for script in ["orbit-ephemeris.js", "satellite-attitude.js"]:
+        assert app.dispatch("GET", "/" + script).status == 200
+    copied = tmp_path / "reference.json"
+    copied.write_bytes(ARCHIVE.read_bytes())
+    copied.with_suffix(".sha256").write_bytes(ARCHIVE.with_suffix(".sha256").read_bytes())
+    (tmp_path / "orbits").mkdir()
+    (tmp_path / "orbits/00000.json").write_bytes(b"corrupt")
+    with pytest.raises(ValueError, match="integrity check failed"):
+        ReferenceArchive(copied).orbit_chunk("00000.json")
+
+
 def test_reference_is_not_a_full_feasibility_certificate() -> None:
     reference = ReferenceArchive(ARCHIVE)
-    payload = reference.payload("eos-sa-balanced")
-    assert payload["result"]["validation"]["is_feasible"] is None
-    assert payload["result"]["validation"]["reference_consistent"] is True
-    assert "battery dynamics" in payload["reference_plan"]["checks"]["not_checked"]
-    assert payload["run_metadata"]["seed"] == "not recorded"
-    assert payload["result"]["metrics"]["total_slew_time_s"] is None
+    exported = reference.export()
+    assert exported is not None
+    plan = exported["plans"][0]
+    assert plan["checks"]["full_feasibility"] == "not independently verified"
+    assert not plan["checks"]["issues"]
+    assert "battery dynamics" in plan["checks"]["not_checked"]
+    assert exported["replay"]["attitude"]["frame_verified"] is False
+    assert "energy_after_wh" not in plan["assignments"][0]
+
+
+def test_api_and_static_exports_describe_source_attitude_replay_without_changing_archive() -> None:
+    reference = ReferenceArchive(ARCHIVE)
+    original = json.dumps(reference.data, sort_keys=True)
+    payload = json.loads(LabApplication(ARCHIVE).dispatch("GET", "/api/reference/data").body)
+    exported = reference.export()
+    assert exported is not None
+    for replay in [payload["replay"], exported["replay"]]:
+        assert "Source Euler replay" in replay["attitude"]["rendering"]
+        assert "SLERP" in replay["attitude"]["sample_interpolation"]
+        assert replay["attitude"]["max_display_off_nadir_deg"] == 29.5
+        assert "preserve raw Euler arrays" in replay["attitude"]["display_correction"]
+        assert replay["attitude"]["frame_verified"] is False
+    assert json.dumps(reference.data, sort_keys=True) == original
+    assert payload["plans"][0]["assignments"] == exported["plans"][0]["assignments"]
 
 
 def test_modified_archive_is_rejected_instead_of_reusing_stored_verdict(tmp_path: Path) -> None:
@@ -125,17 +198,17 @@ def test_source_consistency_checks_detect_duplicate_tasks(archive: dict) -> None
 
 
 def test_reference_api_is_read_only_and_cannot_enter_local_solver_contract() -> None:
-    app = LabApplication(ROOT / "scenarios")
-    assert app.dispatch("GET", "/api/reference").status == 200
-    assert app.dispatch("GET", "/api/reference/runs/eos-sa-balanced").status == 200
+    app = LabApplication(ARCHIVE)
+    assert app.dispatch("GET", "/api/reference/data").status == 200
+    assert app.dispatch("GET", "/api/reference").status == 404
+    assert app.dispatch("GET", "/api/reference/runs/eos-sa-balanced").status == 404
     assert app.dispatch("GET", "/api/reference/runs/not-found").status == 404
     response = app.dispatch(
         "POST",
         "/api/solve",
-        json.dumps({"scenario_id": "eos-s1-20-500", "solver_name": "greedy-insertion"}).encode(),
     )
-    assert response.status == 400
-    assert "unknown scenario" in json.loads(response.body)["error"]
+    assert response.status == 405
+    assert "read-only" in json.loads(response.body)["error"]
 
 
 def test_source_hash_check_rejects_modified_or_truncated_data(tmp_path: Path) -> None:
@@ -152,14 +225,3 @@ def test_source_hash_check_rejects_modified_or_truncated_data(tmp_path: Path) ->
 def test_legacy_source_times_are_explicitly_normalized_to_utc() -> None:
     assert utc("2025-11-18T12:00:00") == utc("2025-11-18T20:00:00+08:00")
     assert utc("2025-11-18T12:00:00").utcoffset().total_seconds() == 0
-
-
-def test_local_evaluation_keeps_single_satellite_balance_not_applicable() -> None:
-    scenario = make_seeded_scenario(seed=42, task_count=6)
-    result = get_solver("greedy-insertion").solve(scenario)
-    metric = evaluation_metrics(scenario, result)
-    assert metric["BD"] is None
-    assert metric["TP"] == pytest.approx(result.metrics.total_value)
-    assert metric["TCR"] == result.metrics.completed_tasks / len(scenario.tasks)
-    assert 0 <= metric["TM"] <= 1
-    assert metric["RT"] == result.runtime_s

@@ -85,7 +85,7 @@ window.OrbitReplay = Object.freeze({
       provenance: archive.provenance, reference_plan: plan,
       result: {
         schedule: {scenario_id: archive.scenario.scenario_id, solver_name: plan.plan_id, seed: null, tasks: plan.assignments, metadata: {stop_reason: "imported_reference", objective: plan.objective}},
-        validation: {is_feasible: null, reference_consistent: !plan.checks.issues.length, scope: "reference consistency only", issues: plan.checks.issues, simulation: {tasks: plan.assignments}},
+        validation: {is_feasible: null, reference_consistent: !plan.checks.issues.length, scope: "reference consistency only", issues: plan.checks.issues, constraints: plan.checks.constraints, simulation: {tasks: plan.assignments}},
         metrics: {total_value: plan.recomputed_metrics.TP, completed_tasks: plan.assignments.length, total_slew_time_s: null},
         runtime_s: plan.source_metrics.RT,
       },

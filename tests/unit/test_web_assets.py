@@ -79,12 +79,17 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     assert "ACTIVE SATELLITES" not in html
     assert "OBSERVATION TIME" not in html
     assert 'src="./deployment-config.js?v=0.2.0"' in html
-    assert 'src="./app.js?v=0.18.0"' in html
-    assert 'src="./replay.js?v=0.9.0"' in html
-    assert 'src="./orbit-model.js?v=0.9.0"' in html
-    assert 'src="./sensor-fov.js?v=0.12.0"' in html
-    assert 'src="./mission.js?v=0.18.0"' in html
-    assert 'href="./app.css?v=0.18.0"' in html
+    for name in [
+        "app",
+        "replay",
+        "orbit-model",
+        "orbit-ephemeris",
+        "satellite-attitude",
+        "sensor-fov",
+        "mission",
+    ]:
+        assert f'src="./{name}.js?v=0.26.0"' in html
+    assert 'href="./app.css?v=0.21.0"' in html
     assert 'href="./favicon.svg?v=0.2.0"' in html
     assert 'id="sun-direction"' not in html
     assert 'class="app-title"' not in html
@@ -95,6 +100,10 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     assert 'class="orbit-hud-footer"' not in html
     assert 'aria-label="Satellite details"' in html
     assert 'id="close-satellite-details"' in html
+    assert 'aria-label="Earth-centered Earth-fixed position in kilometres"' in html
+    assert all(f'id="satellite-position-{axis}"' in html for axis in "xyz")
+    assert 'id="satellite-latitude"' in html
+    assert 'id="satellite-longitude"' in html
     assert 'href="#i-overview"' in html
     assert 'href="#i-follow"' in html
     assert ">000°<" not in html
@@ -107,8 +116,10 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     )
     assert html.count("command-card console-panel") == 5
     assert 'class="globe-card command-card"' in html
-    assert "Sensor FOV · 30°" in html
-    assert "full cone angle 30°, half-angle 15°" in html
+    assert "Sensor FOV · 45°" in html
+    assert "full cone angle 45°, half-angle 22.5°" in html
+    assert 'id="toggle-rays"' not in html
+    assert "Observation links" not in html
 
 
 def test_compact_panel_headers_remove_search_markup_and_dependencies() -> None:
@@ -130,10 +141,10 @@ def test_compact_panel_headers_remove_search_markup_and_dependencies() -> None:
 def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
 
-    assert 'api("/api/reference/data")' in script
-    assert 'api("/api/scenarios")' not in script
-    assert 'api("/api/solvers")' not in script
-    assert 'api("/api/solve"' not in script
+    assert 'fetch("/api/reference/data")' in script
+    assert 'fetch("/api/scenarios")' not in script
+    assert 'fetch("/api/solvers")' not in script
+    assert 'fetch("/api/solve"' not in script
     assert "createElementNS" in script
     assert "replaceChildren" in script
     assert "new Cesium.Viewer" in script
@@ -206,12 +217,14 @@ def test_playback_controls_are_one_accessible_group() -> None:
     for control in [
         "replay-window-prev",
         "replay-play",
+        "replay-window-next",
         "replay-reset",
         "replay-direction",
         "replay-speed",
-        "replay-window-next",
     ]:
         assert f'id="{control}"' in controls
+    assert controls.index('id="replay-play"') < controls.index('id="replay-window-next"')
+    assert controls.index('id="replay-window-next"') < controls.index('id="replay-reset"')
     assert 'id="replay-time"' not in controls
 
 

@@ -184,14 +184,15 @@ def test_native_satellite_models_have_shared_assets_and_valid_extended_orientati
         models = globe_page.evaluate("""() => {
           const viewer = state.globe, now = viewer.clock.currentTime;
           return viewer.entities.values.filter(e => e.model).map(e => {
-            const position = e.position.getValue(now), q = e.orientation.getValue(now);
+            const q = e.orientation.getValue(now);
             const rotation = Cesium.Matrix3.fromQuaternion(q);
             const up = Cesium.Matrix3.getColumn(rotation, 2, new Cesium.Cartesian3());
-            const radial = Cesium.Cartesian3.normalize(position, new Cesium.Cartesian3());
+            const expected = Cesium.Cartesian3.fromArray(
+              satelliteFrame(e.id.slice(10)).modelAxes.slice(6));
             return {id:e.id, uri:e.model.uri.getValue(),
               scale:e.model.scale.getValue(), cap:e.model.maximumScale.getValue(),
               orientation:Math.hypot(q.x,q.y,q.z,q.w),
-              nadir:Cesium.Cartesian3.dot(up,radial),
+              nadir:Cesium.Cartesian3.dot(up,expected),
               billboard:Boolean(e.billboard)};
           });
         }""")
@@ -619,25 +620,30 @@ def test_compact_map_keeps_compass_and_credits_inside_and_camera_controls_outsid
     assert_single_screen(globe_page)
 
 
-def test_all_twenty_cone_tips_track_native_satellites_with_a_full_30_degree_fov(
+def test_all_twenty_cone_tips_track_native_satellites_with_a_full_45_degree_fov(
     globe_page: Any,
 ) -> None:
-    globe_page.wait_for_function(
-        "[...state.sensorFovs.values()].every(s => s.solid.ready && s.wire.ready)"
-    )
+    globe_page.wait_for_function("[...state.sensorFovs.values()].every(s => s.solid?.ready)")
     source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
-    assert globe_page.evaluate("state.fovPrimitives.length") == 40
+    assert globe_page.evaluate("state.fovPrimitives.length") == 20
     assert globe_page.evaluate("state.sensorFovs.size") == 20
     assert globe_page.evaluate("""() => {
       const sensor = [...state.sensorFovs.values()][0];
-      const frame = sensor.frame, hierarchy = sensor.footprint.polygon.hierarchy.getValue();
+      const frame = sensor.frame, fill = sensor.fill, solid = sensor.solid;
+      const positions = sensor.footprint.polyline.positions.getValue();
       updateReplayVisuals();
-      return sensor.frame === frame && sensor.footprint.polygon.hierarchy.isConstant
-        && sensor.footprint.polygon.hierarchy.getValue() === hierarchy;
+      return sensor.frame === frame && sensor.fill === fill && sensor.solid === solid
+        && !sensor.footprint.polyline.positions.isConstant
+        && sensor.footprint.polyline.positions.getValue() === positions;
     }""")
     for time in [-86400, 0, 3600, 43200, 43201, 3 * 86400]:
         globe_page.evaluate("time => setReplayTime(time, true)", time)
-        geometry = globe_page.evaluate("""() => [...state.sensorFovs].map(([id, sensor]) => {
+        globe_page.wait_for_function("[...state.sensorFovs.values()].every(s => s.solid?.ready)")
+        geometry = globe_page.evaluate("""() => {
+          // A source chunk can replace a mesh between the readiness wait and
+          // this evaluation. Render and inspect the same generation atomically.
+          state.globe.scene.render();
+          return [...state.sensorFovs].map(([id, sensor]) => {
           const Cesium = window.Cesium, matrix = sensor.solid.modelMatrix;
           const origin = state.orbitPositions.get(id).getValue(state.globe.clock.currentTime);
           const tip = Cesium.Matrix4.multiplyByPoint(matrix,new Cesium.Cartesian3(0,0,.5),
@@ -647,27 +653,375 @@ def test_all_twenty_cone_tips_track_native_satellites_with_a_full_30_degree_fov(
           const radius = Cesium.Cartesian3.magnitude(Cesium.Matrix4.multiplyByPointAsVector(
             matrix,Cesium.Cartesian3.UNIT_X,new Cesium.Cartesian3()));
           const length = Cesium.Cartesian3.magnitude(up);
-          const expected = Cesium.Cartesian3.normalize(origin,new Cesium.Cartesian3());
+          const expected = Cesium.Cartesian3.fromArray(satelliteFrame(id).modelAxes.slice(6));
           Cesium.Cartesian3.normalize(up,up);
           return {tipError:Cesium.Cartesian3.distance(tip,origin),
             direction:Cesium.Cartesian3.dot(up,expected),
             angle:2*Math.atan(radius/length)*180/Math.PI, length,
             alpha:sensor.solid.getGeometryInstanceAttributes('sensor-'+id).color[3]/255,
-            pickable:sensor.solid.allowPicking || sensor.wire.allowPicking,
-            outline:sensor.footprint.polygon.hierarchy.getValue().positions.length};
-        })""")
+            pickable:sensor.solid.allowPicking,
+            outline:sensor.footprint.polyline.positions.getValue().length,
+            rim:sensor.frame.surfaceBoundary.length,
+            ground:Boolean(sensor.frame.footprint.length), footprint:sensor.footprint.show};
+          });
+        }""")
         for cone in geometry:
             assert cone["tipError"] < 1e-7, cone
             assert cone["direction"] == pytest.approx(1, abs=1e-12), cone
-            assert cone["angle"] == pytest.approx(30, abs=1e-10), cone
-            assert 300000 < cone["length"] < 2000000, cone
+            assert cone["angle"] == pytest.approx(45, abs=1e-10), cone
+            assert 300000 < cone["length"] < 5000000, cone
             assert 0.03 <= cone["alpha"] <= 0.04, cone
-            assert not cone["pickable"] and cone["outline"] == 48, cone
+            assert not cone["pickable"], cone
+            assert cone["outline"] == (cone["rim"] + 1 if cone["ground"] else 0), cone
+            assert cone["footprint"] == cone["ground"], cone
     assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
     assert (
         globe_page.evaluate("state.globe.entities.values.filter(e=>e.id.startsWith('ray-')).length")
         == 0
     )
+
+
+@pytest.mark.parametrize("camera_mode", ["overview", "follow"])
+def test_rounded_cone_surface_matches_the_live_projection_through_limited_maneuvers(
+    globe_page: Any, camera_mode: str
+) -> None:
+    globe_page.evaluate("selectSatellite('KENT_RIDGE_1_41167')")
+    globe_page.locator(f"#camera-{camera_mode}").click()
+    snapshot = globe_page.evaluate("""() => {
+      const C=Cesium, collection=state.fovPrimitives;
+      let error=0, depthRange=0, disposed=0, limited=0;
+      for(const time of [-20,-.001,0,3.5,7.999,8,20,80,121,125.5,128,145,20,0]) {
+        const old=[...state.sensorFovs.values()].map(s=>s.solid);
+        setReplayTime(time,true);
+        if(!old.every(p=>p.isDestroyed() && !collection.contains(p))) {
+          throw new Error('An obsolete cone mesh survived a replay update');
+        }
+        disposed+=old.length;
+        if(collection.length!==20) throw new Error('Cone geometry backlog');
+        for(const [id,sensor] of state.sensorFovs) {
+          const frame=sensor.frame, mesh=sensor.mesh, outline=sensor.footprintPositions;
+          if(sensor.wire || sensor.volumeFrame!==frame || sensor.footprintFrame!==frame
+              || frame.rim!==frame.surfaceBoundary || mesh.positions.length!==129*3
+              || mesh.indices.length!==128*3 || sensor.solid.asynchronous
+              || sensor.solid.allowPicking
+              || sensor.footprint.polyline.arcType.getValue()!==C.ArcType.NONE) {
+            throw new Error('The circular cone and ground boundary are not shared');
+          }
+          const transform=offset=>C.Matrix4.multiplyByPoint(sensor.solid.modelMatrix,
+            C.Cartesian3.fromArray(mesh.positions,offset),new C.Cartesian3());
+          const origin=state.orbitPositions.get(id).getValue(state.globe.clock.currentTime);
+          error=Math.max(error,C.Cartesian3.distance(transform(0),origin));
+          const nadir=C.Cartesian3.negate(C.Cartesian3.normalize(origin,new C.Cartesian3()),
+            new C.Cartesian3());
+          const angle=C.Math.toDegrees(C.Cartesian3.angleBetween(nadir,
+            C.Cartesian3.fromArray(sensor.attitude.direction)));
+          if(angle>29.5+1e-9) throw new Error('A displayed boresight exceeds its limit');
+          if(sensor.attitude.limited) limited++;
+          const depths=[];
+          frame.rim.forEach((point,i)=> {
+            error=Math.max(error,C.Cartesian3.distance(transform((i+1)*3),outline[i]));
+            depths.push(mesh.positions[(i+1)*3+2]*frame.length);
+            if(mesh.indices[i*3]!==0) throw new Error('A flat cone cap returned');
+          });
+          depthRange=Math.max(depthRange,Math.max(...depths)-Math.min(...depths));
+        }
+      }
+      state.globe.scene.render();
+      return {error,depthRange,disposed,limited,
+        ready:[...state.sensorFovs.values()].every(s=>s.solid.ready)};
+    }""")
+    assert snapshot["error"] < 1e-7, snapshot
+    assert snapshot["depthRange"] > 200000, snapshot
+    assert snapshot["disposed"] == 14 * 20, snapshot
+    assert snapshot["limited"] > 0, snapshot
+    assert snapshot["ready"], snapshot
+    if camera_mode == "overview":
+        globe_page.evaluate("""() => {
+          const C=Cesium,frame=state.sensorFovs.get('KENT_RIDGE_1_41167').frame;
+          state.globe.camera.lookAt(C.Cartesian3.fromArray(frame.ground),
+            new C.HeadingPitchRange(C.Math.toRadians(40),C.Math.toRadians(-35),1900000));
+          state.globe.camera.lookAtTransform(C.Matrix4.IDENTITY);
+        }""")
+    globe_page.wait_for_timeout(400)
+    SCREENSHOTS.mkdir(parents=True, exist_ok=True)
+    globe_page.screenshot(path=str(SCREENSHOTS / f"rounded-cone-{camera_mode}.png"))
+
+
+@pytest.mark.parametrize("camera_mode", ["overview", "follow"])
+def test_source_euler_attitude_drives_model_and_cone_in_both_camera_modes(
+    globe_page: Any, camera_mode: str
+) -> None:
+    original = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    globe_page.evaluate("selectSatellite('KENT_RIDGE_1_41167')")
+    globe_page.locator(f"#camera-{camera_mode}").click()
+    globe_page.wait_for_function("mode => state.cameraMode === mode", arg=camera_mode)
+    directions = []
+    for time in [0, 3.5, 7.999, 8, 121, 125.5, 128, 0, -86400]:
+        actual = globe_page.evaluate(
+            """time => {
+          setReplayTime(time, true);
+          const C = Cesium, id = 'KENT_RIDGE_1_41167', viewer = state.globe;
+          const entity = viewer.entities.getById('satellite-'+id);
+          const sensor = state.sensorFovs.get(id);
+          const a = state.currentPayload.reference_plan.assignments.find(a =>
+            a.satellite_id === id && a.start_s <= time && time < a.end_s);
+          const origin = entity.position.getValue(viewer.clock.currentTime);
+          const nadir = C.Cartesian3.negate(C.Cartesian3.normalize(origin,
+            new C.Cartesian3()), new C.Cartesian3());
+          let expected = sensor.attitude.phase === 'idle' ? nadir
+            : C.Cartesian3.fromArray(sensor.attitude.direction);
+          if (a) {
+            const step = state.currentPayload.replay.attitude.sample_step_s;
+            const offset = (time-a.start_s)/step;
+            const i = Math.min(Math.floor(offset),a.sat_angles.yaw_angles.length-1);
+            const j = Math.min(i+1,a.sat_angles.yaw_angles.length-1), f = i===j ? 0 : offset-i;
+            const quaternion = index => {
+              const axis = (vector, key) => C.Quaternion.fromAxisAngle(vector,
+                C.Math.toRadians(a.sat_angles[key][index]));
+              const yaw = axis(C.Cartesian3.UNIT_Z,'yaw_angles');
+              const pitch = axis(C.Cartesian3.UNIT_Y,'pitch_angles');
+              const roll = axis(C.Cartesian3.UNIT_X,'roll_angles');
+              return C.Quaternion.multiply(yaw,C.Quaternion.multiply(pitch,roll,
+                new C.Quaternion()),new C.Quaternion());
+            };
+            const q = C.Quaternion.slerp(quaternion(i),quaternion(j),f,new C.Quaternion());
+            const z = C.Matrix3.getColumn(C.Matrix3.fromQuaternion(q),2,new C.Cartesian3());
+            expected = C.Cartesian3.fromArray(
+              state.orbitModels.get(id).fixedVector([z.x,z.y,z.z],time));
+            if (C.Cartesian3.dot(expected,nadir)<0) C.Cartesian3.negate(expected,expected);
+            const offNadir=C.Cartesian3.angleBetween(expected,nadir);
+            const limit=C.Math.toRadians(29.5);
+            if(offNadir>limit) {
+              const axis=C.Cartesian3.normalize(C.Cartesian3.cross(expected,nadir,
+                new C.Cartesian3()),new C.Cartesian3());
+              const inward=C.Matrix3.fromQuaternion(
+                C.Quaternion.fromAxisAngle(axis,offNadir-limit));
+              C.Matrix3.multiplyByVector(inward,expected,expected);
+            }
+          }
+          const rotation = C.Matrix3.fromQuaternion(
+            entity.orientation.getValue(viewer.clock.currentTime));
+          const modelDirection = C.Cartesian3.negate(C.Matrix3.getColumn(rotation,2,
+            new C.Cartesian3()),new C.Cartesian3());
+          const coneDirection = C.Cartesian3.normalize(C.Matrix4.multiplyByPointAsVector(
+            sensor.solid.modelMatrix,
+            new C.Cartesian3(0,0,-1),new C.Cartesian3()),new C.Cartesian3());
+          return {mode:state.cameraMode, observing:Boolean(a), basis:sensor.attitude.basis,
+            modelError:C.Cartesian3.distance(modelDirection,expected),
+            coneError:C.Cartesian3.distance(coneDirection,expected),
+            direction:[coneDirection.x,coneDirection.y,coneDirection.z],
+            shown:sensor.solid.show,
+            footprint:sensor.footprint.show, ground:Boolean(sensor.frame.footprint.length)};
+        }""",
+            time,
+        )
+        assert actual["mode"] == camera_mode
+        assert actual["modelError"] < 1e-11, actual
+        assert actual["coneError"] < 1e-11, actual
+        assert actual["shown"], actual
+        assert actual["footprint"] == actual["ground"], actual
+        assert ("source Euler" in actual["basis"]) == actual["observing"], actual
+        directions.append(actual["direction"])
+    assert sum((a - b) ** 2 for a, b in zip(directions[0], directions[1], strict=True)) > 1e-6
+    assert directions[0] == pytest.approx(directions[-2], abs=1e-12)
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == original
+
+
+@pytest.mark.parametrize("camera_mode", ["overview", "follow"])
+def test_earthward_reversal_and_angle_timed_maneuvers_share_the_native_model_frame(
+    globe_page: Any, camera_mode: str
+) -> None:
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    globe_page.evaluate("selectSatellite('GPM-CORE_39574')")
+    globe_page.locator(f"#camera-{camera_mode}").click()
+    snapshots = []
+    for time in [50, 70.99999, 71, 77.5, 83.99999, 84, 105]:
+        snapshots.append(
+            globe_page.evaluate(
+                """time => {
+          setReplayTime(time,true);
+          const C=Cesium,id='GPM-CORE_39574',sensor=state.sensorFovs.get(id);
+          const a=satelliteAssignment(id,time),model=state.orbitModels.get(id);
+          const raw=a && SatelliteAttitude.frame(a,time,model);
+          const origin=state.orbitPositions.get(id).getValue(state.globe.clock.currentTime);
+          const nadir=C.Cartesian3.negate(C.Cartesian3.normalize(origin,new C.Cartesian3()),
+            new C.Cartesian3());
+          const cone=C.Cartesian3.normalize(C.Matrix4.multiplyByPointAsVector(
+            sensor.solid.modelMatrix,new C.Cartesian3(0,0,-1),new C.Cartesian3()),
+            new C.Cartesian3());
+          const entity=state.globe.entities.getById('satellite-'+id);
+          const rotation=C.Matrix3.fromQuaternion(
+            entity.orientation.getValue(state.globe.clock.currentTime));
+          const z=C.Cartesian3.negate(C.Matrix3.getColumn(rotation,2,new C.Cartesian3()),
+            new C.Cartesian3());
+          return {time,phase:sensor.attitude.phase,reversed:sensor.attitude.reversed,
+            rawOffNadir:raw && C.Math.toDegrees(C.Cartesian3.angleBetween(
+              C.Cartesian3.fromArray(raw.direction),nadir)),
+            offNadir:C.Math.toDegrees(C.Cartesian3.angleBetween(cone,nadir)),
+            axes:sensor.attitude.modelAxes,modelError:C.Cartesian3.distance(z,cone),
+            ground:Boolean(sensor.frame.footprint.length),footprint:sensor.footprint.show};
+        }""",
+                time,
+            )
+        )
+    assert snapshots[0]["phase"] == "preparing"
+    assert snapshots[2]["phase"] == "observing" and snapshots[2]["reversed"]
+    assert snapshots[2]["rawOffNadir"] > 150
+    assert snapshots[2]["offNadir"] == pytest.approx(180 - snapshots[2]["rawOffNadir"], abs=1e-9)
+    assert snapshots[5]["phase"] == snapshots[6]["phase"] == "recovery"
+    for left, right in [(snapshots[1], snapshots[2]), (snapshots[4], snapshots[5])]:
+        assert sum((a - b) ** 2 for a, b in zip(left["axes"], right["axes"], strict=True)) < 1e-9
+    for snapshot in snapshots:
+        assert snapshot["offNadir"] <= 29.5 + 1e-9
+        assert snapshot["modelError"] < 1e-11
+        assert snapshot["footprint"] == snapshot["ground"]
+    assert snapshots[0]["offNadir"] < snapshots[2]["offNadir"]
+    assert snapshots[6]["offNadir"] < snapshots[5]["offNadir"]
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+def test_footprints_replace_old_geometry_immediately_without_a_replay_backlog(
+    globe_page: Any, projection: str
+) -> None:
+    if projection != "3d":
+        globe_page.evaluate("mode => setMapViewMode(mode)", projection)
+        globe_page.wait_for_function("!state.viewTransition")
+    original = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    snapshot = globe_page.evaluate("""() => {
+      const C = Cesium, collection = state.footprintPrimitives;
+      let disposed = 0, error = 0, maximum = 0;
+      // Many seeks in one JS turn: no render or worker can finish between them.
+      // Include fractional source attitudes, task boundaries and reverse seeks.
+      for (const time of [-86400,0,3.5,7.999,8,121,125.5,128,3600,43201,
+                          43200,128,125.5,121,8,7.999,3.5,0,-86400]) {
+        const old = [...state.sensorFovs.values()].flatMap(s=>s.fill ? [s.fill] : []);
+        setReplayTime(time,true);
+        if (!old.every(p=>p.isDestroyed() && !collection.contains(p))) {
+          throw new Error('A previous footprint survived a replay update');
+        }
+        disposed += old.length;
+        const sensors = [...state.sensorFovs.values()];
+        const visible = sensors.filter(s=>s.frame?.footprint.length);
+        if (collection.length !== visible.length) throw new Error('Footprint backlog');
+        maximum = Math.max(maximum,collection.length);
+        for (const sensor of sensors) {
+          if (sensor.footprint.polygon) throw new Error('Static polygon batching returned');
+          const positions = sensor.footprint.polyline.positions.getValue();
+          if (!sensor.frame?.footprint.length) {
+            if (sensor.fill || sensor.footprint.show || positions.length) {
+              throw new Error('Missed Earth intersection retained an old footprint');
+            }
+            continue;
+          }
+          if (sensor.fill.asynchronous || sensor.fill.allowPicking
+              || sensor.footprintFrame !== sensor.frame
+              || positions.length !== sensor.frame.surfaceBoundary.length+1) {
+            throw new Error('Footprint and cone frames disagree');
+          }
+          sensor.frame.surfaceBoundary.forEach((point,index)=> {
+            const expected = C.Cartesian3.fromArray(point);
+            error = Math.max(error,C.Cartesian3.distance(expected,positions[index]));
+          });
+          error = Math.max(error,C.Cartesian3.distance(positions[0],positions.at(-1)));
+        }
+      }
+      state.globe.scene.render();
+      return {disposed,maximum,error,count:collection.length,
+        ready:[...state.sensorFovs.values()].every(s=>!s.fill || s.fill.ready)};
+    }""")
+    assert snapshot["disposed"] > 100, snapshot
+    assert snapshot["maximum"] == snapshot["count"] == 20, snapshot
+    assert snapshot["error"] < 1e-7, snapshot
+    assert snapshot["ready"], snapshot
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == original
+
+
+@pytest.mark.parametrize("camera_mode", ["overview", "follow"])
+def test_fast_forward_and_reverse_playback_keep_only_current_footprints(
+    globe_page: Any, camera_mode: str
+) -> None:
+    globe_page.evaluate("setReplayTime(0,true); selectSatellite('KENT_RIDGE_1_41167')")
+    globe_page.locator(f"#camera-{camera_mode}").click()
+    globe_page.locator("#replay-speed").select_option("900")
+    globe_page.evaluate(
+        "() => { window.previousFills = "
+        "[...state.sensorFovs.values()].flatMap(s=>s.fill ? [s.fill] : []); }"
+    )
+    globe_page.locator("#replay-play").click()
+    for direction in [1, -1]:
+        if direction < 0:
+            globe_page.locator("#replay-direction").click()
+        for _ in range(3):
+            start = globe_page.evaluate("state.replay.time")
+            globe_page.wait_for_function(
+                "({start,direction}) => (state.replay.time-start)*direction > 180",
+                arg={"start": start, "direction": direction},
+            )
+            assert globe_page.evaluate("""() => {
+              const sensors = [...state.sensorFovs.values()];
+              const fills = sensors.flatMap(s=>s.fill ? [s.fill] : []);
+              const valid = previousFills.every(p=>p.isDestroyed())
+                && state.footprintPrimitives.length === fills.length && fills.length <= 20
+                && sensors.every(s=>Cesium.JulianDate.equals(s.time,state.globe.clock.currentTime)
+                  && (!s.fill || (s.footprintFrame === s.frame && !s.fill.asynchronous)));
+              window.previousFills = fills;
+              return valid;
+            }""")
+    globe_page.locator("#replay-play").click()
+    assert globe_page.evaluate("""() => {
+      const seconds = Cesium.JulianDate.secondsDifference(state.globe.clock.currentTime,
+        Cesium.JulianDate.fromIso8601(state.currentPayload.scenario.epoch_utc));
+      return !state.replay.playing && Math.abs(seconds-state.replay.time) < 1e-9;
+    }""")
+
+
+def test_footprint_layers_and_scene_morph_destroy_obsolete_fills(globe_page: Any) -> None:
+    globe_page.evaluate("setReplayTime(-86400,true)")
+    assert globe_page.evaluate("""() => {
+      const old = [...state.sensorFovs.values()].map(s=>s.fill);
+      state.layers.fov = false;
+      updateReplayVisuals();
+      const cleared = old.every(p=>p.isDestroyed()) && !state.footprintPrimitives.length
+        && [...state.sensorFovs.values()].every(s=>!s.footprint.show
+          && !s.footprint.polyline.positions.getValue().length);
+      state.layers.fov = true;
+      updateReplayVisuals();
+      return cleared && state.footprintPrimitives.length === 20;
+    }""")
+    for mode in ["2d", "2.5d", "3d"]:
+        assert globe_page.evaluate(
+            """mode => {
+          const old = [...state.sensorFovs.values()].map(s=>s.fill);
+          setMapViewMode(mode);
+          return state.viewTransition && !state.footprintPrimitives.length
+            && old.every(p=>p.isDestroyed())
+            && [...state.sensorFovs.values()].every(s=>!s.footprint.show);
+        }""",
+            mode,
+        )
+        globe_page.wait_for_function("!state.viewTransition")
+        assert globe_page.evaluate("state.footprintPrimitives.length") == 20
+        assert globe_page.evaluate(
+            "[...state.sensorFovs.values()].every(s=>s.footprintFrame === s.frame)"
+        )
+    assert globe_page.evaluate("state.replay.time") == -86400
+
+
+def test_observation_link_option_and_rendered_links_are_removed(globe_page: Any) -> None:
+    links = "state.globe.entities.values.filter(e=>e.id.startsWith('ray-')).map(e=>e.id)"
+    globe_page.evaluate("setReplayTime(0,true); selectSatellite('KENT_RIDGE_1_41167')")
+    assert globe_page.evaluate(links) == []
+    globe_page.locator("#toggle-layers").click()
+    assert globe_page.locator("#toggle-rays").count() == 0
+    assert globe_page.get_by_role("button", name="Observation links", exact=True).count() == 0
+    globe_page.evaluate("selectSatellite('SCD_2_25504')")
+    assert globe_page.evaluate(links) == []
+    globe_page.evaluate("selectSatellite('KENT_RIDGE_1_41167'); setReplayTime(8,true)")
+    assert globe_page.evaluate(links) == []
+    globe_page.evaluate("setReplayTime(0,true)")
+    assert globe_page.evaluate(links) == []
+    globe_page.keyboard.press("Escape")
 
 
 @pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
@@ -701,15 +1055,18 @@ def test_plan_reload_disposes_previous_cones_instead_of_accumulating_primitives(
     for plan in ["eos-sa-profit", "eos-greedy-profit", "eos-sa-balanced"]:
         assert globe_page.evaluate(
             """id => {
-          const previous = state.fovPrimitives;
+          const previous = state.fovPrimitives, footprints = state.footprintPrimitives;
+          const fills = [...state.sensorFovs.values()].flatMap(s=>s.fill ? [s.fill] : []);
           const plan = state.referenceData.plans.find(p => p.plan_id === id);
           renderResult(OrbitReplay.referencePayload(state.referenceData, plan));
-          return previous.isDestroyed() && !state.globe.scene.primitives.contains(previous);
+          return previous.isDestroyed() && !state.globe.scene.primitives.contains(previous)
+            && footprints.isDestroyed() && !state.globe.scene.primitives.contains(footprints)
+            && fills.every(p=>p.isDestroyed()) && state.footprintPrimitives.length <= 20;
         }""",
             plan,
         )
         assert globe_page.evaluate("state.sensorFovs.size") == 20
-        assert globe_page.evaluate("state.fovPrimitives.length") == 40
+        assert globe_page.evaluate("state.fovPrimitives.length") == 20
         assert (
             globe_page.evaluate(
                 "state.globe.entities.values.filter(e=>e.id.startsWith('fov-')).length"
@@ -1099,6 +1456,131 @@ def test_satellite_popup_is_on_demand_translucent_and_dismissible(
 
 
 @pytest.mark.parametrize("viewport", [(1440, 900), (375, 667)])
+def test_follow_popup_waits_for_the_rendered_tracking_camera_before_repositioning(
+    globe_page: Any, viewport: tuple[int, int]
+) -> None:
+    globe_page.set_viewport_size({"width": viewport[0], "height": viewport[1]})
+    globe_page.evaluate("setReplayTime(0,true); selectSatellite('KENT_RIDGE_1_41167')")
+    globe_page.locator("#camera-follow").click()
+    globe_page.wait_for_function("""() => state.globe.trackedEntity
+      && !document.getElementById('orbit-hud').hidden""")
+    globe_page.wait_for_timeout(200)
+    snapshot = globe_page.evaluate("""() => {
+      const hud=document.getElementById('orbit-hud');
+      const before={hidden:hud.hidden,left:hud.style.left,top:hud.style.top,
+        transform:hud.style.transform};
+      // Move the clock without giving EntityView a frame to move its camera.
+      setReplayTime(1800,true);
+      return {before,after:{hidden:hud.hidden,left:hud.style.left,top:hud.style.top,
+        transform:hud.style.transform}};
+    }""")
+    assert snapshot["after"] == snapshot["before"], snapshot
+    globe_page.wait_for_function("!document.getElementById('orbit-hud').hidden")
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+@pytest.mark.parametrize("camera_mode", ["overview", "follow"])
+def test_satellite_details_show_the_same_live_position_as_the_native_globe(
+    globe_page: Any, projection: str, camera_mode: str
+) -> None:
+    if projection != "3d":
+        globe_page.evaluate("mode => setMapViewMode(mode)", projection)
+        globe_page.wait_for_function("!state.viewTransition")
+    globe_page.evaluate("selectSatellite('KENT_RIDGE_1_41167')")
+    globe_page.locator(f"#camera-{camera_mode}").click()
+    original = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    first = None
+    for time in [-86400, 0, 3.5, 3600, 43200, 3 * 86400, 0]:
+        snapshot = globe_page.evaluate(
+            """time => {
+          setReplayTime(time,true);
+          const p=state.orbitPositions.get(state.selectedSatelliteId)
+            .getValue(state.globe.clock.currentTime);
+          const geo=Cesium.Cartographic.fromCartesian(p);
+          const text=id=>document.getElementById(id).textContent;
+          return {time,actual:['x','y','z'].map(axis=>Number(text('satellite-position-'+axis))),
+            expected:[p.x/1000,p.y/1000,p.z/1000],
+            latitude:Number(text('satellite-latitude').slice(0,-1)),
+            longitude:Number(text('satellite-longitude').slice(0,-1)),
+            expectedLatitude:Cesium.Math.toDegrees(geo.latitude),
+            expectedLongitude:Cesium.Math.toDegrees(geo.longitude),
+            altitude:text('satellite-altitude'),
+            expectedAltitude:(geo.height/1000).toFixed(1)+' km'};
+        }""",
+            time,
+        )
+        assert snapshot["actual"] == pytest.approx(snapshot["expected"], abs=0.000501), snapshot
+        assert snapshot["latitude"] == pytest.approx(snapshot["expectedLatitude"], abs=0.000501)
+        assert snapshot["longitude"] == pytest.approx(snapshot["expectedLongitude"], abs=0.000501)
+        assert snapshot["altitude"] == snapshot["expectedAltitude"]
+        if first is None:
+            first = snapshot["actual"]
+        elif time == 3600:
+            assert snapshot["actual"] != first
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == original
+    if camera_mode == "follow":
+        globe_page.wait_for_function("!document.getElementById('orbit-hud').hidden")
+        assert globe_page.locator("#orbit-hud").evaluate("""node => {
+          const map=elements.globe.getBoundingClientRect(),box=node.getBoundingClientRect();
+          return node.scrollWidth<=node.clientWidth && node.scrollHeight<=node.clientHeight
+            && box.top>=map.top && box.bottom<=map.bottom
+            && box.left>=map.left && box.right<=map.right;
+        }""")
+        SCREENSHOTS.mkdir(parents=True, exist_ok=True)
+        globe_page.screenshot(path=str(SCREENSHOTS / f"satellite-coordinates-{projection}.png"))
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+def test_follow_details_remain_visible_and_do_not_mutate_when_paused_or_flash_during_playback(
+    globe_page: Any, projection: str
+) -> None:
+    if projection != "3d":
+        globe_page.evaluate("mode => setMapViewMode(mode)", projection)
+        globe_page.wait_for_function("!state.viewTransition")
+    globe_page.evaluate("setReplayTime(0,true); selectSatellite('KENT_RIDGE_1_41167')")
+    globe_page.locator("#camera-follow").click()
+    globe_page.wait_for_function("!document.getElementById('orbit-hud').hidden")
+    globe_page.wait_for_timeout(200)
+    paused = globe_page.evaluate("""() => {
+      const hud=document.getElementById('orbit-hud');
+      const observer=new MutationObserver(()=>{});
+      observer.observe(hud,{attributes:true,childList:true,subtree:true,characterData:true});
+      for(let i=0;i<30;i++) {
+        updateOrbitHud();
+        positionSatelliteDetails();
+      }
+      const count=observer.takeRecords().length;
+      observer.disconnect();
+      return {count,hidden:hud.hidden};
+    }""")
+    assert not paused["hidden"]
+    assert paused["count"] == 0, paused
+    globe_page.evaluate("""() => {
+      window.hudHiddenChanges=0;
+      window.hudHiddenObserver=new MutationObserver(records=> {
+        hudHiddenChanges+=records.filter(r=>r.attributeName==='hidden').length;
+      });
+      hudHiddenObserver.observe(document.getElementById('orbit-hud'),{attributes:true});
+    }""")
+    globe_page.locator("#replay-speed").select_option("900")
+    globe_page.locator("#replay-play").click()
+    globe_page.wait_for_function("state.replay.time>1000")
+    globe_page.locator("#replay-play").click()
+    globe_page.locator("#replay-direction").click()
+    start = globe_page.evaluate("state.replay.time")
+    globe_page.locator("#replay-play").click()
+    globe_page.wait_for_function("start => state.replay.time<start-600", arg=start)
+    globe_page.locator("#replay-play").click()
+    globe_page.wait_for_timeout(100)
+    result = globe_page.evaluate("""() => {
+      const changes=hudHiddenChanges;
+      hudHiddenObserver.disconnect();
+      return {changes,hidden:document.getElementById('orbit-hud').hidden};
+    }""")
+    assert result == {"changes": 0, "hidden": False}, result
+
+
+@pytest.mark.parametrize("viewport", [(1440, 900), (375, 667)])
 def test_satellite_canvas_picking_double_click_focus_follow_and_source_horizon(
     globe_page: Any, viewport: tuple[int, int]
 ) -> None:
@@ -1132,6 +1614,12 @@ def test_satellite_canvas_picking_double_click_focus_follow_and_source_horizon(
     globe_page.wait_for_timeout(300)
     after = globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)")
     assert before != after
+    popup_size = globe_page.evaluate("""() => {
+      const hud=document.getElementById('orbit-hud'),map=elements.globe;
+      return {popupHeight:hud.offsetHeight,mapHeight:map.clientHeight,
+        popupWidth:hud.offsetWidth,mapWidth:map.clientWidth};
+    }""")
+    assert popup_size["popupHeight"] + 12 <= popup_size["mapHeight"], popup_size
     globe_page.wait_for_function("""() => {
       const viewer = state.globe, hud = document.getElementById('orbit-hud');
       const point = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene,

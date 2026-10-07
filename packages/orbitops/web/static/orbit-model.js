@@ -48,7 +48,7 @@
     return [Math.atan2(y, x) / RAD, latitude / RAD, altitude];
   }
 
-  function create(orbit, elements) {
+  function create(orbit, elements, preciseSamples = null) {
     const a = Number(elements?.semi_major_axis_km) * 1000;
     const e = Number(elements?.eccentricity);
     const angles = ["inclination_deg", "argument_of_perigee_deg", "right_ascension_of_ascending_node_deg", "mean_anomaly_deg"].map((key) => Number(elements?.[key]) * RAD);
@@ -89,11 +89,25 @@
     }
     const before = anchor(0, 1), after = anchor(orbit.samples.length - 1, orbit.samples.length - 2);
 
+    function fixedVector(vector, time) {
+      if (!Number.isFinite(time) || !Array.isArray(vector) || vector.length !== 3 || !vector.every(Number.isFinite)) {
+        throw new RangeError("Inertial vector and orbit time must be finite.");
+      }
+      // The same source-calibrated EME2000-to-fixed display rotation used by
+      // orbit extensions. Rotate directions without the position scale factor.
+      const frame = time <= sourceEnd ? before : after;
+      const components = [dot(vector, frame.u), dot(vector, frame.v), dot(vector, normal)];
+      const fixed = frame.radial.map((value, i) => components[0]*value
+        + components[1]*frame.tangent[i] + components[2]*frame.normal[i]);
+      return spin(fixed, -EARTH_RATE*((time - frame.time) % (TAU/EARTH_RATE)));
+    }
+
     function cartesian(time) {
       if (!Number.isFinite(time)) throw new RangeError("Orbit time must be finite.");
       if (sourceStart <= time && time <= sourceEnd) {
         const index = window.OrbitReplay.sampleIndex(orbit.samples, time);
-        const start = orbit.samples[index], end = orbit.samples[Math.min(index + 1, orbit.samples.length - 1)];
+        const precise = preciseSamples?.(orbit.satellite_id, time);
+        const [start, end] = precise || [orbit.samples[index], orbit.samples[Math.min(index + 1, orbit.samples.length - 1)]];
         const fraction = end[0] === start[0] ? 0 : (time - start[0]) / (end[0] - start[0]);
         const x = toCartesian(start.slice(1)), y = toCartesian(end.slice(1));
         return x.map((value, i) => value + (y[i] - value) * fraction);
@@ -106,6 +120,7 @@
     }
 
     function point(time) {
+      if (preciseSamples?.(orbit.satellite_id, time)) return toGeodetic(cartesian(time));
       return sourceStart <= time && time <= sourceEnd ? window.OrbitReplay.point(orbit.samples, time) : toGeodetic(cartesian(time));
     }
 
@@ -117,7 +132,7 @@
       times.push(end);
       return times.sort((x, y) => x - y).map((time) => [time, ...point(time)]);
     }
-    return Object.freeze({period, sourceStart, sourceEnd, cartesian, point, trackSamples});
+    return Object.freeze({period, sourceStart, sourceEnd, cartesian, fixedVector, point, trackSamples});
   }
   window.OrbitModel = Object.freeze({create, epochUTC, toCartesian, toGeodetic});
 })();

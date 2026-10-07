@@ -15,6 +15,7 @@ from orbitops.web import LabApplication
 
 PROJECT_ROOT = Path(__file__).parents[1]
 SCENARIO_DIR = PROJECT_ROOT / "scenarios"
+REFERENCE_PATH = PROJECT_ROOT / "data" / "eos-bench" / "reference.json"
 STATIC_DIR = PROJECT_ROOT / "packages" / "orbitops" / "web" / "static"
 ARTIFACT_MARKER = ".orbitops-pages-artifact"
 ARTIFACT_MARKER_CONTENT = "orbitops-pages-v0.2\n"
@@ -53,7 +54,12 @@ def build_dataset(application: LabApplication) -> dict[str, Any]:
 
 
 def _validate_output_target(output: Path) -> None:
-    protected = (PROJECT_ROOT.resolve(), STATIC_DIR.resolve(), SCENARIO_DIR.resolve())
+    protected = (
+        PROJECT_ROOT.resolve(),
+        STATIC_DIR.resolve(),
+        SCENARIO_DIR.resolve(),
+        (PROJECT_ROOT / "data").resolve(),
+    )
     if output == protected[0] or output in protected[0].parents:
         raise ValueError("output directory must not replace the project or one of its parents")
     if any(output == path or output.is_relative_to(path) for path in protected[1:]):
@@ -75,7 +81,8 @@ def _validate_output_target(output: Path) -> None:
 def build_pages(output_dir: Path) -> None:
     output = output_dir.resolve()
     _validate_output_target(output)
-    dataset = build_dataset(LabApplication(SCENARIO_DIR))
+    application = LabApplication(REFERENCE_PATH)
+    dataset = build_dataset(application)
     output.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix=f".{output.name}-", dir=output.parent) as temporary:
@@ -89,6 +96,15 @@ def build_pages(output_dir: Path) -> None:
             json.dumps(dataset, ensure_ascii=False, separators=(",", ":")) + "\n",
             encoding="utf-8",
         )
+        chunks = (
+            dataset.get("reference", {}).get("replay", {}).get("ephemeris", {}).get("chunks", [])
+        )
+        if chunks:
+            (staging / "orbit-data").mkdir()
+            for chunk in chunks:
+                (staging / "orbit-data" / chunk["filename"]).write_bytes(
+                    application.reference.orbit_chunk(chunk["filename"])
+                )
         (staging / ARTIFACT_MARKER).write_text(ARTIFACT_MARKER_CONTENT, encoding="utf-8")
         (staging / ".nojekyll").touch()
 

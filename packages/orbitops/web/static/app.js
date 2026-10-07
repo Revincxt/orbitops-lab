@@ -8,17 +8,23 @@ const state = {
   currentPayload: null,
   selectedTaskId: null,
   busy: false,
-  layers: { targets: true, track: true, rays: true, fov: true, illumination: true, labels: false, satelliteLabels: true },
+  layers: { targets: true, track: true, fov: true, illumination: true, labels: false, satelliteLabels: true },
   cameraHome: null,
   targetRowsKey: null,
   assignments: new Map(),
   taskById: new Map(),
   replay: { time: 0, playing: false, speed: 60, direction: 1, windowStart: 0, windowEnd: 43200, lastFrame: 0, lastPaint: 0 },
   orbitModels: new Map(),
+  ephemeris: null,
+  ephemerisRevision: -1,
+  ephemerisReady: Promise.resolve(),
+  satelliteSchedules: new Map(),
+  attitudeFrames: new Map(),
   orbitPositions: new Map(),
   orbitStyles: new Map(),
   sensorFovs: new Map(),
   fovPrimitives: null,
+  footprintPrimitives: null,
   entityTaskStates: new Map(),
   selectedSatelliteId: null,
   satelliteDetailsOpen: false,
@@ -170,13 +176,11 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
   closeSatelliteDetails();
   state.selectedTaskId = taskId;
   const assignment = payload.result.validation.simulation?.tasks.find((item) => item.task_id === taskId);
-  if (payload.mode === "reference") {
-    state.selectedSatelliteId = assignment?.satellite_id || null;
-    if (reveal) state.orbitEmphasis = true;
-    if (!assignment && state.cameraMode === "follow") {
-      releaseCameraTracking();
-      state.cameraMode = "manual";
-    }
+  state.selectedSatelliteId = assignment?.satellite_id || null;
+  if (reveal) state.orbitEmphasis = true;
+  if (!assignment && state.cameraMode === "follow") {
+    releaseCameraTracking();
+    state.cameraMode = "manual";
   }
   if (seek && assignment) {
     state.replay.windowStart = payload.scenario.horizon_start_s;
@@ -187,10 +191,12 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
   textField("selected-coordinates", `${task.target.latitude_deg.toFixed(2)}°, ${task.target.longitude_deg.toFixed(2)}°`);
   textField("selected-priority", `P${task.priority_value.toFixed(0)} / ${task.duration_s.toFixed(1)}s`);
   textField("selected-window", assignment ? `${timeLabel(assignment.start_s)}–${timeLabel(assignment.end_s)}` : "Not scheduled");
-  textField("selected-assignment", assignment ? satelliteName(assignment.satellite_id || payload.scenario.satellite.satellite_id) : `${task.visibility_windows.length} candidate windows`);
-  document.getElementById("selected-assignment").title = assignment ? `${assignment.satellite_id || payload.scenario.satellite.satellite_id} · ${assignment.window_id}` : "No selected assignment";
+  textField("selected-assignment", assignment ? satelliteName(assignment.satellite_id) : `${task.visibility_windows.length} candidate windows`);
+  document.getElementById("selected-assignment").title = assignment ? `${assignment.satellite_id} · ${assignment.window_id}` : "No selected assignment";
+  const geometryIssue = payload.result.validation.constraints?.ellipsoid_visibility?.issues.find(i => i.task_id === taskId);
+  if (geometryIssue) document.getElementById("selected-assignment").title += ` · Source geometry mismatch: Earth occlusion, minimum elevation ${geometryIssue.minimum_elevation_deg.toFixed(2)}°`;
   textField("selected-resource-label", "Data / orbit");
-  textField("selected-resources", payload.mode === "reference" ? (assignment ? `${(assignment.data_volume_gb * 1024).toFixed(2)} MB / #${assignment.orbit_number}` : "No source assignment") : `${task.energy_cost_wh.toFixed(1)} Wh / ${task.storage_cost_gb.toFixed(1)} GB`);
+  textField("selected-resources", assignment ? `${(assignment.data_volume_gb * 1024).toFixed(2)} MB / #${assignment.orbit_number}` : "No source assignment");
   textField("selected-state", taskState(taskId));
   document.getElementById("selected-state").classList.toggle("scheduled", Boolean(assignment));
   if (state.globe && window.Cesium) {
@@ -198,11 +204,11 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
       const entity = state.globe.entities.getById(`target-${candidate.task_id}`);
       if (entity?.point) {
         const selected = candidate.task_id === taskId;
-        entity.point.pixelSize = selected ? 10 : payload.mode === "reference" ? 4 : 6;
+        entity.point.pixelSize = selected ? 10 : 4;
         entity.point.outlineWidth = selected ? 2 : .5;
         if (entity.label) {
           entity.label.show = selected || state.layers.labels;
-          entity.label.distanceDisplayCondition = new window.Cesium.DistanceDisplayCondition(0, selected || payload.mode !== "reference" ? Infinity : 3500000);
+          entity.label.distanceDisplayCondition = new window.Cesium.DistanceDisplayCondition(0, selected ? Infinity : 3500000);
         }
       }
     });
@@ -225,7 +231,7 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
     renderGantt(payload.scenario, payload.result);
     if (reveal && assignment) revealTimelineSatellite(assignment.satellite_id);
   }
-  if (payload.mode === "reference") renderWorkloads();
+  renderWorkloads();
   updateReplayVisuals();
 }
 
@@ -290,9 +296,9 @@ async function loadStaticDataset() {
   return staticDatasetPromise;
 }
 
-async function api(path) {
+async function loadReferenceArchive() {
   if (staticDeployment) return (await loadStaticDataset()).reference;
-  const response = await fetch(path);
+  const response = await fetch("/api/reference/data");
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
   return payload;
@@ -394,14 +400,12 @@ function updateGlobeLayers() {
     state.globe.entities.values.forEach((entity) => {
       if (entity.id.startsWith("target-")) entity.show = state.layers.targets;
       if (entity.id.startsWith("orbit-")) entity.show = state.layers.track;
-      if (entity.id.startsWith("ray-")) entity.show = state.layers.rays;
       if (entity.label && entity.id.startsWith("target-")) entity.label.show = state.layers.labels || entity.id === `target-${state.selectedTaskId}`;
     });
     state.globe.scene.requestRender();
   } else {
     document.querySelectorAll(".map-marker").forEach((marker) => { marker.style.display = state.layers.targets ? "" : "none"; });
     document.querySelectorAll(".map-orbit").forEach((track) => { track.style.display = state.layers.track ? "" : "none"; });
-    document.querySelectorAll(".map-ray").forEach((ray) => { ray.style.display = state.layers.rays ? "" : "none"; });
   }
 }
 
@@ -583,6 +587,7 @@ function renderMissionGlobe(scenario, result) {
     if (state.globe && !state.globe.isDestroyed()) state.globe.destroy();
     state.globe = null;
     state.fovPrimitives = null;
+    state.footprintPrimitives = null;
     state.sensorFovs.clear();
     state.imageryFallbackActive = false;
     renderGlobeFallback(scenario, scheduledIds);
@@ -613,12 +618,13 @@ async function loadReferencePlan() {
     const plan = state.referenceData.plans.find((item) => item.plan_id === elements.solver.value);
     if (!plan) throw new Error("Reference plan is unavailable.");
     renderResult(window.OrbitReplay.referencePayload(state.referenceData, plan));
+    await state.ephemerisReady;
     elements.status.textContent = `${plan.label} · Ready`;
   } catch (error) {
     setBusy(false);
     elements.statusIndicator.classList.add("is-error");
     elements.status.classList.add("error");
-    elements.status.textContent = error instanceof Error ? error.message : "Plan could not be loaded.";
+    elements.status.textContent = state.currentPayload ? "Orbit data unavailable · 30 s preview" : error instanceof Error ? error.message : "Plan could not be loaded.";
   } finally {
     if (state.busy) setBusy(false);
     refreshPanels();
@@ -631,7 +637,7 @@ async function initialize() {
     // Fonts must be ready before Cesium rasterizes labels or SVG measures text.
     // A missing font must not prevent the source archive from opening.
     const fontReady = document.fonts.load('500 12px "Inter"').catch(() => []);
-    const [referenceData] = await Promise.all([api("/api/reference/data"), fontReady]);
+    const [referenceData] = await Promise.all([loadReferenceArchive(), fontReady]);
     if (!referenceData?.scenario || !referenceData.plans?.length) throw new Error("EOS-Bench reference data is unavailable.");
     state.referenceData = referenceData;
     populateSelect(elements.solver, referenceData.plans, "plan_id", (plan) => plan.label);
@@ -668,7 +674,7 @@ elements.timeline.addEventListener("keydown", (event) => {
 document.querySelectorAll(".workspace-nav button").forEach((button) => {
   button.addEventListener("click", () => setWorkspaceView(button.dataset.workspaceView));
 });
-for (const name of ["targets", "track", "rays", "fov", "illumination", "labels"]) {
+for (const name of ["targets", "track", "fov", "illumination", "labels"]) {
   document.getElementById(`toggle-${name}`).addEventListener("click", (event) => {
     state.layers[name] = !state.layers[name];
     event.currentTarget.setAttribute("aria-pressed", String(state.layers[name]));

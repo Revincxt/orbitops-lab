@@ -14,6 +14,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from orbitops.web.reference import ATTITUDE_DISPLAY
+from orbitops.web.reference_checks import check_constraints, check_ellipsoid_visibility
+
 REVISION = "ee282656e8b2f6fd0d3cf84677b40966e2780ef3"
 SOURCE_TREE = "b90f537de42e65782372fd28a4c610da6922f90d"
 SCENE = "Scenario_S1_Sats20_M500_T0.5d_dist0"
@@ -46,6 +49,27 @@ PLANS = (
         "profit=1 completion=0 timeliness=0 balance=0",
         "c4_ppo_ppo_model_p1_c0_t0_b0.json",
         "plan-ppo-profit.json",
+    ),
+    (
+        "eos-mip-profit",
+        "MIP · profit",
+        "profit=1 completion=0 timeliness=0 balance=0",
+        "c1_mip_p1_c0_t0_b0.json",
+        "plan-mip-profit.json",
+    ),
+    (
+        "eos-ga-profit",
+        "GA · profit",
+        "profit=1 completion=0 timeliness=0 balance=0",
+        "c3_ga_p1_c0_t0_b0.json",
+        "plan-ga-profit.json",
+    ),
+    (
+        "eos-aco-profit",
+        "ACO · profit",
+        "profit=1 completion=0 timeliness=0 balance=0",
+        "c3_aco_p1_c0_t0_b0.json",
+        "plan-aco-profit.json",
     ),
 )
 
@@ -103,6 +127,12 @@ def check_plan(scenario: dict[str, Any], source: dict[str, Any]) -> dict[str, An
         ]
         if not matches:
             issue("source_window", tid, "No containing source observation window was found.")
+        elif not any(
+            (item.get("sensor_id") is None or item["sensor_id"] == w["sensor_id"])
+            and (item.get("orbit_number") is None or item["orbit_number"] == w["orbit_number"])
+            for w in matches
+        ):
+            issue("window_metadata", tid, "Assignment sensor/orbit differs from source window.")
         assignments.append(
             {
                 "task_id": tid,
@@ -114,6 +144,7 @@ def check_plan(scenario: dict[str, Any], source: dict[str, Any]) -> dict[str, An
                 "orbit_number": item.get("orbit_number"),
                 "data_volume_gb": item.get("data_volume_GB"),
                 "source_power_cost_w": item.get("power_cost_W"),
+                "sat_angles": item.get("sat_angles"),
             }
         )
     assignments.sort(key=lambda a: (a["start_s"], a["satellite_id"], a["task_id"]))
@@ -166,20 +197,21 @@ def check_plan(scenario: dict[str, Any], source: dict[str, Any]) -> dict[str, An
                 "TP/TCR/TM/BD reconciliation",
             ],
             "not_checked": [
-                "attitude transition feasibility",
-                "per-orbit resource constraints",
                 "sensor geometry",
                 "battery dynamics",
                 "downlink",
             ],
             "full_feasibility": "not independently verified",
+            "constraints": check_constraints(scenario, assignments),
         },
     }
 
 
-def build(source_dir: Path, stride: int = 30) -> dict[str, Any]:
+def build(source_dir: Path, stride: int = 30, chunk_dir: Path | None = None) -> dict[str, Any]:
     if stride < 1:
         raise ValueError("sample stride must be positive")
+    if chunk_dir is None:
+        raise ValueError("chunk_dir is required to preserve the full 1-second source ephemeris")
     source_tree = json.loads((source_dir / "tree.json").read_text())
     if source_tree["sha"] not in {REVISION, SOURCE_TREE} or source_tree.get("truncated"):
         raise ValueError("source tree is incomplete or not pinned to the expected revision")
@@ -272,7 +304,54 @@ def build(source_dir: Path, stride: int = 30) -> dict[str, Any]:
             or orbit["samples"][-1][0] != scenario["horizon_end_s"]
         ):
             raise ValueError("source orbit epoch or horizon differs from scenario")
+    chunks = []
+    if chunk_dir is not None:
+        chunk_dir.mkdir(parents=True, exist_ok=True)
+        satellite_packets = [p for p in packets if "path" in p]
+        horizon = int(scenario["horizon_end_s"])
+        for packet in satellite_packets:
+            values = packet["position"]["cartographicDegrees"]
+            if len(values) != (horizon + 1) * 4 or any(
+                values[i * 4] != i for i in range(horizon + 1)
+            ):
+                raise ValueError("expected complete 1-second source ephemeris")
+        for start in range(0, horizon, 3600):
+            end = min(start + 3600, horizon)
+            chunk = {
+                "schema_version": "eos-orbit-chunk-1",
+                "epoch_utc": scenario["epoch_utc"],
+                "frame": "WGS84 geodetic",
+                "start_s": start,
+                "end_s": end,
+                "step_s": 1,
+                "orbits": [],
+            }
+            for packet in satellite_packets:
+                values = packet["position"]["cartographicDegrees"]
+                chunk["orbits"].append(
+                    {
+                        "satellite_id": packet["id"],
+                        "cartographic_degrees": [
+                            values[i * 4 + j] for i in range(start, end + 1) for j in (1, 2, 3)
+                        ],
+                    }
+                )
+            raw = (json.dumps(chunk, separators=(",", ":"), allow_nan=False) + "\n").encode()
+            filename = f"{start:05d}.json"
+            (chunk_dir / filename).write_bytes(raw)
+            chunks.append(
+                {
+                    "filename": filename,
+                    "start_s": start,
+                    "end_s": end,
+                    "bytes": len(raw),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                }
+            )
     manifests = [manifest, orbit_manifest]
+    source_positions = {
+        p["id"]: p["position"]["cartographicDegrees"] for p in packets if "path" in p
+    }
     plans = []
     for pid, label, objective, suffix, local in PLANS:
         original, record = read_source(source_dir / local, f"scheduler_{SCENE}_{suffix}", tree)
@@ -292,6 +371,9 @@ def build(source_dir: Path, stride: int = 30) -> dict[str, Any]:
                 **check_plan(scenario, original),
             }
         )
+        plans[-1]["checks"]["constraints"]["ellipsoid_visibility"] = check_ellipsoid_visibility(
+            scenario, plans[-1]["assignments"], source_positions
+        )
         manifests.append(record)
     return {
         "schema_version": "eos-reference-1",
@@ -302,6 +384,16 @@ def build(source_dir: Path, stride: int = 30) -> dict[str, Any]:
             "frame": "WGS84 geodetic",
             "orbits": orbits,
             "sample_stride": stride,
+            "attitude": {
+                "declared_frame": "EME2000",
+                "rotation_order": "ZYX",
+                "convention": "FRAME_TRANSFORM",
+                "sample_step_s": 1,
+                "frame_verified": False,
+                **ATTITUDE_DISPLAY,
+                "availability": "scheduled observation intervals only",
+            },
+            "ephemeris": {"step_s": 1, "chunk_duration_s": 3600, "chunks": chunks},
             "interpolation": (
                 "3D: linear Cartesian; 2D: date-line-aware geodetic interpolation. "
                 "Retained source samples; visualization only."
@@ -317,7 +409,9 @@ def build(source_dir: Path, stride: int = 30) -> dict[str, Any]:
             "data_kind": "simulation benchmark, not operational telemetry",
             "window_count": counter,
             "omitted": (
-                "Per-window attitude arrays; 11 additional published plans. No values synthesized."
+                "Unscheduled per-window attitude arrays; 8 other published plans. "
+                "Scheduled sat_angles and complete 1-second orbital positions retained. "
+                "No values synthesized."
             ),
             "license_status": (
                 "No repository license declaration found in the pinned tree; "
@@ -332,7 +426,7 @@ def main() -> None:
     parser.add_argument("source_dir", type=Path)
     parser.add_argument("--output", type=Path, default=Path("data/eos-bench/reference.json"))
     args = parser.parse_args()
-    artifact = build(args.source_dir)
+    artifact = build(args.source_dir, chunk_dir=args.output.parent / "orbits")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     raw = (
         json.dumps(artifact, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n"

@@ -26,6 +26,8 @@ def test_display_orbit_model_against_source_holdouts_and_physical_invariants() -
             str(root / "tests/javascript/orbit-model.test.cjs"),
             str(root / "tests/javascript/sensor-fov.test.cjs"),
             str(root / "tests/javascript/radar.test.cjs"),
+            str(root / "tests/javascript/orbit-ephemeris.test.cjs"),
+            str(root / "tests/javascript/satellite-attitude.test.cjs"),
         ],
         cwd=root,
         capture_output=True,

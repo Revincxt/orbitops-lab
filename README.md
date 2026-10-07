@@ -18,7 +18,7 @@
 
 A fixed-viewport engineering workspace for exploring satellite orbits, observation
 tasks and scheduling results. The demo replays one pinned **EOS-Bench** scenario:
-**20 satellites · 500 tasks · 12 hours · 4 source plans**.
+**20 satellites · 500 tasks · 12 hours · 7 source plans**.
 
 - **Orbit views** — 3D, 2.5D and 2D maps with satellite models, focus and follow.
 - **Mission replay** — forward/reverse playback, UTC navigation and a synchronized satellite timeline.
@@ -39,7 +39,7 @@ cd orbitops-lab
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
-orbitops lab --scenarios scenarios
+orbitops lab
 ```
 
 Open [localhost:8000](http://127.0.0.1:8000), or try the
@@ -48,7 +48,7 @@ Open [localhost:8000](http://127.0.0.1:8000), or try the
 ## Documentation
 
 [Web Lab](docs/web-lab.md) · [Problem Model](docs/problem-formulation.md) ·
-[Algorithms](docs/algorithms.md) · [Benchmarking](docs/benchmarking.md)
+[Simulation](docs/simulation-model.md) · [Benchmarking](docs/benchmarking.md)
 
 ## Credits & Scope
 

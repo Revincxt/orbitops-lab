@@ -50,6 +50,23 @@ test("both source boundaries are position-continuous, with no frozen endpoint", 
   }
 });
 
+test("source-calibrated inertial vectors rotate without position scaling", () => {
+  for (const orbit of archive.replay.orbits) {
+    const model = OrbitModel.create(orbit, elements(orbit));
+    for (const time of [-86400, 0, 123.5, 21600, 43200, 43201]) {
+      const axes = [[1,0,0], [0,1,0], [0,0,1]].map(v => model.fixedVector(v, time));
+      const dot = (a, b) => a.reduce((sum, v, i) => sum + v*b[i], 0);
+      const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+      for (const axis of axes) assert.ok(Math.abs(Math.hypot(...axis) - 1) < 1e-12);
+      assert.ok(Math.abs(dot(axes[0], axes[1])) < 1e-12);
+      assert.ok(distance(cross(axes[0], axes[1]), axes[2]) < 1e-12);
+      assert.ok(Math.abs(Math.hypot(...model.fixedVector([3,4,0], time)) - 5) < 1e-12);
+    }
+    assert.throws(() => model.fixedVector([NaN,0,0], 0), /finite/);
+    assert.throws(() => model.fixedVector([1,0,0], Infinity), /finite/);
+  }
+});
+
 test("forward and backward holdouts agree with unseen Orekit source samples", () => {
   for (const orbit of archive.replay.orbits) {
     for (const subset of [orbit.samples.slice(0,21), orbit.samples.slice(-21)]) {
