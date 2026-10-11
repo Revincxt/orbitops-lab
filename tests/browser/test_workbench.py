@@ -86,7 +86,11 @@ def assert_single_screen(page: Any) -> None:
     assert dimensions["scrollWidth"] == dimensions["width"], dimensions
     assert dimensions["scrollHeight"] == dimensions["height"], dimensions
     assert dimensions["x"] == dimensions["y"] == 0, dimensions
-    assert set(dimensions["scrollingPanels"]) <= {"target-list", "timeline-chart"}, dimensions
+    assert set(dimensions["scrollingPanels"]) <= {
+        "target-list",
+        "timeline-chart",
+        "resource-chart",
+    }, dimensions
 
 
 @pytest.mark.parametrize(
@@ -120,12 +124,18 @@ def test_analysis_views_fit_without_scrolling(
         page.locator("#workspace-tasks").click()
     page.wait_for_timeout(80)
     assert page.get_by_label("Optimization Algorithm", exact=True).is_visible()
+    assert page.locator("#target-list, #resource-chart").evaluate_all(
+        "nodes => nodes.every(node => getComputedStyle(node).visibility === 'visible')"
+    )
+    if width <= 1000:
+        page.locator("#workspace-summary").click()
     assert page.locator("#comparison-chart").is_visible()
     assert page.evaluate("""() => {
       const container = document.getElementById('target-list');
       const radar = document.getElementById('comparison-chart');
       const header = document.querySelector('.masthead');
-      return container.clientHeight >= 48 && radar.clientHeight >= 120
+      const compact = innerWidth <= 700 && innerHeight <= 650;
+      return container.clientHeight >= 48 && radar.clientHeight >= (compact ? 80 : 120)
         && header.scrollWidth <= header.clientWidth + 1;
     }""")
     if width <= 1000:
@@ -278,14 +288,16 @@ def test_touch_playback_group_stays_centered_inside_the_compact_footer(
         (1440, 900),
         (1280, 720),
         (1024, 768),
+        (1440, 600),
         (1000, 700),
         (800, 600),
         (701, 600),
         (700, 700),
         (375, 667),
+        (375, 600),
     ],
 )
-def test_task_list_precedes_comparison_and_preserves_panel_space(
+def test_swapped_sidebar_panels_preserve_order_space_and_map_dimensions(
     page: Any, lab_url: str, width: int, height: int
 ) -> None:
     page.set_viewport_size({"width": width, "height": height})
@@ -293,21 +305,24 @@ def test_task_list_precedes_comparison_and_preserves_panel_space(
     map_bounds = page.evaluate("elements.globe.getBoundingClientRect().toJSON()")
     if width <= 1000:
         page.locator("#workspace-tasks").click()
-    assert page.locator("#experiment > section").evaluate_all(
+    assert page.locator("#experiment > .command-card").evaluate_all(
         "nodes => nodes.map(node => node.getAttribute('aria-labelledby'))"
-    ) == ["targets-title", "comparison-title"]
+    ) == ["targets-title", "resources-title"]
+    assert page.locator("#inspector > .command-card").evaluate_all(
+        "nodes => nodes.map(node => node.getAttribute('aria-labelledby'))"
+    ) == ["comparison-title", "results-title"]
     assert page.evaluate("""() => {
       const panel = document.getElementById('experiment').getBoundingClientRect();
       const task = document.querySelector('.target-catalog').getBoundingClientRect();
-      const comparison = document.querySelector('.comparison-card').getBoundingClientRect();
+      const workload = document.querySelector('.resource-block').getBoundingClientRect();
       const list = elements.targetList.getBoundingClientRect();
-      const radar = document.getElementById('comparison-chart').getBoundingClientRect();
+      const chart = elements.resources.getBoundingClientRect();
       const tablet = innerWidth >= 701 && innerWidth <= 1000;
       return task.top >= panel.top && task.bottom <= panel.bottom
-        && comparison.top >= panel.top && comparison.bottom <= panel.bottom
-        && list.height >= 48 && radar.height >= 120
-        && (tablet ? task.right + 7 <= comparison.left && task.width >= comparison.width
-          : task.bottom + 7 <= comparison.top && Math.abs(comparison.bottom - panel.bottom) < 1);
+        && workload.top >= panel.top && workload.bottom <= panel.bottom
+        && list.height >= 48 && chart.height >= 120
+        && (tablet ? task.right + 7 <= workload.left && task.width >= workload.width
+          : task.bottom + 7 <= workload.top && Math.abs(workload.bottom - panel.bottom) < 1);
     }""")
     assert page.locator(".target-row").count() == 500
     assert page.locator("#comparison-legend button").count() == 7
@@ -316,6 +331,48 @@ def test_task_list_precedes_comparison_and_preserves_panel_space(
     page.locator("#target-filter").select_option("all")
     assert page.locator("#comparison-info, #comparison-scales").count() == 0
     assert page.locator(".comparison-card .section-heading button").count() == 0
+    if width <= 1000:
+        page.locator("#workspace-summary").click()
+    assert page.evaluate("""() => {
+      const panel = document.getElementById('inspector').getBoundingClientRect();
+      const comparison = document.querySelector('.comparison-card').getBoundingClientRect();
+      const summary = document.querySelector('.inspector-card').getBoundingClientRect();
+      const radar = elements.comparisonChart.getBoundingClientRect();
+      const legend = elements.comparisonLegend.getBoundingClientRect();
+      const values = elements.comparisonValues.getBoundingClientRect();
+      const tablet = innerWidth >= 701 && innerWidth <= 1000;
+      const compact = (innerWidth <= 700 || innerWidth > 1000) && innerHeight <= 650;
+      return Math.abs(comparison.top - panel.top) < 1
+        && (tablet ? comparison.right + 7 <= summary.left
+          && Math.abs(summary.top - panel.top) < 1
+          && Math.abs(comparison.bottom - panel.bottom) < 1
+          : comparison.bottom + 7 <= summary.top
+          && Math.abs(summary.bottom - panel.bottom) < 1)
+        && radar.height >= (compact ? 80 : 120)
+        && legend.top >= comparison.top && legend.bottom <= values.top
+        && legend.left >= comparison.left && legend.right <= comparison.right;
+    }""")
+    assert page.evaluate("""() => {
+      const left = document.getElementById('experiment').getBoundingClientRect();
+      const right = document.getElementById('inspector').getBoundingClientRect();
+      const task = document.querySelector('.target-catalog').getBoundingClientRect();
+      const workload = document.querySelector('.resource-block').getBoundingClientRect();
+      const comparison = document.querySelector('.comparison-card').getBoundingClientRect();
+      const summary = document.querySelector('.inspector-card').getBoundingClientRect();
+      const expected = innerHeight <= 650 ? 256 : Math.min(336, Math.max(272, right.height * .4));
+      const expectedWorkload = innerHeight <= 650
+        ? Math.min(320, Math.max(272, left.height * .56))
+        : Math.min(560, Math.max(320, left.height * .54));
+      const near = (a,b) => Math.abs(a-b) < 1;
+      if (!near(summary.height, expected)) return false;
+      if (innerWidth >= 701 && innerWidth <= 1000) {
+        return near(task.height,left.height) && near(workload.height,left.height)
+          && near(comparison.height,right.height);
+      }
+      return near(task.top,comparison.top) && near(workload.bottom,summary.bottom)
+        && near(workload.height,expectedWorkload) && workload.height > summary.height;
+    }""")
+    assert_single_screen(page)
     if width <= 1000:
         page.locator("#workspace-map").click()
     assert page.evaluate("elements.globe.getBoundingClientRect().toJSON()") == map_bounds
@@ -333,6 +390,16 @@ def test_decluttered_header_and_static_compass_work_without_the_globe_engine(
     assert page.locator("#camera-heading").count() == 0
     assert page.locator("#north-view").get_attribute("title") == "Face north"
     assert page.locator(".compass-dial").is_visible()
+    assert page.locator(".compass-dial defs linearGradient").count() == 3
+    assert page.locator(".compass-north-label text").text_content() == "N"
+    assert page.locator(".compass-inner-ring, .compass-needle-facet, .compass-pivot").count() == 3
+    assert page.locator("#north-view").evaluate("""node => {
+      const box=node.getBoundingClientRect();
+      const dial=node.querySelector('.compass-dial').getBoundingClientRect();
+      return box.width>=44 && box.height>=44 && dial.width===48 && dial.height===48
+        && getComputedStyle(node.querySelector('.compass-bezel')).fill.includes('compass-face')
+        && getComputedStyle(node.querySelector('.compass-north')).fill.includes('compass-needle');
+    }""")
     assert page.get_by_text("Data attribution", exact=True).count() == 0
     assert_single_screen(page)
 
@@ -436,6 +503,8 @@ def test_task_filter_and_inspector_tabs_fit_their_heading_rows(
         ("Home", "selection"),
         ("End", "evaluation"),
         ("ArrowRight", "selection"),
+        ("ArrowRight", "evaluation"),
+        ("ArrowLeft", "selection"),
         ("ArrowLeft", "evaluation"),
     ]:
         page.keyboard.press(key)
@@ -453,7 +522,7 @@ def test_task_filter_and_inspector_tabs_fit_their_heading_rows(
     ("width", "height"),
     [(1920, 1080), (1440, 900), (1280, 720), (1024, 768), (800, 600), (390, 844), (375, 667)],
 )
-def test_live_utc_clock_sits_below_brand_and_keeps_jump_controls_in_the_header(
+def test_live_utc_clock_keeps_its_original_size_and_is_read_only_below_the_brand(
     page: Any, lab_url: str, width: int, height: int
 ) -> None:
     page.set_viewport_size({"width": width, "height": height})
@@ -461,52 +530,43 @@ def test_live_utc_clock_sits_below_brand_and_keeps_jump_controls_in_the_header(
     page.evaluate("document.fonts.ready")
     original = page.evaluate("JSON.stringify(state.referenceData)")
     map_bounds = page.evaluate("elements.globe.getBoundingClientRect().toJSON()")
-    clock = page.locator("#replay-time-button")
+    clock = page.locator("#replay-time")
     assert clock.is_visible()
     assert page.locator("#replay-time").count() == 1
-    assert page.locator(".replay-bar time, .replay-bar #replay-time-picker").count() == 0
+    assert page.locator(".replay-bar time").count() == 0
+    assert page.locator("#replay-time-button, #replay-time-picker, #replay-utc-input").count() == 0
     assert page.locator("#replay-time").inner_text() == "2025-11-18 12:00:00 UTC"
     assert clock.evaluate("""node => {
       const header = node.closest('.masthead'), box = header.getBoundingClientRect();
       const title = header.querySelector('.brand > span').getBoundingClientRect();
-      const time = node.querySelector('time').getBoundingClientRect();
+      const time = node.getBoundingClientRect(), style=getComputedStyle(node);
       return box.height === 56 && time.top >= title.bottom - 1
         && Math.abs(time.left - title.left) < 1 && time.bottom <= box.bottom
-        && header.scrollWidth <= header.clientWidth;
+        && header.scrollWidth <= header.clientWidth && node.tagName==='TIME'
+        && !node.closest('button,a') && node.tabIndex===-1
+        && style.fontSize==='10px' && style.lineHeight==='16px'
+        && style.fontWeight==='500' && style.cursor!=='pointer';
     }""")
     page.evaluate("() => {setReplayTime(3600, true);}")
     assert page.locator("#replay-time").inner_text() == "2025-11-18 13:00:00 UTC"
     clock.click()
-    picker = page.locator("#replay-time-picker")
-    assert picker.is_visible()
-    assert picker.evaluate("""node => {
-      const rect = node.getBoundingClientRect();
-      const header = node.closest('.masthead').getBoundingClientRect();
-      const input = node.querySelector('input').getBoundingClientRect();
-      return rect.top >= header.bottom && rect.bottom <= innerHeight
-        && rect.left >= 0 && rect.right <= innerWidth
-        && node.contains(document.elementFromPoint((input.left + input.right) / 2,
-          (input.top + input.bottom) / 2));
-    }""")
-    page.keyboard.press("Escape")
-    assert picker.is_hidden()
-    assert clock.evaluate("node => node === document.activeElement")
+    assert page.evaluate("state.replay.time === 3600 && !state.replay.playing")
+    assert clock.get_attribute("datetime") == "2025-11-18T13:00:00.000Z"
+    assert "Click" not in clock.get_attribute("title")
+    page.locator("#replay-play").click()
+    page.wait_for_function("state.replay.time > 3601")
     clock.click()
-    page.locator("#replay-utc-input").fill("2025-11-20T12:00")
-    picker.locator("button").click()
-    assert picker.is_hidden()
-    assert page.locator("#replay-time").inner_text() == "2025-11-20 12:00:00 UTC"
-    assert page.evaluate("state.replay.time") == 2 * 86400
+    assert page.evaluate("state.replay.playing && state.replay.time > 3601")
+    page.evaluate("setReplayTime(3600,true)")
     if width <= 1000:
         for view in ["tasks", "summary", "map"]:
             page.locator(f"#workspace-{view}").click()
             assert clock.is_visible()
             clock.click()
-            assert picker.is_visible()
-            page.keyboard.press("Escape")
+            assert page.evaluate("state.replay.time === 3600 && !state.replay.playing")
     clock.click()
     page.locator("#status").click()
-    assert picker.is_hidden()
+    assert page.locator("#replay-time-picker").count() == 0
     assert page.evaluate("elements.globe.getBoundingClientRect().toJSON()") == map_bounds
     assert page.evaluate("JSON.stringify(state.referenceData)") == original
     assert_single_screen(page)
@@ -552,9 +612,7 @@ def test_reference_half_open_task_states_utc_and_no_local_solves(page: Any, lab_
     assert not solve_requests
 
 
-def test_playback_windows_and_utc_jump_extend_without_executing_tasks(
-    page: Any, lab_url: str
-) -> None:
+def test_playback_windows_extend_without_executing_tasks(page: Any, lab_url: str) -> None:
     reference_ready(page, lab_url)
     initial = page.evaluate("JSON.stringify(state.currentPayload)")
     page.locator("#replay-window-prev").click()
@@ -566,15 +624,14 @@ def test_playback_windows_and_utc_jump_extend_without_executing_tasks(
     assert page.locator("#selected-state").inner_text() == "Planned"
     assert page.locator(".map-track-past").count() >= 20
     assert page.locator(".map-track-future").count() >= 20
-    page.locator("#replay-time-button").click()
-    page.locator("#replay-utc-input").fill("2025-11-21T12:00")
-    page.locator("#replay-time-picker button").click()
+    for _ in range(7):
+        page.locator("#replay-window-next").click()
     assert page.evaluate("state.replay.time") == 3 * 86400
     assert page.locator("#replay-time").inner_text() == "2025-11-21 12:00:00 UTC"
     assert page.locator("#selected-state").inner_text() == "Completed"
     assert page.locator(".map-ray").count() == 0
     assert page.locator(".time-cursor").is_hidden()
-    assert page.locator("#replay-time-picker").is_hidden()
+    assert page.locator("#replay-time-picker").count() == 0
     assert page.evaluate("JSON.stringify(state.currentPayload)") == initial
     page.locator("#replay-reset").click()
     assert page.evaluate("[state.replay.time,state.replay.windowStart,state.replay.windowEnd]") == [
@@ -609,20 +666,18 @@ def test_playback_continues_across_both_source_boundaries(page: Any, lab_url: st
 
 
 @pytest.mark.parametrize(("width", "height"), [(1440, 900), (800, 600), (375, 667)])
-def test_extended_playback_controls_and_time_picker_fit_without_scroll(
+def test_extended_playback_controls_and_read_only_clock_fit_without_scroll(
     page: Any, lab_url: str, width: int, height: int
 ) -> None:
     page.set_viewport_size({"width": width, "height": height})
     reference_ready(page, lab_url)
     page.locator("#replay-window-next").click()
-    page.locator("#replay-time-button").click()
-    assert page.locator("#replay-utc-input").is_visible()
-    bounds = page.locator("#replay-time-picker").bounding_box()
+    page.locator("#replay-time").click()
+    assert page.locator("#replay-time-picker, #replay-utc-input").count() == 0
+    assert page.evaluate("state.replay.time === 43200 && !state.replay.playing")
+    bounds = page.locator("#replay-time").bounding_box()
     assert 0 <= bounds["x"] <= width - bounds["width"]
     assert 0 <= bounds["y"] <= height - bounds["height"]
-    page.keyboard.press("Escape")
-    assert page.locator("#replay-time-picker").is_hidden()
-    assert page.locator("#replay-time-button").evaluate("n => n === document.activeElement")
     assert_single_screen(page)
 
 
@@ -653,7 +708,13 @@ def test_timeline_filter_shares_its_heading_and_all_lanes_scroll_without_page_co
         == 0
     )
     assert page.locator("#pane-timeline .visual-heading, #pane-timeline .pager").count() == 0
-    assert page.locator(".selection-details dt", has_text="Observation · UTC").count() == 1
+    assert (
+        page.locator(
+            "#inspector-selection .selection-details dt", has_text="Observation · UTC"
+        ).count()
+        == 1
+    )
+    assert page.locator("#pane-timeline").get_by_text("Observation · UTC", exact=True).count() == 0
     assert page.locator("#satellite-filter").evaluate("""node => {
       const header = node.closest('.dock-header');
       const title = header.querySelector('#schedule-title').getBoundingClientRect();
@@ -994,7 +1055,7 @@ def test_refined_chart_depth_keeps_exact_metric_geometry_and_coordinated_control
     reference_ready(page, lab_url)
     source = page.evaluate("JSON.stringify(state.referenceData)")
     if width <= 1000:
-        page.locator("#workspace-tasks").click()
+        page.locator("#workspace-summary").click()
     assert page.locator(".radar-point-halo").count() == 5
     assert page.locator(".radar-reference-ring[aria-hidden=true]").count() == 1
     assert (
@@ -1012,7 +1073,7 @@ def test_refined_chart_depth_keeps_exact_metric_geometry_and_coordinated_control
     assert page.locator("#comparison-chart #radar-depth feDropShadow").count() == 1
     assert_single_screen(page)
     if width <= 1000:
-        page.locator("#workspace-summary").click()
+        page.locator("#workspace-tasks").click()
     assert page.locator(".workload-row").evaluate_all("""nodes => {
       const plan = state.currentPayload.reference_plan;
       const maximum = Math.max(1, ...Object.values(plan.workloads));
@@ -1029,6 +1090,8 @@ def test_refined_chart_depth_keeps_exact_metric_geometry_and_coordinated_control
     }""")
     assert page.locator("#resource-chart #workload-depth feDropShadow").count() == 1
     assert page.locator(".workload-unit").count() == page.locator(".workload-row").count()
+    assert page.locator(".workload-selection-marker[aria-hidden=true]").count() == 0
+    page.locator(".workload-row").first.click()
     assert page.locator(".workload-selection-marker[aria-hidden=true]").count() == 1
     assert_single_screen(page)
     if width <= 1000:
@@ -1111,7 +1174,10 @@ def test_header_algorithm_switch_is_immediate_and_keeps_the_workspace_view(
         )
         assert page.locator(".radar-series").last.get_attribute("data-plan-id") == plan
         assert page.evaluate("state.replay.time") == 0
-        assert page.locator("#comparison-chart").is_visible()
+        assert page.locator("#comparison-chart").is_visible() == (width > 1000)
+        assert page.locator("#resource-chart, #target-list").evaluate_all(
+            "nodes => nodes.every(node => getComputedStyle(node).visibility === 'visible')"
+        )
         assert page.evaluate("elements.globe.getBoundingClientRect().toJSON()") == before
     assert page.evaluate("JSON.stringify(state.referenceData)") == original
     assert requests == [lab_url + "/api/reference/data"]
@@ -1256,7 +1322,7 @@ def test_map_expansion_and_satellite_keyboard_selection_preserve_single_screen(
       return controls.bottom <= frame.top && Math.abs(frame.bottom - playback.top) < 1;
     }""")
     assert page.locator("#camera-focus").count() == 0
-    assert page.locator("#camera-follow").is_disabled()
+    assert page.locator("#camera-follow").is_enabled()
     assert page.locator("#view-2d").get_attribute("aria-pressed") == "true"
     assert page.locator(".map-projections button:disabled").count() == 3
     marker = page.locator('.map-satellite[data-satellite-id="ALOS-2_39766"]')
@@ -1280,6 +1346,120 @@ def test_map_expansion_and_satellite_keyboard_selection_preserve_single_screen(
     assert_single_screen(page)
     page.locator("#expand-map").click()
     assert page.locator(".analysis-dock").is_visible()
+    assert_single_screen(page)
+
+
+def assert_compact_satellite_details(page: Any) -> None:
+    snapshot = page.locator("#orbit-hud").evaluate("""node => {
+      const style=getComputedStyle(node),box=node.getBoundingClientRect();
+      const map=elements.globe.getBoundingClientRect();
+      const telemetry=getComputedStyle(node.querySelector('.orbit-telemetry'));
+      return {width:box.width,height:box.height,mapWidth:map.width,
+        alpha:Number(style.backgroundColor.match(/[0-9.]+/g).at(-1)),
+        blur:style.backdropFilter,opacity:style.opacity,
+        gap:parseFloat(telemetry.gap),margin:parseFloat(telemetry.marginTop),
+        valueOpacity:getComputedStyle(node.querySelector('#satellite-altitude')).opacity,
+        valueSize:parseFloat(getComputedStyle(node.querySelector('#satellite-altitude')).fontSize),
+        overflow:node.scrollWidth>node.clientWidth || node.scrollHeight>node.clientHeight,
+        inside:box.top>=map.top && box.bottom<=map.bottom
+          && box.left>=map.left && box.right<=map.right,
+        fields:['satellite-altitude','satellite-period','satellite-latitude','satellite-longitude',
+          'satellite-position-x','satellite-position-y','satellite-position-z'].every(id=>{
+            const field=document.getElementById(id),rect=field.getBoundingClientRect();
+            return field.textContent.length>1 && rect.width>0 && rect.left>=box.left
+              && rect.right<=box.right && rect.top>=box.top && rect.bottom<=box.bottom;
+          })};
+    }""")
+    assert snapshot["width"] == pytest.approx(min(196, snapshot["mapWidth"] / 2 - 32))
+    assert snapshot["height"] <= 180
+    assert snapshot["alpha"] == pytest.approx(0.55, abs=0.01)
+    assert snapshot["opacity"] == snapshot["valueOpacity"] == "1"
+    assert snapshot["blur"] == "blur(6px)"
+    assert snapshot["gap"] <= 10 and snapshot["margin"] <= 4
+    assert snapshot["valueSize"] >= 11
+    assert not snapshot["overflow"]
+    assert snapshot["inside"] and snapshot["fields"]
+
+
+@pytest.mark.parametrize("viewport", [(1440, 900), (800, 600), (375, 667)])
+def test_satellite_popup_is_compact_and_transparent_without_hiding_data(
+    page: Any, lab_url: str, viewport: tuple[int, int]
+) -> None:
+    page.set_viewport_size({"width": viewport[0], "height": viewport[1]})
+    reference_ready(page, lab_url)
+    original = page.evaluate("JSON.stringify(state.currentPayload)")
+    page.evaluate("selectSatellite('KENT_RIDGE_1_41167')")
+    assert_compact_satellite_details(page)
+    assert page.evaluate("JSON.stringify(state.currentPayload)") == original
+    assert_single_screen(page)
+
+
+@pytest.mark.parametrize("viewport", [(1440, 900), (1024, 768), (800, 600), (375, 667)])
+def test_map_status_indicators_have_no_panel_surface(
+    page: Any, lab_url: str, viewport: tuple[int, int]
+) -> None:
+    page.set_viewport_size({"width": viewport[0], "height": viewport[1]})
+    reference_ready(page, lab_url)
+    assert page.locator(".globe-overlay > span").all_text_contents() == [
+        "Planned",
+        "Observing",
+        "Completed",
+        "Unassigned",
+    ]
+    assert page.locator(".globe-overlay i").count() == 4
+    assert page.locator(".globe-overlay").evaluate("""node => {
+      const s=getComputedStyle(node), box=node.getBoundingClientRect();
+      const map=elements.globe.getBoundingClientRect();
+      return s.backgroundColor==='rgba(0, 0, 0, 0)' && s.backgroundImage==='none'
+        && s.borderTopWidth==='0px' && s.borderRightWidth==='0px'
+        && s.borderBottomWidth==='0px' && s.borderLeftWidth==='0px'
+        && s.boxShadow==='none' && s.backdropFilter==='none'
+        && s.paddingTop==='0px' && s.paddingRight==='0px'
+        && s.paddingBottom==='0px' && s.paddingLeft==='0px'
+        && s.pointerEvents==='none' && s.textShadow!=='none'
+        && box.left>=map.left && box.right<=map.right
+        && box.top>=map.top && box.bottom<=map.bottom;
+    }""")
+    assert_single_screen(page)
+
+
+@pytest.mark.parametrize("selection", ["initial", "planned", "unassigned", "satellite"])
+def test_offline_follow_resolves_a_satellite_without_requiring_a_prior_satellite_pick(
+    page: Any, lab_url: str, selection: str
+) -> None:
+    reference_ready(page, lab_url)
+    source = page.evaluate("JSON.stringify(state.currentPayload)")
+    if selection in {"planned", "unassigned"}:
+        task_id = page.evaluate(
+            """planned=>state.currentPayload.scenario.tasks.find(task=>
+              state.assignments.has(task.task_id)===planned).task_id""",
+            selection == "planned",
+        )
+        page.locator(f'.target-row[data-task-id="{task_id}"]').evaluate("node=>node.click()")
+        assert page.evaluate("state.selectedSatelliteId") is None
+    elif selection == "satellite":
+        page.locator(".workload-row").first.click()
+    expected = page.evaluate("""() => state.selectedSatelliteId
+      || state.assignments.get(state.selectedTaskId)?.satellite_id
+      || state.currentPayload.replay.orbits[0].satellite_id""")
+    task = page.evaluate("state.selectedTaskId")
+    time = page.evaluate("state.replay.time")
+    follow = page.locator("#camera-follow")
+    assert follow.is_enabled()
+    follow.click()
+    assert page.evaluate("state.cameraMode") == "follow"
+    assert page.evaluate("state.selectedSatelliteId") == expected
+    assert page.evaluate("state.selectedTaskId") == task
+    assert page.evaluate("state.replay.time") == time
+    assert (
+        page.locator(".workload-row[aria-pressed=true]").get_attribute("data-satellite-id")
+        == expected
+    )
+    assert follow.get_attribute("aria-pressed") == "true"
+    follow.click()
+    assert page.evaluate("state.cameraMode") == "manual"
+    assert follow.is_enabled() and follow.get_attribute("aria-pressed") == "false"
+    assert page.evaluate("JSON.stringify(state.currentPayload)") == source
     assert_single_screen(page)
 
 
@@ -1538,6 +1718,132 @@ def test_missing_reference_archive_reports_error_without_local_fallback(
     assert not any("/api/scenarios" in url or "/api/solve" in url for url in requests)
 
 
+@pytest.mark.parametrize(
+    ("width", "height"),
+    [(1920, 1080), (1440, 900), (1280, 720), (800, 600), (375, 667), (375, 600)],
+)
+def test_workload_lists_all_satellites_and_scrolls_without_moving_the_page(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    source = page.evaluate("JSON.stringify(state.referenceData)")
+    map_bounds = page.evaluate("elements.globe.getBoundingClientRect().toJSON()")
+    if width <= 1000:
+        page.locator("#workspace-tasks").click()
+    host = page.locator("#resource-chart")
+    heading = page.locator(".resource-block .section-heading").bounding_box()
+    assert page.locator(".workload-row").count() == 20
+    assert page.evaluate("""() => {
+      const rows = [...elements.resources.querySelectorAll('.workload-row')];
+      const satellites = state.currentPayload.scenario.satellites;
+      const loads = state.currentPayload.reference_plan.workloads;
+      const ids = rows.map(row=>row.dataset.satelliteId);
+      return new Set(ids).size === satellites.length
+        && satellites.every(s=>ids.includes(s.satellite_id))
+        && rows.every((row,index)=>row.querySelector('.workload-value').textContent
+          === `${loads[row.dataset.satelliteId]} s`
+          && (!index || loads[ids[index-1]] >= loads[row.dataset.satelliteId]))
+        && elements.resources.scrollHeight > elements.resources.clientHeight
+        && elements.resources.scrollWidth <= elements.resources.clientWidth
+        && Math.abs(elements.resources.querySelector('svg').getBoundingClientRect().height
+          - (satellites.length * layoutSize('workload-row-height') + 4)) < 1;
+    }""")
+    host.focus()
+    host.press("End")
+    page.wait_for_function("elements.resources.scrollTop > 0")
+    last = page.locator(".workload-row").last
+    assert last.evaluate("""row => {
+      const bounds = elements.resources.getBoundingClientRect();
+      const box = row.getBoundingClientRect();
+      return box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1;
+    }""")
+    assert page.locator(".resource-block .section-heading").bounding_box() == heading
+    host.press("Home")
+    assert host.evaluate("node => node.scrollTop") == 0
+    bounds = host.bounding_box()
+    assert bounds is not None
+    page.mouse.move(bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2)
+    page.mouse.wheel(0, 240)
+    page.wait_for_function("elements.resources.scrollTop > 0")
+    assert page.locator(".workload-row").count() == 20
+    assert page.evaluate("JSON.stringify(state.referenceData)") == source
+    assert page.evaluate("elements.globe.getBoundingClientRect().toJSON()") == map_bounds
+    assert_single_screen(page)
+
+
+@pytest.mark.parametrize(("width", "height"), [(1440, 900), (800, 600), (375, 667)])
+def test_workload_scroll_focus_and_selection_survive_replay_resize_and_plan_switch(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    if width <= 1000:
+        page.locator("#workspace-tasks").click()
+    source = page.evaluate("JSON.stringify(state.referenceData)")
+    host = page.locator("#resource-chart")
+    host.focus()
+    host.press("End")
+    last = page.locator(".workload-row").last
+    satellite = last.get_attribute("data-satellite-id")
+    last.focus()
+    last.press("Enter")
+    assert page.evaluate("state.selectedSatelliteId") == satellite
+    selected = page.locator(f'.workload-row[data-satellite-id="{satellite}"]')
+    top = host.evaluate("node => node.scrollTop")
+    assert top > 0
+    for time in [1, 1200, 43200, -3600, 0]:
+        page.evaluate("time => {setReplayTime(time,true);refreshPanels();}", time)
+        assert host.evaluate("node => node.scrollTop") == pytest.approx(top, abs=1)
+        assert selected.evaluate("node => node === document.activeElement")
+    for plan in ["eos-ppo-profit", "eos-mip-profit", "eos-sa-balanced"]:
+        page.locator("#solver-select").select_option(plan)
+        page.wait_for_function(
+            "id => !state.busy && state.currentPayload.reference_plan.plan_id === id", arg=plan
+        )
+        assert page.locator(".workload-row").count() == 20
+        assert host.evaluate("node => node.scrollTop") == pytest.approx(top, abs=1)
+        assert selected.evaluate("node => node === document.activeElement")
+        assert selected.get_attribute("aria-pressed") == "true"
+        assert page.locator(".workload-bar.is-selected").count() == 1
+    page.set_viewport_size({"width": width, "height": height - 24})
+    page.wait_for_timeout(150)
+    assert host.evaluate("node => node.scrollTop") == pytest.approx(top, abs=1)
+    assert selected.evaluate("node => node === document.activeElement")
+    assert page.evaluate("JSON.stringify(state.referenceData)") == source
+    assert_single_screen(page)
+
+
+@pytest.mark.parametrize(("width", "height"), [(1440, 900), (375, 667)])
+def test_indirect_satellite_selection_reveals_its_workload_without_reordering(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    if width <= 1000:
+        page.locator("#workspace-tasks").click()
+    ids = page.locator(".workload-row").evaluate_all(
+        "nodes => nodes.map(node => node.dataset.satelliteId)"
+    )
+    satellite = ids[-1]
+    page.evaluate("id => {elements.resources.scrollTop=0;selectSatellite(id);}", satellite)
+    assert (
+        page.locator(".workload-row").evaluate_all(
+            "nodes => nodes.map(node => node.dataset.satelliteId)"
+        )
+        == ids
+    )
+    assert page.locator("#resource-chart").evaluate("node => node.scrollTop") > 0
+    assert page.locator(f'.workload-row[data-satellite-id="{satellite}"]').evaluate("""row => {
+      const bounds = elements.resources.getBoundingClientRect();
+      const box = row.getBoundingClientRect();
+      return row.getAttribute('aria-pressed') === 'true'
+        && box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1;
+    }""")
+    assert page.locator(".map-orbit.is-selected").get_attribute("data-satellite-id") == satellite
+    assert_single_screen(page)
+
+
 def test_workload_selection_matches_satellite_highlight(page: Any, lab_url: str) -> None:
     reference_ready(page, lab_url)
     bar = page.locator(".workload-row").first
@@ -1557,6 +1863,89 @@ def test_workload_selection_matches_satellite_highlight(page: Any, lab_url: str)
     )
 
 
+@pytest.mark.parametrize(("width", "height"), [(1440, 900), (800, 600), (375, 667)])
+@pytest.mark.parametrize("planned", [True, False])
+def test_task_list_selection_does_not_select_an_orbit_and_workload_stays_independent(
+    page: Any, lab_url: str, width: int, height: int, planned: bool
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    source = page.evaluate("JSON.stringify(state.referenceData)")
+    assert page.evaluate("state.selectedSatelliteId") is None
+    assert page.locator(".map-orbit.is-selected, .workload-bar.is-selected").count() == 0
+    if width <= 1000:
+        page.locator("#workspace-tasks").click()
+    workload = page.locator(".workload-row").first
+    satellite = workload.get_attribute("data-satellite-id")
+    workload.click()
+    assert page.evaluate("state.selectedSatelliteId") == satellite
+    assert page.locator(".map-orbit.is-selected").count() == 1
+    assert page.locator(".workload-bar.is-selected").count() == 1
+    candidate = page.evaluate(
+        """({planned,satellite}) => {
+          const assignment=state.currentPayload.reference_plan.assignments.find(a=>
+            a.satellite_id!==satellite && a.start_s>0);
+          const task=planned?state.taskById.get(assignment.task_id)
+            :state.currentPayload.scenario.tasks.find(t=>!state.assignments.has(t.task_id));
+          return {id:task.task_id,time:planned?assignment.start_s:state.replay.time,
+            satellite:planned?satelliteName(assignment.satellite_id)
+              :`${task.visibility_windows.length} candidate windows`};
+        }""",
+        {"planned": planned, "satellite": satellite},
+    )
+    if width <= 1000:
+        page.locator("#workspace-tasks").click()
+    task = page.locator(f'.target-row[data-task-id="{candidate["id"]}"]')
+    if planned:
+        task.click()
+    else:
+        task.focus()
+        task.press("Enter")
+    assert page.evaluate("state.selectedTaskId") == candidate["id"]
+    assert page.evaluate("state.selectedSatelliteId") is None
+    assert not page.evaluate("state.orbitEmphasis")
+    assert page.evaluate("state.replay.time") == candidate["time"]
+    assert page.locator("#selected-id").text_content() == candidate["id"]
+    assert page.locator("#selected-assignment").text_content() == candidate["satellite"]
+    assert page.locator(".target-row.is-selected").get_attribute("data-task-id") == candidate["id"]
+    assert page.locator(".map-marker.is-selected").get_attribute("data-task-id") == candidate["id"]
+    assert page.locator("#orbit-hud").is_hidden()
+    assert (
+        page.locator(
+            ".map-orbit.is-selected, .map-orbit.is-dimmed, .map-satellite.is-selected, "
+            '.workload-bar.is-selected, .workload-row[aria-pressed="true"], '
+            ".satellite-lane.is-selected"
+        ).count()
+        == 0
+    )
+    if planned:
+        bar = page.locator(f'.task-bar[data-task-id="{candidate["id"]}"]')
+        assert bar.get_attribute("stroke") == "#fff"
+    page.evaluate("setReplayTime(state.replay.time+.5,true);refreshPanels()")
+    assert page.evaluate("state.selectedSatelliteId") is None
+    page.select_option("#solver-select", "eos-ppo-profit")
+    page.wait_for_function(
+        "!state.busy && state.currentPayload.reference_plan.plan_id==='eos-ppo-profit'"
+    )
+    assert page.evaluate("state.selectedTaskId") == candidate["id"]
+    assert page.evaluate("state.selectedSatelliteId") is None
+    assert page.locator(".map-orbit.is-selected, .workload-bar.is-selected").count() == 0
+    if width <= 1000:
+        page.locator("#workspace-tasks").click()
+    workload = page.locator(".workload-row").first
+    satellite = workload.get_attribute("data-satellite-id")
+    workload.focus()
+    workload.press("Enter")
+    assert page.evaluate("state.selectedSatelliteId") == satellite
+    assert page.evaluate("state.selectedTaskId") == candidate["id"]
+    assert page.locator(".map-orbit.is-selected").get_attribute("data-satellite-id") == satellite
+    assert page.locator(".workload-bar.is-selected").count() == 1
+    page.evaluate("selectTarget(state.selectedTaskId,false,false)")
+    assert page.evaluate("state.selectedSatelliteId") == satellite
+    assert page.evaluate("JSON.stringify(state.referenceData)") == source
+    assert_single_screen(page)
+
+
 @pytest.mark.parametrize(("width", "height"), [(1440, 900), (1024, 768), (375, 667)])
 def test_brand_and_panel_headers_are_clean_and_workload_values_include_seconds(
     page: Any, lab_url: str, width: int, height: int
@@ -1566,11 +1955,14 @@ def test_brand_and_panel_headers_are_clean_and_workload_values_include_seconds(
     assert page.title() == "OrbitOps"
     assert page.locator(".brand").inner_text() == "ORBITOPS"
     assert page.locator(".brand small, #target-count, .count-badge").count() == 0
+    assert page.locator(".catalog-head").count() == 0
     assert page.locator(".map-satellite .satellite-panel").count() == 20
     assert page.locator(".map-satellite .satellite-antenna").count() == 20
     if width <= 1000:
-        page.locator("#workspace-summary").click()
-    assert page.locator(".resource-block .section-heading").inner_text() == "Satellite workload"
+        page.locator("#workspace-tasks").click()
+    assert page.locator(".resource-block .section-heading").inner_text() == "Satellite"
+    assert page.locator("#results-title").text_content() == "Task details"
+    assert page.locator("#selected-id").evaluate("n=>getComputedStyle(n).fontSize") == "14px"
     assert page.locator(".resource-readouts, #energy-readout, #storage-readout").count() == 0
     values = page.locator(".workload-value").all_text_contents()
     assert values and all(value.endswith(" s") for value in values)
@@ -1627,6 +2019,153 @@ def test_local_font_and_readable_typography_fit_all_workspace_views(
     assert_single_screen(page)
 
 
+@pytest.mark.parametrize(
+    ("width", "height"),
+    [(1920, 1080), (1440, 900), (1024, 768), (800, 600), (375, 667), (375, 600)],
+)
+def test_workspace_typography_uses_the_plan_summary_scale(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    page.evaluate("document.fonts.ready")
+    groups = [
+        (
+            ".panel-heading h2, .section-heading h3, .viewport-title h2, .dock-header h3",
+            "13px",
+            "600",
+        ),
+        (
+            ".selection-details dt, .metric-details dt, .target-row-name small, "
+            ".workload-label, .task-sublabel, .radar-axis, .radar-values dt",
+            "11px",
+            "400",
+        ),
+        (
+            ".selection-details dd, .metric-details dd, .target-row-name strong, "
+            ".workload-value, .radar-values dd, .task-label",
+            "12px",
+            "500",
+        ),
+        (
+            "#target-filter, #satellite-filter, #solver-select, .inspector-tabs button, "
+            ".radar-legend button, .map-projections button, .viewport-tools .map-action",
+            "11px",
+            "500",
+        ),
+    ]
+    for selector, size, weight in groups:
+        styles = page.locator(selector).evaluate_all("""nodes => nodes.map(n => {
+          const s=getComputedStyle(n);
+          return {text:n.textContent,family:s.fontFamily,size:s.fontSize,
+            weight:s.fontWeight,numbers:s.fontVariantNumeric};
+        })""")
+        assert styles, selector
+        for style in styles:
+            assert "Inter" in style["family"], style
+            assert style["size"] == size and style["weight"] == weight, style
+            assert "lining-nums" in style["numbers"], style
+            assert "tabular-nums" in style["numbers"], style
+    assert page.locator(
+        ".target-state, .workload-unit, .chart-axis:not(.workload-label, .workload-value), .status"
+    ).evaluate_all("""nodes => nodes.every(n =>
+      getComputedStyle(n).fontSize === '10px')""")
+    map_bounds = page.locator("#mission-globe").bounding_box()
+    for view in ["tasks", "summary", "map"]:
+        if width <= 1000:
+            page.locator(f"#workspace-{view}").click()
+        clipped = page.locator(
+            ".panel-heading, .section-heading, .dock-header, .viewport-toolbar"
+        ).evaluate_all("""nodes => nodes.filter(n => n.checkVisibility()).flatMap(header => {
+          const bounds=header.getBoundingClientRect();
+          return [...header.querySelectorAll('h2,h3,button,select,.timeline-legend')]
+            .filter(n=>n.checkVisibility()).filter(n=>{
+              const box=n.getBoundingClientRect();
+              return box.left<bounds.left || box.right>bounds.right
+                || box.top<bounds.top || box.bottom>bounds.bottom;
+            }).map(n=>n.id||n.textContent);
+        })""")
+        assert clipped == [], (width, height, view, clipped)
+        assert page.locator("#mission-globe").bounding_box() == map_bounds
+        assert_single_screen(page)
+
+
+@pytest.mark.parametrize(
+    ("width", "height"),
+    [
+        (1920, 1080),
+        (1440, 900),
+        (1280, 720),
+        (1024, 768),
+        (1440, 600),
+        (800, 600),
+        (390, 844),
+        (375, 667),
+        (375, 600),
+    ],
+)
+def test_inspector_labels_and_values_share_one_typographic_scale_without_clipping(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    if width <= 1000:
+        page.locator("#workspace-summary").click()
+    map_bounds = page.evaluate("elements.globe.getBoundingClientRect().toJSON()")
+    card_bounds = page.locator(".inspector-card").bounding_box()
+    source = page.evaluate("JSON.stringify(state.referenceData)")
+    for plan in ["eos-sa-balanced", "eos-mip-profit", "eos-ppo-profit"]:
+        page.select_option("#solver-select", plan)
+        page.wait_for_function(
+            "id=>!state.busy && state.currentPayload.reference_plan.plan_id===id", arg=plan
+        )
+        # Exercise the longest assigned satellite name as well as the normal task.
+        page.evaluate("""() => {
+          const assignment=state.currentPayload.reference_plan.assignments.reduce((a,b)=>
+            satelliteName(a.satellite_id).length>=satelliteName(b.satellite_id).length?a:b);
+          selectTarget(assignment.task_id,false,false);
+        }""")
+        styles: dict[str, dict[str, Any]] = {}
+        for view in ["selection", "evaluation"]:
+            page.locator(f"#tab-{view}").click()
+            details = page.locator(f"#inspector-{view} dl").evaluate("""node => {
+              const section=node.closest('[role="tabpanel"]');
+              const panel=section.getBoundingClientRect();
+              const entries=[...node.querySelectorAll('dt,dd')];
+              const font=n=>{
+                const s=getComputedStyle(n);
+                return {family:s.fontFamily,size:s.fontSize,weight:s.fontWeight,
+                  height:s.lineHeight,spacing:s.letterSpacing,numbers:s.fontVariantNumeric,
+                  color:s.color,alignment:s.textAlign};
+              };
+              return {overflow:section.scrollHeight>section.clientHeight+1,
+                labels:entries.filter(n=>n.tagName==='DT').map(font),
+                values:entries.filter(n=>n.tagName==='DD').map(font),
+                clipped:entries.filter(n=>{
+                  const box=n.getBoundingClientRect();
+                  return n.scrollWidth>n.clientWidth+1 || box.left<panel.left
+                    || box.right>panel.right || box.top<panel.top || box.bottom>panel.bottom;
+                }).map(n=>n.id||n.textContent)};
+            }""")
+            assert not details["overflow"], (width, height, plan, view, details)
+            assert details["clipped"] == [], (width, height, plan, view, details)
+            assert all(style == details["labels"][0] for style in details["labels"])
+            assert all(style == details["values"][0] for style in details["values"])
+            styles[view] = {"label": details["labels"][0], "value": details["values"][0]}
+            assert styles[view]["label"]["size"] == "11px"
+            assert styles[view]["label"]["weight"] == "400"
+            assert styles[view]["value"]["size"] == "12px"
+            assert styles[view]["value"]["weight"] == "500"
+            assert "tabular-nums" in styles[view]["value"]["numbers"]
+            assert styles[view]["label"]["height"] == styles[view]["value"]["height"] == "17px"
+            assert "Inter" in styles[view]["value"]["family"]
+            assert page.locator(".inspector-card").bounding_box() == card_bounds
+        assert styles["selection"] == styles["evaluation"]
+    assert page.evaluate("elements.globe.getBoundingClientRect().toJSON()") == map_bounds
+    assert page.evaluate("JSON.stringify(state.referenceData)") == source
+    assert_single_screen(page)
+
+
 def test_missing_font_uses_system_fallback_without_blocking_the_archive(
     page: Any, lab_url: str
 ) -> None:
@@ -1665,7 +2204,7 @@ def test_command_panels_fit_and_decorative_frames_do_not_block_controls(
             assert card["pointer"] == "none", card
         assert_single_screen(page)
     if width <= 1000:
-        page.locator("#workspace-tasks").click()
+        page.locator("#workspace-summary").click()
     plans = set(page.locator("#comparison-legend button").all_text_contents())
     assert len(plans) == 7
     assert page.evaluate("JSON.stringify(state.currentPayload)") == source
@@ -1773,17 +2312,19 @@ def test_premium_status_chips_follow_task_state_and_respect_reduced_motion(
     assert_single_screen(page)
 
 
+@pytest.mark.parametrize("time", [0, 11])
 def test_small_text_has_readable_contrast_in_default_and_selected_states(
-    page: Any, lab_url: str
+    page: Any, lab_url: str, time: int
 ) -> None:
     reference_ready(page, lab_url)
+    page.evaluate("time=>setReplayTime(time,true)", time)
     samples = page.evaluate("""() => {
       const rgb = value => value.match(/[\\d.]+/g).map(Number);
       const luminance = color => color.slice(0, 3).map(c => c / 255)
         .map(c => c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4)
         .reduce((sum, c, i) => sum + c * [.2126, .7152, .0722][i], 0);
       return [...document.querySelectorAll(
-        '.field-label, .target-row-name small, .target-state, .selection-details dt, '
+        '.target-row-name small, .target-state, .selection-details dt, '
         + '.selection-details dd, .radar-legend button, .radar-values dt, .radar-values dd, '
         + '.pager > span, .status')].map(node => {
           const foreground = rgb(getComputedStyle(node).color);
@@ -1861,3 +2402,51 @@ def test_task_state_index_remains_linked_after_filters_plan_changes_and_reverse_
         )
         assert page.locator(".target-row").count() > 0
         page.select_option("#target-filter", "all")
+
+
+@pytest.mark.parametrize(
+    ("width", "height"),
+    [(1920, 1080), (1440, 900), (1280, 720), (1024, 768), (800, 600), (390, 844), (375, 667)],
+)
+def test_playback_and_plan_changes_keep_the_two_inspector_views_without_broadcasts(
+    page: Any, lab_url: str, width: int, height: int
+) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    reference_ready(page, lab_url)
+    if width <= 1000:
+        page.locator("#workspace-summary").click()
+    tabs = page.get_by_role("tablist", name="Inspector views")
+    assert tabs.get_by_role("tab").all_text_contents() == ["Selection", "Metrics"]
+    assert page.locator("#tab-live, #inspector-live, #live-announcement, .live-task").count() == 0
+    assert page.locator("#tab-selection").get_attribute("aria-selected") == "true"
+    map_bounds = page.evaluate("elements.globe.getBoundingClientRect().toJSON()")
+    card_bounds = page.locator(".inspector-card").bounding_box()
+    selected = page.evaluate("[state.selectedTaskId,state.selectedSatelliteId,state.cameraMode]")
+    source = page.evaluate("JSON.stringify(state.currentPayload)")
+    for view in ["selection", "evaluation"]:
+        page.locator(f"#tab-{view}").click()
+        # Playback controls remain mounted while Results is visible on small screens.
+        page.locator("#replay-play").dispatch_event("click")
+        page.wait_for_function("state.replay.playing && state.replay.time > 0")
+        page.locator("#replay-play").dispatch_event("click")
+        assert not page.evaluate("state.replay.playing")
+        for time in [0, 7.5, 8, 11, 25253, 43200, -1, 86400, 0]:
+            page.evaluate("time=>setReplayTime(time,true)", time)
+            assert page.locator(f"#inspector-{view}").is_visible()
+            assert page.locator(f"#tab-{view}").get_attribute("aria-selected") == "true"
+            assert (
+                page.evaluate("[state.selectedTaskId,state.selectedSatelliteId,state.cameraMode]")
+                == selected
+            )
+        assert page.locator(".inspector-card").bounding_box() == card_bounds
+        assert page.evaluate("elements.globe.getBoundingClientRect().toJSON()") == map_bounds
+    assert page.evaluate("JSON.stringify(state.currentPayload)") == source
+    page.select_option("#solver-select", "eos-greedy-profit")
+    page.wait_for_function(
+        "!state.busy && state.currentPayload.reference_plan.plan_id==='eos-greedy-profit'"
+    )
+    assert page.locator("#inspector-evaluation").is_visible()
+    assert tabs.get_by_role("tab").all_text_contents() == ["Selection", "Metrics"]
+    page.locator("#tab-selection").click()
+    assert page.locator("#selected-id").text_content() == page.evaluate("state.selectedTaskId")
+    assert_single_screen(page)

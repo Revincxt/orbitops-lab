@@ -8,8 +8,10 @@ requests are deliberately blocked to exercise the Natural Earth imagery fallback
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Iterator
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,7 @@ import pytest
 
 from tests.browser.test_workbench import (
     assert_centered_playback_controls,
+    assert_compact_satellite_details,
     assert_single_screen,
     assert_timeline_playback_alignment,
 )
@@ -241,6 +244,8 @@ def test_real_globe_has_startup_tracks_models_and_unmodified_source_positions(
     globe_page.wait_for_function(
         "elements.globe.dataset.imagerySource === 'natural-earth-fallback'"
     )
+    assert globe_page.evaluate("state.selectedSatelliteId") is None
+    globe_page.evaluate("selectSatellite('KENT_RIDGE_1_41167')")
     globe_page.evaluate("setReplayTime(15, true)")
     displayed_altitude = globe_page.evaluate("""() => {
       const point = state.orbitPositions.get(state.selectedSatelliteId)
@@ -320,6 +325,7 @@ def test_compass_tracks_tilted_screen_roll_without_a_heading_change(
     globe_page.set_viewport_size({"width": viewport[0], "height": viewport[1]})
     globe_page.wait_for_timeout(150)
     if mode == "follow":
+        globe_page.evaluate("selectSatellite('KENT_RIDGE_1_41167')")
         globe_page.locator("#camera-follow").click()
         globe_page.wait_for_function("state.globe.trackedEntity && state.cameraMode === 'follow'")
         globe_page.wait_for_timeout(150)
@@ -389,6 +395,7 @@ def test_compass_stays_aligned_during_real_mouse_camera_rotation(
     globe_page: Any, mode: str
 ) -> None:
     if mode == "follow":
+        globe_page.evaluate("selectSatellite('KENT_RIDGE_1_41167')")
         globe_page.locator("#camera-follow").click()
         globe_page.wait_for_function("state.globe.trackedEntity && state.cameraMode === 'follow'")
         globe_page.wait_for_timeout(150)
@@ -487,9 +494,13 @@ def test_camera_toolbar_is_compact_and_keeps_keyboard_follow_and_overview(
         });
     }""")
     assert globe_page.locator("#camera-overview").get_attribute("aria-pressed") == "true"
+    assert globe_page.locator("#camera-follow").is_enabled()
+    assert globe_page.evaluate("state.selectedSatelliteId") is None
+    expected = globe_page.evaluate("state.assignments.get(state.selectedTaskId).satellite_id")
     globe_page.locator("#camera-follow").focus()
     globe_page.keyboard.press("Enter")
     globe_page.wait_for_function("state.cameraMode === 'follow' && state.globe.trackedEntity")
+    assert globe_page.evaluate("state.selectedSatelliteId") == expected
     assert globe_page.locator("#camera-follow").get_attribute("aria-pressed") == "true"
     assert globe_page.locator("#camera-follow").get_attribute("title") == "Stop following satellite"
     assert globe_page.locator("#camera-overview").get_attribute("aria-pressed") == "false"
@@ -508,6 +519,7 @@ def test_camera_toolbar_is_compact_and_keeps_keyboard_follow_and_overview(
 
 
 def test_compass_north_reset_releases_satellite_follow(globe_page: Any) -> None:
+    globe_page.evaluate("selectSatellite('KENT_RIDGE_1_41167')")
     globe_page.locator("#camera-follow").click()
     globe_page.wait_for_function("state.globe.trackedEntity && state.cameraMode === 'follow'")
     globe_page.locator("#north-view").click()
@@ -841,7 +853,9 @@ def test_earthward_reversal_and_angle_timed_maneuvers_share_the_native_model_fra
                 """time => {
           setReplayTime(time,true);
           const C=Cesium,id='GPM-CORE_39574',sensor=state.sensorFovs.get(id);
-          const a=satelliteAssignment(id,time),model=state.orbitModels.get(id);
+          const a=state.satelliteSchedules.get(id).find(
+            assignment=>assignment.start_s<=time && time<assignment.end_s);
+          const model=state.orbitModels.get(id);
           const raw=a && SatelliteAttitude.frame(a,time,model);
           const origin=state.orbitPositions.get(id).getValue(state.globe.clock.currentTime);
           const nadir=C.Cartesian3.negate(C.Cartesian3.normalize(origin,new C.Cartesian3()),
@@ -974,6 +988,121 @@ def test_fast_forward_and_reverse_playback_keep_only_current_footprints(
         Cesium.JulianDate.fromIso8601(state.currentPayload.scenario.epoch_utc));
       return !state.replay.playing && Math.abs(seconds-state.replay.time) < 1e-9;
     }""")
+
+
+@pytest.mark.parametrize(
+    ("satellite", "time", "direction"),
+    [
+        ("KENT_RIDGE_1_41167", 0, 1),
+        ("KENT_RIDGE_1_41167", 300, -1),
+        ("ALOS-2_39766", 3590, 1),
+        ("ALOS-2_39766", 3610, -1),
+        ("SMOS_36036", 43190, 1),
+        ("SMOS_36036", 86400, -1),
+    ],
+)
+def test_follow_advances_on_render_frames_with_synchronized_coverage_and_a_stable_target(
+    globe_page: Any, satellite: str, time: float, direction: int
+) -> None:
+    original = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    globe_page.evaluate(
+        """({satellite,time,direction}) => {
+          setReplayTime(time,true);
+          selectSatellite(satellite);
+          state.replay.direction=direction;
+          state.replay.speed=60;
+          followSelectedSatellite();
+          updateReplayVisuals();
+        }""",
+        {"satellite": satellite, "time": time, "direction": direction},
+    )
+    globe_page.evaluate("state.ephemerisReady")
+    globe_page.wait_for_function("state.globe.dataSourceDisplay.ready")
+    globe_page.wait_for_timeout(500)
+    globe_page.evaluate("""() => {
+      window.followFrames=[];
+      window.stopFollowCapture=state.globe.scene.postRender.addEventListener(()=>{
+        const viewer=state.globe,clock=viewer.clock.currentTime;
+        const p=viewer.trackedEntity.position.getValue(clock);
+        const screen=Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene,p);
+        const rotation=Cesium.Matrix4.getMatrix3(viewer.camera.transform,new Cesium.Matrix3());
+        followFrames.push({time:Cesium.JulianDate.secondsDifference(clock,viewer.clock.startTime),
+          replay:state.replay.time,screen:[screen.x,screen.y],
+          rotation:Array.from({length:9},(_,i)=>rotation[i]),
+          sourceError:Cesium.Cartesian3.distance(p,
+            Cesium.Cartesian3.fromArray(state.orbitModels.get(state.selectedSatelliteId)
+              .cartesian(state.replay.time))),
+          coverageError:Math.max(...[...state.sensorFovs.values()].map(sensor=>
+            Math.abs(Cesium.JulianDate.secondsDifference(sensor.time,clock)))),
+          volumes:state.fovPrimitives.length,fills:state.footprintPrimitives.length});
+      });
+    }""")
+    globe_page.locator("#replay-play").click()
+    globe_page.wait_for_timeout(1200)
+    snapshot = globe_page.evaluate("""() => {
+      pauseReplay();stopFollowCapture();
+      return {frames:followFrames,frame:state.globe.trackedEntity.trackingReferenceFrame,
+        velocityFrame:Cesium.TrackingReferenceFrame.VELOCITY};
+    }""")
+    assert snapshot["frame"] == snapshot["velocityFrame"]
+    frames = snapshot["frames"]
+    assert len(frames) >= 15, snapshot
+    advances = [(b["time"] - a["time"]) * direction for a, b in pairwise(frames)]
+    assert min(advances) >= -1e-9, advances
+    # Real render loops can include startup/tile-only frames. A 30/10 Hz clock
+    # running inside a 60 Hz renderer fails this independent cadence check.
+    assert sum(step > 0 for step in advances) >= len(advances) * 0.85, advances
+    for previous, current in pairwise(frames):
+        # Centering alone would not catch a 180-degree camera-basis flip. Check
+        # its rendered rotation independently across source and hour boundaries.
+        trace = sum(a * b for a, b in zip(previous["rotation"], current["rotation"], strict=True))
+        angle = math.degrees(math.acos(max(-1, min(1, (trace - 1) / 2))))
+        delta = abs(current["time"] - previous["time"])
+        assert angle <= 0.25 * delta + 0.2, (angle, delta)
+    for frame in frames:
+        assert frame["time"] == pytest.approx(frame["replay"], abs=1e-9)
+        assert frame["coverageError"] < 1e-9, frame
+        assert frame["sourceError"] < 1e-6, frame
+        assert frame["volumes"] <= 20 and frame["fills"] <= 20, frame
+        assert frame["screen"] == pytest.approx(frames[0]["screen"], abs=1e-4), frame
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == original
+
+
+def test_playback_reuses_static_path_properties_and_track_toggle_keeps_both_orbit_halves(
+    globe_page: Any,
+) -> None:
+    globe_page.evaluate("state.ephemerisReady")
+    snapshot = globe_page.evaluate("""() => {
+      const viewer=state.globe;
+      const paths=viewer.entities.values.filter(entity=>entity.path).map(entity=>entity.path);
+      const values=path=>[path.leadTime,path.trailTime,path.show,path.width,path.material];
+      const properties=paths.map(values);
+      let changes=0;
+      const removers=paths.map(path=>path.definitionChanged.addEventListener(()=>changes++));
+      for(const time of [0,.1,3.5,17,120]) setReplayTime(time,true);
+      const reused=paths.every((path,i)=>values(path)
+        .every((property,j)=>property===properties[i][j]));
+      removers.forEach(remove=>remove());
+      return {changes,reused,count:paths.length};
+    }""")
+    assert snapshot == {"changes": 0, "reused": True, "count": 40}
+    original = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    time = globe_page.evaluate("state.replay.time")
+    globe_page.locator("#toggle-layers").click()
+    for visible in [False, True]:
+        globe_page.locator("#toggle-track").click()
+        assert globe_page.evaluate(
+            """visible => state.currentPayload.replay.orbits.every(orbit=>{
+              const past=state.globe.entities.getById('orbit-'+orbit.satellite_id).path;
+              const future=state.globe.entities.getById('orbit-preview-'+orbit.satellite_id).path;
+              return past.show.getValue()===visible && future.show.getValue()===visible
+                && past.trailTime.getValue()===orbit.period_s/2 && past.leadTime.getValue()===0
+                && future.leadTime.getValue()===orbit.period_s/2 && future.trailTime.getValue()===0;
+            })""",
+            visible,
+        )
+        assert globe_page.evaluate("state.replay.time") == time
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == original
 
 
 def test_footprint_layers_and_scene_morph_destroy_obsolete_fills(globe_page: Any) -> None:
@@ -1141,6 +1270,7 @@ def test_extended_orbits_keep_native_positions_paths_and_follow_in_all_views(
         assert globe_page.locator("#selected-state").text_content() != "Observing"
         globe_page.wait_for_function("state.globe.dataSourceDisplay.ready")
         assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == initial
+    globe_page.evaluate("selectSatellite('KENT_RIDGE_1_41167')")
     globe_page.locator("#camera-follow").click()
     globe_page.evaluate("setReplayTime(4*86400, true)")
     globe_page.wait_for_timeout(200)
@@ -1390,6 +1520,459 @@ def pickable_satellite(globe_page: Any) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+@pytest.mark.parametrize("camera_mode", ["overview", "follow"])
+@pytest.mark.parametrize("planned", [True, False])
+def test_task_selection_preserves_projection_camera_policy_without_selecting_its_satellite(
+    globe_page: Any, projection: str, camera_mode: str, planned: bool
+) -> None:
+    globe_page.emulate_media(reduced_motion="reduce")
+    if projection != "3d":
+        globe_page.evaluate("mode=>setMapViewMode(mode)", projection)
+        globe_page.wait_for_function("!state.viewTransition")
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    assert globe_page.evaluate("state.selectedSatelliteId") is None
+    assert globe_page.locator("#camera-follow").is_enabled()
+    workload = globe_page.locator(".workload-row").first
+    satellite = workload.get_attribute("data-satellite-id")
+    workload.click()
+    globe_page.locator(f"#camera-{camera_mode}").click()
+    globe_page.wait_for_function("mode=>state.cameraMode===mode", arg=camera_mode)
+    globe_page.wait_for_timeout(120)
+    candidate = globe_page.evaluate(
+        """({planned,satellite})=>{
+          const assignment=state.currentPayload.reference_plan.assignments.find(a=>
+            a.satellite_id!==satellite && a.start_s>0);
+          const task=planned?state.taskById.get(assignment.task_id)
+            :state.currentPayload.scenario.tasks.find(t=>!state.assignments.has(t.task_id));
+          return {id:task.task_id,time:planned?assignment.start_s:state.replay.time,
+            satellite:planned?satelliteName(assignment.satellite_id)
+              :`${task.visibility_windows.length} candidate windows`};
+        }""",
+        {"planned": planned, "satellite": satellite},
+    )
+    task = globe_page.locator(f'.target-row[data-task-id="{candidate["id"]}"]')
+    # Only the 3D view reorients; unfolded maps keep their current extent.
+    task.scroll_into_view_if_needed()
+    camera_before = native_camera_snapshot(globe_page)
+    before = globe_page.evaluate("""() => ({
+      position:Cesium.Cartesian3.clone(state.globe.camera.positionWC),
+      direction:Cesium.Cartesian3.clone(state.globe.camera.directionWC),
+      up:Cesium.Cartesian3.clone(state.globe.camera.upWC)})""")
+    task.click()
+    globe_page.wait_for_timeout(80)
+    snapshot = globe_page.evaluate("""() => {
+      const viewer=state.globe, now=viewer.clock.currentTime;
+      const target=viewer.entities.getById('target-'+state.selectedTaskId);
+      return {task:state.selectedTaskId,satellite:state.selectedSatelliteId,
+        emphasis:state.orbitEmphasis,mode:state.cameraMode,tracked:Boolean(viewer.trackedEntity),
+        position:Cesium.Cartesian3.clone(viewer.camera.positionWC),
+        direction:Cesium.Cartesian3.clone(viewer.camera.directionWC),
+        up:Cesium.Cartesian3.clone(viewer.camera.upWC),
+        target:{pixels:target.point.pixelSize.getValue(now),
+          outline:target.point.outlineWidth.getValue(now),label:target.label.show.getValue(now)},
+        neutral:state.currentPayload.replay.orbits.every(orbit=>{
+          const past=viewer.entities.getById('orbit-'+orbit.satellite_id).path;
+          const future=viewer.entities.getById('orbit-preview-'+orbit.satellite_id).path;
+          const satellite=viewer.entities.getById('satellite-'+orbit.satellite_id);
+          return past.width.getValue(now)===1.4 && future.width.getValue(now)===1.4
+            && past.material===state.orbitStyles.get(orbit.satellite_id).normal.past
+            && future.material===state.orbitStyles.get(orbit.satellite_id).normal.future
+            && satellite.model.minimumPixelSize.getValue(now)===28
+            && satellite.model.silhouetteSize.getValue(now)===0
+            && !satellite.point.show.getValue(now);
+        })};
+    }""")
+    assert snapshot["task"] == candidate["id"]
+    assert snapshot["satellite"] is None
+    assert not snapshot["emphasis"] and not snapshot["tracked"]
+    expected_mode = "manual" if projection == "3d" or camera_mode == "follow" else "overview"
+    assert snapshot["mode"] == expected_mode
+    assert snapshot["target"] == {"pixels": 10, "outline": 2, "label": True}
+    assert snapshot["neutral"]
+    if projection == "3d":
+        assert_selection_is_centered(globe_page, "task", candidate["id"])
+        initial_radius = sum(value**2 for value in before["position"].values()) ** 0.5
+        final_radius = sum(value**2 for value in snapshot["position"].values()) ** 0.5
+        assert final_radius == pytest.approx(initial_radius, abs=0.001)
+    else:
+        assert native_camera_snapshot(globe_page) == pytest.approx(camera_before, abs=1e-6, rel=0)
+    assert globe_page.locator("#selected-id").text_content() == candidate["id"]
+    assert globe_page.locator("#selected-assignment").text_content() == candidate["satellite"]
+    assert globe_page.evaluate("state.replay.time") == candidate["time"]
+    assert globe_page.locator("#orbit-hud").is_hidden()
+    assert globe_page.locator("#camera-follow").is_enabled()
+    assert globe_page.locator(".workload-bar.is-selected, .satellite-lane.is-selected").count() == 0
+    if planned:
+        assert (
+            globe_page.locator(f'.task-bar[data-task-id="{candidate["id"]}"]').get_attribute(
+                "stroke"
+            )
+            == "#fff"
+        )
+    globe_page.locator(".workload-row").first.click()
+    assert globe_page.evaluate("state.selectedTaskId") == candidate["id"]
+    assert globe_page.evaluate("state.selectedSatelliteId") == satellite
+    assert globe_page.locator("#camera-follow").is_enabled()
+    assert globe_page.locator(".workload-bar.is-selected").count() == 1
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+    assert_single_screen(globe_page)
+
+
+def assert_selection_is_centered(page: Any, kind: str, object_id: str) -> None:
+    result = page.evaluate(
+        """({kind,id}) => {
+          const viewer=state.globe, target=kind==='satellite'
+            ?state.orbitPositions.get(id).getValue(viewer.clock.currentTime)
+            :viewer.entities.getById('target-'+id).position.getValue(viewer.clock.currentTime);
+          const point=Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene,target);
+          return {visible:state.viewMode!=='3d' || new Cesium.EllipsoidalOccluder(
+            Cesium.Ellipsoid.WGS84,viewer.camera.positionWC).isPointVisible(target),
+            x:point?.x,y:point?.y,width:viewer.canvas.clientWidth,height:viewer.canvas.clientHeight};
+        }""",
+        {"kind": kind, "id": object_id},
+    )
+    assert result["visible"], result
+    assert result["x"] == pytest.approx(result["width"] / 2, abs=2)
+    assert result["y"] == pytest.approx(result["height"] / 2, abs=2)
+
+
+def native_camera_snapshot(page: Any) -> list[float]:
+    return page.evaluate("""() => {
+      const camera=state.globe.camera;
+      return ['positionWC','directionWC','upWC'].flatMap(key=>{
+        const v=camera[key];return [v.x,v.y,v.z];
+      }).concat(Array.from(camera.transform),Array.from(camera.frustum.projectionMatrix));
+    }""")
+
+
+@pytest.mark.parametrize("viewport", [(1440, 900), (375, 667)])
+def test_scrolling_to_the_last_workload_satellite_preserves_native_selection(
+    globe_page: Any, viewport: tuple[int, int]
+) -> None:
+    globe_page.emulate_media(reduced_motion="reduce")
+    globe_page.set_viewport_size({"width": viewport[0], "height": viewport[1]})
+    source = globe_page.evaluate("JSON.stringify(state.referenceData)")
+    if viewport[0] <= 1000:
+        globe_page.locator("#workspace-tasks").click()
+    assert globe_page.locator(".workload-row").count() == 20
+    host = globe_page.locator("#resource-chart")
+    host.focus()
+    host.press("End")
+    last = globe_page.locator(".workload-row").last
+    satellite = last.get_attribute("data-satellite-id")
+    last.click()
+    assert globe_page.evaluate("state.selectedSatelliteId") == satellite
+    assert globe_page.locator(".workload-row").count() == 20
+    assert (
+        globe_page.locator(".workload-row[aria-pressed=true]").get_attribute("data-satellite-id")
+        == satellite
+    )
+    assert host.evaluate("node => node.scrollTop") > 0
+    if viewport[0] <= 1000:
+        globe_page.locator("#workspace-map").click()
+    globe_page.locator("#orbit-hud").wait_for(state="visible")
+    assert_selection_is_centered(globe_page, "satellite", satellite)
+    assert globe_page.evaluate("JSON.stringify(state.referenceData)") == source
+    assert_single_screen(globe_page)
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+@pytest.mark.parametrize("keyboard", [False, True])
+def test_workload_selection_preserves_projection_camera_policy_without_zooming_or_seeking(
+    globe_page: Any, projection: str, keyboard: bool
+) -> None:
+    globe_page.emulate_media(reduced_motion="reduce")
+    if projection != "3d":
+        globe_page.evaluate("mode=>setMapViewMode(mode)", projection)
+        globe_page.wait_for_function("!state.viewTransition")
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    row = globe_page.locator(".workload-row").first
+    satellite = row.get_attribute("data-satellite-id")
+    if projection == "3d":
+        # Start on the far side: a highlighted but Earth-occluded satellite
+        # must actually come into view, rather than merely gain a label.
+        globe_page.evaluate(
+            """id=>{
+              const viewer=state.globe;
+              const target=state.orbitPositions.get(id).getValue(viewer.clock.currentTime);
+              const destination=Cesium.Cartesian3.multiplyByScalar(Cesium.Cartesian3.normalize(
+                target,new Cesium.Cartesian3()),
+                -Cesium.Cartesian3.magnitude(viewer.camera.positionWC),
+                new Cesium.Cartesian3());
+              viewer.camera.setView({destination,orientation:{heading:0,pitch:-Math.PI/2,roll:0}});
+              state.cameraMode='manual';viewer.scene.requestRender();
+            }""",
+            satellite,
+        )
+    camera_before = native_camera_snapshot(globe_page)
+    before = globe_page.evaluate("""() => ({
+      radius:Cesium.Cartesian3.magnitude(state.globe.camera.positionWC),
+      height:state.globe.camera.positionWC.x,task:state.selectedTaskId,time:state.replay.time,
+      frustum:state.globe.camera.frustum.width || state.globe.camera.frustum.right
+    })""")
+    if keyboard:
+        row.focus()
+        globe_page.keyboard.press("Enter")
+    else:
+        row.click()
+    globe_page.wait_for_timeout(100)
+    if projection == "3d":
+        assert_selection_is_centered(globe_page, "satellite", satellite)
+    else:
+        assert native_camera_snapshot(globe_page) == pytest.approx(camera_before, abs=1e-6, rel=0)
+    assert globe_page.evaluate("state.selectedSatelliteId") == satellite
+    assert globe_page.evaluate("state.selectedTaskId") == before["task"]
+    assert globe_page.evaluate("state.replay.time") == before["time"]
+    assert globe_page.evaluate("state.cameraMode === 'manual' && !state.globe.trackedEntity")
+    assert globe_page.evaluate("state.satelliteDetailsOpen")
+    assert globe_page.locator(".workload-bar.is-selected").count() == 1
+    if projection == "3d":
+        radius = globe_page.evaluate("Cesium.Cartesian3.magnitude(state.globe.camera.positionWC)")
+        assert radius == pytest.approx(before["radius"], abs=0.001)
+    else:
+        height = globe_page.evaluate("state.globe.camera.positionWC.x")
+        assert height == pytest.approx(before["height"], abs=0.001)
+    assert (
+        globe_page.evaluate("state.globe.camera.frustum.width || state.globe.camera.frustum.right")
+        == before["frustum"]
+    )
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+    assert_compass_matches_screen_north(globe_page)
+    assert_single_screen(globe_page)
+
+
+def test_selection_animation_takes_a_short_arc_and_does_not_zoom(globe_page: Any) -> None:
+    globe_page.emulate_media(reduced_motion="no-preference")
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    candidate = globe_page.evaluate("""() => {
+      const viewer=state.globe, camera=viewer.camera;
+      const eye=Cesium.Cartesian3.clone(camera.positionWC);
+      const task=state.currentPayload.scenario.tasks.reduce((a,b)=>{
+        const dot=t=>Cesium.Cartesian3.dot(Cesium.Cartesian3.normalize(eye,new Cesium.Cartesian3()),
+          Cesium.Cartesian3.normalize(viewer.entities.getById('target-'+t.task_id)
+            .position.getValue(viewer.clock.currentTime),new Cesium.Cartesian3()));
+        return dot(a)<dot(b)?a:b;
+      });
+      const target=viewer.entities.getById('target-'+task.task_id)
+        .position.getValue(viewer.clock.currentTime);
+      const angle=Cesium.Cartesian3.angleBetween(eye,target);
+      window.selectionFrames=[];
+      window.stopSelectionSamples=viewer.scene.postRender.addEventListener(()=>{
+        selectionFrames.push({radius:Cesium.Cartesian3.magnitude(camera.positionWC),
+          angle:Cesium.Cartesian3.angleBetween(eye,camera.positionWC)});
+      });
+      return {id:task.task_id,angle,radius:Cesium.Cartesian3.magnitude(eye)};
+    }""")
+    globe_page.locator(f'.target-row[data-task-id="{candidate["id"]}"]').evaluate(
+        "node=>node.click()"
+    )
+    assert globe_page.evaluate("Boolean(state.selectionFlight)")
+    globe_page.wait_for_function("!state.selectionFlight", timeout=3000)
+    globe_page.wait_for_timeout(100)
+    samples = globe_page.evaluate("""() => {
+      stopSelectionSamples();return selectionFrames;
+    }""")
+    assert len(samples) >= 3
+    assert any(0.01 < sample["angle"] < candidate["angle"] - 0.01 for sample in samples)
+    for previous, current in pairwise(samples):
+        assert current["angle"] >= previous["angle"] - 1e-8
+    for sample in samples:
+        assert sample["angle"] <= candidate["angle"] + 1e-8
+        assert sample["radius"] == pytest.approx(candidate["radius"], abs=0.001)
+    assert samples[-1]["angle"] == pytest.approx(candidate["angle"], abs=1e-8)
+    assert_selection_is_centered(globe_page, "task", candidate["id"])
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+@pytest.mark.parametrize("reduced", [False, True])
+def test_list_selection_settles_after_a_manual_globe_drag(
+    globe_page: Any, projection: str, reduced: bool
+) -> None:
+    globe_page.emulate_media(reduced_motion="reduce" if reduced else "no-preference")
+    if projection != "3d":
+        globe_page.evaluate("mode=>setMapViewMode(mode)", projection)
+        globe_page.wait_for_function("!state.viewTransition")
+        globe_page.wait_for_timeout(700)
+    canvas = globe_page.locator(".cesium-widget canvas").bounding_box()
+    x, y = canvas["x"] + canvas["width"] / 2, canvas["y"] + canvas["height"] / 2
+    globe_page.mouse.move(x + 40, y + 30)
+    globe_page.mouse.down()
+    globe_page.mouse.move(x + 120, y - 20, steps=5)
+    globe_page.mouse.up()
+    globe_page.locator('.target-row[data-task-id="M350"]').evaluate("node=>node.click()")
+    globe_page.wait_for_function("!state.selectionFlight", timeout=3000)
+    globe_page.wait_for_timeout(150)
+    if projection == "3d":
+        assert_selection_is_centered(globe_page, "task", "M350")
+    else:
+        assert globe_page.evaluate("state.selectedTaskId === 'M350' && !state.selectionFlight")
+    # Focus must discard the previous motion, not disable manual controls or
+    # permanently turn off the user's ordinary rotation/pan/zoom inertia.
+    before = globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)")
+    globe_page.mouse.move(x + 40, y + 30)
+    globe_page.mouse.down()
+    globe_page.mouse.move(x + 80, y + 60, steps=5)
+    globe_page.mouse.up()
+    globe_page.wait_for_timeout(100)
+    assert globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)") != before
+    assert globe_page.evaluate("state.globe.scene.screenSpaceCameraController.inertiaSpin") == 0.9
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+@pytest.mark.parametrize("viewport", [(800, 600), (375, 667)])
+def test_compact_list_selection_preserves_projection_camera_policy_when_returning_to_map(
+    globe_page: Any, projection: str, viewport: tuple[int, int]
+) -> None:
+    globe_page.emulate_media(reduced_motion="reduce")
+    globe_page.set_viewport_size({"width": viewport[0], "height": viewport[1]})
+    if projection != "3d":
+        globe_page.evaluate("mode=>setMapViewMode(mode)", projection)
+        globe_page.wait_for_function("!state.viewTransition")
+    camera_before = native_camera_snapshot(globe_page)
+    globe_page.locator("#workspace-tasks").click()
+    globe_page.locator('.target-row[data-task-id="M350"]').focus()
+    globe_page.keyboard.press("Enter")
+    assert globe_page.evaluate("state.selectedTaskId") == "M350"
+    assert globe_page.evaluate("state.selectedSatelliteId") is None
+    globe_page.locator("#workspace-map").click()
+    globe_page.wait_for_timeout(120)
+    if projection == "3d":
+        assert_selection_is_centered(globe_page, "task", "M350")
+    else:
+        assert native_camera_snapshot(globe_page) == pytest.approx(camera_before, abs=1e-6, rel=0)
+    globe_page.locator("#workspace-tasks").click()
+    row = globe_page.locator(".workload-row").first
+    satellite = row.get_attribute("data-satellite-id")
+    row.click()
+    globe_page.locator("#workspace-map").click()
+    globe_page.wait_for_timeout(120)
+    if projection == "3d":
+        assert_selection_is_centered(globe_page, "satellite", satellite)
+        assert globe_page.locator("#orbit-hud").is_visible()
+    else:
+        assert native_camera_snapshot(globe_page) == pytest.approx(camera_before, abs=1e-6, rel=0)
+        assert globe_page.evaluate("state.satelliteDetailsOpen")
+    assert_single_screen(globe_page)
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+def test_satellite_selection_while_playing_respects_projection_camera_policy(
+    globe_page: Any, projection: str
+) -> None:
+    globe_page.emulate_media(reduced_motion="no-preference")
+    if projection != "3d":
+        globe_page.evaluate("mode=>setMapViewMode(mode)", projection)
+        globe_page.wait_for_function("!state.viewTransition")
+        globe_page.wait_for_timeout(750)
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    camera_before = native_camera_snapshot(globe_page)
+    satellite = globe_page.locator(".workload-row").first.get_attribute("data-satellite-id")
+    globe_page.locator("#replay-play").click()
+    globe_page.locator(".workload-row").first.evaluate(
+        "node=>node.dispatchEvent(new MouseEvent('click'))"
+    )
+    globe_page.wait_for_function("!state.selectionFlight", timeout=3000)
+    assert globe_page.evaluate("state.replay.playing && state.replay.time>0")
+    # Pause without seeking; allow for at most one replay refresh after the last
+    # focus frame, not an obsolete position sampled at the start of the flight.
+    globe_page.evaluate("pauseReplay()")
+    if projection == "3d":
+        assert_selection_is_centered(globe_page, "satellite", satellite)
+    else:
+        assert native_camera_snapshot(globe_page) == pytest.approx(camera_before, abs=1e-6, rel=0)
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+
+
+@pytest.mark.parametrize("projection", ["3d", "2.5d"])
+def test_close_camera_only_lifts_above_the_selected_spacecraft_in_3d(
+    globe_page: Any, projection: str
+) -> None:
+    globe_page.emulate_media(reduced_motion="reduce")
+    if projection != "3d":
+        globe_page.evaluate("mode=>setMapViewMode(mode)", projection)
+        globe_page.wait_for_function("!state.viewTransition")
+    globe_page.evaluate("""() => {
+      const camera=state.globe.camera;
+      if(state.viewMode==='3d') camera.setView({
+        destination:Cesium.Cartesian3.fromDegrees(105,20,10000),
+        orientation:{heading:0,pitch:-Math.PI/2,roll:0}});
+      else camera.setView({destination:new Cesium.Cartesian3(0,0,10000),
+        orientation:{heading:.4,pitch:-.6,roll:.2},convert:false});
+      state.cameraMode='manual';state.globe.scene.requestRender();
+    }""")
+    camera_before = native_camera_snapshot(globe_page)
+    row = globe_page.locator(".workload-row").first
+    satellite = row.get_attribute("data-satellite-id")
+    row.click()
+    globe_page.wait_for_timeout(100)
+    if projection != "3d":
+        assert native_camera_snapshot(globe_page) == pytest.approx(camera_before, abs=1e-6, rel=0)
+        assert globe_page.evaluate("state.selectedSatelliteId") == satellite
+        return
+    assert_selection_is_centered(globe_page, "satellite", satellite)
+    assert globe_page.evaluate("""() => {
+      const viewer=state.globe;
+      const position=state.orbitPositions.get(state.selectedSatelliteId)
+        .getValue(viewer.clock.currentTime);
+      return state.viewMode==='3d'
+        ?Cesium.Cartesian3.magnitude(viewer.camera.positionWC)
+          >=Cesium.Cartesian3.magnitude(position)+99999
+        :viewer.camera.positionWC.x>=Cesium.Cartographic.fromCartesian(position).height+99999;
+    }""")
+
+
+@pytest.mark.parametrize(
+    "interruption", ["selection", "gesture", "overview", "follow", "projection", "plan"]
+)
+def test_selection_animation_yields_to_a_new_selection_or_camera_action(
+    globe_page: Any, interruption: str
+) -> None:
+    globe_page.emulate_media(reduced_motion="no-preference")
+    globe_page.locator(".workload-row").first.evaluate(
+        "node=>node.dispatchEvent(new MouseEvent('click'))"
+    )
+    assert globe_page.evaluate("Boolean(state.selectionFlight)")
+    globe_page.wait_for_timeout(80)
+    if interruption == "selection":
+        globe_page.locator('.target-row[data-task-id="M350"]').evaluate("node=>node.click()")
+        globe_page.wait_for_function("!state.selectionFlight", timeout=3000)
+        assert_selection_is_centered(globe_page, "task", "M350")
+        assert globe_page.evaluate("state.selectedSatelliteId") is None
+    elif interruption == "gesture":
+        canvas = globe_page.locator(".cesium-widget canvas").bounding_box()
+        globe_page.mouse.move(canvas["x"] + 20, canvas["y"] + canvas["height"] / 2)
+        globe_page.mouse.down()
+        globe_page.mouse.up()
+        assert globe_page.evaluate("state.selectionFlight") is None
+        position = globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)")
+        globe_page.wait_for_timeout(800)
+        assert (
+            globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)")
+            == position
+        )
+    elif interruption == "overview":
+        globe_page.locator("#camera-overview").evaluate("node=>node.click()")
+        assert globe_page.evaluate("state.selectionFlight") is None
+        assert globe_page.evaluate("state.cameraMode") == "overview"
+    elif interruption == "follow":
+        globe_page.locator("#camera-follow").evaluate("node=>node.click()")
+        assert globe_page.evaluate("state.selectionFlight") is None
+        assert globe_page.evaluate(
+            "state.cameraMode === 'follow' && Boolean(state.globe.trackedEntity)"
+        )
+    elif interruption == "projection":
+        globe_page.evaluate("setMapViewMode('2d')")
+        assert globe_page.evaluate("state.selectionFlight") is None
+        globe_page.wait_for_function("state.viewMode==='2d' && !state.viewTransition")
+    else:
+        globe_page.locator("#solver-select").select_option("eos-ga-profit")
+        globe_page.wait_for_function("!state.busy")
+        assert globe_page.evaluate("state.selectionFlight") is None
+    assert_single_screen(globe_page)
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
 def test_satellite_popup_is_on_demand_translucent_and_dismissible(
     globe_page: Any, projection: str
 ) -> None:
@@ -1406,7 +1989,10 @@ def test_satellite_popup_is_on_demand_translucent_and_dismissible(
     camera = globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)")
     candidate = pickable_satellite(globe_page)
     globe_page.mouse.click(candidate["x"], candidate["y"])
-    assert popup.is_visible()
+    # Popup placement is committed after the native render, not synchronously
+    # in the click handler. Wait for that frame before inspecting it.
+    popup.wait_for(state="visible", timeout=3000)
+    assert_compact_satellite_details(globe_page)
     metadata = globe_page.evaluate("""() => {
       const orbit = state.currentPayload.replay.orbits.find(
         orbit => orbit.satellite_id === state.selectedSatelliteId);
@@ -1435,10 +2021,11 @@ def test_satellite_popup_is_on_demand_translucent_and_dismissible(
     globe_page.keyboard.press("Escape")
     assert globe_page.locator("#orbit-hud").is_hidden()
     globe_page.mouse.click(candidate["x"], candidate["y"])
-    assert popup.is_visible()
+    popup.wait_for(state="visible", timeout=3000)
     globe_page.get_by_role("button", name="Close satellite details").click()
     assert globe_page.locator("#orbit-hud").is_hidden()
     globe_page.mouse.click(candidate["x"], candidate["y"])
+    popup.wait_for(state="visible", timeout=3000)
     blank = globe_page.evaluate("""() => {
       const viewer = state.globe, box = elements.globe.getBoundingClientRect();
       for (let y=30; y<box.height-30; y+=30) for (let x=30; x<box.width-30; x+=30) {
@@ -1541,6 +2128,7 @@ def test_follow_details_remain_visible_and_do_not_mutate_when_paused_or_flash_du
     globe_page.locator("#camera-follow").click()
     globe_page.wait_for_function("!document.getElementById('orbit-hud').hidden")
     globe_page.wait_for_timeout(200)
+    assert_compact_satellite_details(globe_page)
     paused = globe_page.evaluate("""() => {
       const hud=document.getElementById('orbit-hud');
       const observer=new MutationObserver(()=>{});
@@ -1680,6 +2268,7 @@ def test_globe_camera_refits_after_resize_and_map_expansion(
 
 
 def test_plan_reload_clears_satellite_tracking_and_retains_source_geometry(globe_page: Any) -> None:
+    globe_page.evaluate("selectSatellite('KENT_RIDGE_1_41167')")
     globe_page.locator("#camera-follow").click()
     assert globe_page.evaluate("Boolean(state.globe.trackedEntity)")
     assert globe_page.evaluate("""() => state.currentPayload.replay.orbits
@@ -1747,28 +2336,108 @@ def test_unfolded_scene_preserves_source_replay_and_fits_after_expansion(
 
 
 @pytest.mark.parametrize(("selector", "mode"), [("#view-2d", "2d"), ("#view-2_5d", "2.5d")])
-def test_planar_follow_keeps_the_selected_satellite_in_view(
-    globe_page: Any, selector: str, mode: str
+@pytest.mark.parametrize("viewport", [(1440, 900), (375, 667)])
+def test_planar_follow_updates_satellite_without_panning_or_zooming_the_map(
+    globe_page: Any, selector: str, mode: str, viewport: tuple[int, int]
 ) -> None:
+    globe_page.emulate_media(reduced_motion="reduce")
+    globe_page.set_viewport_size({"width": viewport[0], "height": viewport[1]})
     globe_page.locator(selector).click()
     globe_page.wait_for_function(
         "mode => state.viewMode === mode && !state.viewTransition", arg=mode
     )
+    globe_page.wait_for_timeout(150)
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    globe_page.evaluate("""() => {
+      selectSatellite('KENT_RIDGE_1_41167');
+      state.globe.camera.moveRight(350000);
+      state.globe.camera.moveUp(180000);
+      state.globe.scene.requestRender();
+    }""")
+    before = native_camera_snapshot(globe_page)
     globe_page.locator("#camera-follow").click()
-    for time in [1800, 2730, 43199]:
+    assert native_camera_snapshot(globe_page) == pytest.approx(before, abs=1e-6, rel=0)
+    positions = []
+    for time in [-86400, 0, 1800, 2730, 43199, 43200, 3 * 86400]:
         globe_page.evaluate("time => setReplayTime(time,true)", time)
-        globe_page.wait_for_function("""() => {
-          const viewer = state.globe;
-          const point = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene,
-            state.orbitPositions.get(state.selectedSatelliteId).getValue(viewer.clock.currentTime));
-          return point && Math.abs(point.x - elements.globe.clientWidth / 2) < 5
-            && Math.abs(point.y - elements.globe.clientHeight / 2) < 5;
-        }""")
+        globe_page.wait_for_timeout(80)
+        assert native_camera_snapshot(globe_page) == pytest.approx(before, abs=1e-6, rel=0)
+        assert globe_page.evaluate("state.cameraMode === 'follow' && !state.globe.trackedEntity")
         assert globe_page.locator("#camera-follow").get_attribute("aria-pressed") == "true"
+        positions.append(
+            globe_page.locator(
+                "#satellite-position-x, #satellite-position-y, #satellite-position-z"
+            ).all_text_contents()
+        )
+    assert positions[0] != positions[2]
+    globe_page.locator("#replay-speed").select_option("900")
+    globe_page.locator("#replay-play").click()
+    globe_page.wait_for_function("state.replay.time > 3*86400+600")
+    globe_page.locator("#replay-play").click()
+    assert native_camera_snapshot(globe_page) == pytest.approx(before, abs=1e-6, rel=0)
+    assert globe_page.evaluate("!state.selectionFlight && !state.globe.trackedEntity")
+    # Follow doesn't lock manual camera controls or undo the user's new extent.
+    globe_page.evaluate("state.globe.camera.zoomIn(1000000); updateReplayVisuals()")
+    manual = native_camera_snapshot(globe_page)
+    assert manual != before
+    globe_page.evaluate("setReplayTime(43199,true)")
+    globe_page.wait_for_timeout(80)
+    assert native_camera_snapshot(globe_page) == pytest.approx(manual, abs=1e-6, rel=0)
+    globe_page.locator("#camera-follow").click()
+    assert native_camera_snapshot(globe_page) == pytest.approx(manual, abs=1e-6, rel=0)
+    globe_page.evaluate("focusSelectedSatellite()")
+    assert native_camera_snapshot(globe_page) == pytest.approx(manual, abs=1e-6, rel=0)
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
     globe_page.locator("#view-3d").click()
     globe_page.wait_for_function("state.viewMode === '3d' && !state.viewTransition")
     assert globe_page.evaluate("!state.globe.trackedEntity && state.cameraMode === 'overview'")
     assert globe_page.evaluate("state.replay.time") == 43199
+    assert_single_screen(globe_page)
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+@pytest.mark.parametrize("selection", ["initial", "planned", "unassigned", "satellite"])
+def test_follow_is_available_without_a_prior_satellite_pick_in_every_projection(
+    globe_page: Any, projection: str, selection: str
+) -> None:
+    globe_page.emulate_media(reduced_motion="reduce")
+    if projection != "3d":
+        globe_page.evaluate("mode=>setMapViewMode(mode)", projection)
+        globe_page.wait_for_function("!state.viewTransition")
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    if selection in {"planned", "unassigned"}:
+        task_id = globe_page.evaluate(
+            """planned=>state.currentPayload.scenario.tasks.find(task=>
+              state.assignments.has(task.task_id)===planned).task_id""",
+            selection == "planned",
+        )
+        globe_page.locator(f'.target-row[data-task-id="{task_id}"]').evaluate("node=>node.click()")
+        assert globe_page.evaluate("state.selectedSatelliteId") is None
+    elif selection == "satellite":
+        globe_page.locator(".workload-row").first.click()
+    expected = globe_page.evaluate("""() => state.selectedSatelliteId
+      || state.assignments.get(state.selectedTaskId)?.satellite_id
+      || state.currentPayload.replay.orbits[0].satellite_id""")
+    task = globe_page.evaluate("state.selectedTaskId")
+    time = globe_page.evaluate("state.replay.time")
+    before = native_camera_snapshot(globe_page)
+    follow = globe_page.locator("#camera-follow")
+    assert follow.is_enabled()
+    follow.click()
+    globe_page.wait_for_function("state.cameraMode==='follow'")
+    assert globe_page.evaluate("state.selectedSatelliteId") == expected
+    assert globe_page.evaluate("state.selectedTaskId") == task
+    assert globe_page.evaluate("state.replay.time") == time
+    assert follow.get_attribute("aria-pressed") == "true"
+    if projection == "3d":
+        assert globe_page.evaluate("state.globe.trackedEntity.id") == f"satellite-{expected}"
+    else:
+        assert globe_page.evaluate("!state.globe.trackedEntity && !state.selectionFlight")
+        assert native_camera_snapshot(globe_page) == pytest.approx(before, abs=1e-6, rel=0)
+    follow.click()
+    assert follow.is_enabled() and follow.get_attribute("aria-pressed") == "false"
+    assert globe_page.evaluate("state.cameraMode==='manual' && !state.globe.trackedEntity")
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
     assert_single_screen(globe_page)
 
 
@@ -1835,12 +2504,14 @@ def test_satellites_remain_pickable_on_unfolded_maps(globe_page: Any, selector: 
     assert globe_page.evaluate("""() => state.globe.entities.getById(
       'satellite-' + state.selectedSatelliteId).label.distanceDisplayCondition.getValue().far
     """) == float("inf")
-    before = globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)")
+    before = native_camera_snapshot(globe_page)
+    camera_mode = globe_page.evaluate("state.cameraMode")
     globe_page.mouse.dblclick(candidate["x"], candidate["y"])
-    globe_page.wait_for_function("state.cameraMode === 'manual' && !state.globe.trackedEntity")
-    globe_page.wait_for_timeout(750)
+    globe_page.wait_for_timeout(150)
+    assert globe_page.evaluate("state.cameraMode") == camera_mode
+    assert not globe_page.evaluate("Boolean(state.globe.trackedEntity)")
     assert globe_page.locator("#camera-focus").count() == 0
-    assert globe_page.evaluate("Cesium.Cartesian3.clone(state.globe.camera.positionWC)") != before
+    assert native_camera_snapshot(globe_page) == pytest.approx(before, abs=1e-6, rel=0)
     assert_single_screen(globe_page)
 
 
@@ -1881,3 +2552,43 @@ def test_flat_views_do_not_build_invisible_cone_meshes_and_restore_them_in_3d(
     globe_page.wait_for_function("!state.viewTransition")
     assert globe_page.evaluate("state.fovPrimitives.length") == 20
     assert globe_page.evaluate("state.replay.time") == 1001
+
+
+@pytest.mark.parametrize("projection", ["3d", "2d", "2.5d"])
+@pytest.mark.parametrize("camera_mode", ["overview", "follow"])
+def test_playback_preserves_the_inspector_view_and_native_camera(
+    globe_page: Any, projection: str, camera_mode: str
+) -> None:
+    if projection != "3d":
+        globe_page.evaluate("mode => setMapViewMode(mode)", projection)
+        globe_page.wait_for_function("!state.viewTransition")
+    globe_page.evaluate("selectSatellite('KENT_RIDGE_1_41167')")
+    globe_page.locator(f"#camera-{camera_mode}").click()
+    globe_page.locator("#tab-evaluation").click()
+    source = globe_page.evaluate("JSON.stringify(state.currentPayload)")
+    selected_task = globe_page.evaluate("state.selectedTaskId")
+    assert globe_page.get_by_role("tab", name="Live", exact=True).count() == 0
+    for time in [0, 7.5, 8, 11, 25253, -1, 0]:
+        snapshot = globe_page.evaluate(
+            """time => {
+          setReplayTime(time,true);
+          return {satellite:state.selectedSatelliteId,task:state.selectedTaskId,
+            mode:state.cameraMode,tracked:state.globe.trackedEntity?.id,
+            tab:document.querySelector('.inspector-tabs [aria-selected="true"]').id};
+        }""",
+            time,
+        )
+        assert snapshot["task"] == selected_task
+        assert snapshot["tab"] == "tab-evaluation"
+        assert snapshot["satellite"] == "KENT_RIDGE_1_41167"
+        assert snapshot["mode"] == camera_mode
+        if projection == "3d" and camera_mode == "follow":
+            assert snapshot["tracked"] == "satellite-KENT_RIDGE_1_41167"
+    globe_page.locator("#replay-play").click()
+    globe_page.wait_for_function("state.replay.time > 0")
+    globe_page.locator("#replay-play").click()
+    assert globe_page.locator("#tab-evaluation").get_attribute("aria-selected") == "true"
+    assert globe_page.evaluate("state.selectedSatelliteId") == "KENT_RIDGE_1_41167"
+    assert globe_page.evaluate("state.cameraMode") == camera_mode
+    assert globe_page.evaluate("JSON.stringify(state.currentPayload)") == source
+    assert_single_screen(globe_page)

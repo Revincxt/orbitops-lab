@@ -88,8 +88,10 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
         "sensor-fov",
         "mission",
     ]:
-        assert f'src="./{name}.js?v=0.27.0"' in html
-    assert 'href="./app.css?v=0.21.0"' in html
+        assert f'src="./{name}.js?v=0.41.0"' in html
+    assert 'href="./app.css?v=0.39.0"' in html
+    assert 'class="catalog-head"' not in html
+    assert "TARGET / PRIORITY" not in html
     assert 'href="./favicon.svg?v=0.2.0"' in html
     assert 'id="sun-direction"' not in html
     assert 'class="app-title"' not in html
@@ -122,6 +124,44 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     assert "Observation links" not in html
 
 
+def test_sidebar_panels_group_task_and_satellite_selection_apart_from_plan_results() -> None:
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    left = html.split('<aside id="experiment"', 1)[1].split("</aside>", 1)[0]
+    right = html.split('<aside id="inspector"', 1)[1].split("</aside>", 1)[0]
+
+    assert left.index('aria-labelledby="targets-title"') < left.index(
+        'aria-labelledby="resources-title"'
+    )
+    assert right.index('aria-labelledby="comparison-title"') < right.index(
+        'aria-labelledby="results-title"'
+    )
+    assert 'id="resource-chart"' in left and 'id="comparison-chart"' not in left
+    assert 'id="comparison-chart"' in right and 'id="resource-chart"' not in right
+    assert 'aria-label="Task list and satellite workload"' in left
+    assert 'aria-label="Algorithm comparison and plan summary"' in right
+
+
+def test_workload_lists_all_satellites_in_a_keyboard_accessible_scroll_region() -> None:
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    stylesheet = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
+    mission = (STATIC_DIR / "mission.js").read_text(encoding="utf-8")
+    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    workload = mission.split("function renderWorkloads() {", 1)[1].split("const ORBIT_PALETTE", 1)[
+        0
+    ]
+
+    assert 'aria-label="Satellite observation workload" tabindex="0"' in html
+    assert "--workload-panel-size: clamp(320px, 54%, 560px)" in stylesheet
+    assert ".resource-block .chart-host::-webkit-scrollbar" in stylesheet
+    assert "capacity" not in workload and "slice(0" not in workload
+    assert "scenario.satellites.length * rowHeight + 4" in workload
+    assert "root.style.height" in workload
+    assert "elements.resources.scrollTop = scrollTop" in workload
+    assert "All satellites, including zero-workload satellites" in workload
+    assert "revealWorkloadSatellite(id)" in mission
+    assert '[elements.resources, "workload-row-height"]' in script
+
+
 def test_compact_panel_headers_remove_search_markup_and_dependencies() -> None:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     stylesheet = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
@@ -134,8 +174,31 @@ def test_compact_panel_headers_remove_search_markup_and_dependencies() -> None:
     assert 'aria-label="Filter task status"' in html
     assert 'class="panel-heading inspector-heading"' in html
     assert 'role="tablist" aria-label="Inspector views"' in html
+    assert 'id="tab-selection" type="button" role="tab" aria-selected="true"' in html
     assert 'role="tabpanel" aria-labelledby="tab-selection"' in html
     assert 'role="tabpanel" aria-labelledby="tab-evaluation"' in html
+
+
+def test_task_broadcast_markup_styles_and_playback_hooks_are_removed() -> None:
+    assets = "\n".join(
+        (STATIC_DIR / name).read_text(encoding="utf-8")
+        for name in ["index.html", "app.css", "app.js", "mission.js"]
+    )
+    for token in [
+        "tab-live",
+        "inspector-live",
+        "live-task",
+        "live-panel",
+        "live-announcement",
+        "liveSchedule",
+        "liveCursor",
+        "liveActiveTasks",
+        "liveTaskNodes",
+        "liveAnnouncementKey",
+        "updateLiveSummary",
+        "createLiveTask",
+    ]:
+        assert token not in assets
 
 
 def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
@@ -198,16 +261,21 @@ def test_information_controls_are_removed_without_deleting_map_credit_content() 
     assert "credit: new Cesium.Credit" in script
 
 
-def test_live_utc_clock_and_picker_are_in_the_brand_header() -> None:
+def test_live_utc_clock_is_read_only_in_the_brand_header() -> None:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     header = html.split('<header class="masthead">', 1)[1].split("</header>", 1)[0]
 
     assert 'class="brand-block"' in header
-    for control in ["replay-time-button", "replay-time", "replay-time-picker", "replay-utc-input"]:
-        assert html.count(f'id="{control}"') == 1
-        assert f'id="{control}"' in header
-    assert header.index('class="brand"') < header.index('id="replay-time-button"')
-    assert 'aria-controls="replay-time-picker"' in header
+    assert html.count('id="replay-time"') == 1
+    assert '<time id="replay-time">' in header
+    assert header.index('class="brand"') < header.index('id="replay-time"')
+    for removed in ["replay-time-button", "replay-time-picker", "replay-utc-input"]:
+        assert f'id="{removed}"' not in html
+    mission = (STATIC_DIR / "mission.js").read_text(encoding="utf-8")
+    assert "setReplayPickerOpen" not in mission
+    assert "Click to jump to a time" not in mission
+    assert '<h3 id="resources-title">Satellite</h3>' in html
+    assert '<h2 id="results-title">Task details</h2>' in html
 
 
 def test_playback_controls_are_one_accessible_group() -> None:
@@ -307,7 +375,7 @@ def test_web_lab_styles_use_a_fixed_viewport_engineering_workspace() -> None:
     assert "--control-active:" in stylesheet
     assert "height: 100dvh" in stylesheet
     assert "overscroll-behavior: none" in stylesheet
-    assert stylesheet.count("overflow-y: auto") == 2
+    assert stylesheet.count("overflow-y: auto") == 3
     assert "overscroll-behavior: contain" in stylesheet
     assert "scrollbar-width: thin" in stylesheet
     assert "overflow-x: auto" not in stylesheet
@@ -331,7 +399,19 @@ def test_web_typography_is_self_hosted_and_density_has_one_source_of_truth() -> 
     )
     assert "SIL OPEN FONT LICENSE" in (STATIC_DIR / "fonts" / "OFL.txt").read_text()
     assert 'href="./fonts/InterVariable.woff2" as="font"' in html
-    assert "font-variant-numeric: tabular-nums" in stylesheet
+    assert "font-variant-numeric: lining-nums tabular-nums" in stylesheet
+    for token, value in [
+        ("text-caption", "10px"),
+        ("text-label", "11px"),
+        ("text-value", "12px"),
+        ("text-heading", "13px"),
+        ("text-focus", "14px"),
+    ]:
+        assert f"--{token}: {value};" in stylesheet
+        assert f"font-size: var(--{token})" in stylesheet
+    assert "--weight-label: 400;" in stylesheet
+    assert "--weight-value: 500;" in stylesheet
+    assert "--weight-heading: 600;" in stylesheet
     assert "document.fonts.load" in script
     assert "font: '500 12px \"Inter\", sans-serif'" in mission
     assert 'satellite_id.split("_")[0]' not in mission

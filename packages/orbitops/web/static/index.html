@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://gibs.earthdata.nasa.gov">
   <link id="cesium-styles" rel="preload" as="style" href="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Widgets/widgets.css">
   <link rel="preload" href="./fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="./app.css?v=0.21.0">
+  <link rel="stylesheet" href="./app.css?v=0.39.0">
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -38,11 +38,7 @@
     <header class="masthead">
       <div class="brand-block">
         <a class="brand" href="./" aria-label="OrbitOps home"><svg class="brand-mark"><use href="#i-orbit"/></svg><span>ORBIT<span class="brand-accent">OPS</span></span></a>
-        <button id="replay-time-button" type="button" class="replay-time-button" aria-label="Choose replay time in UTC" aria-expanded="false" aria-controls="replay-time-picker"><time id="replay-time">— UTC</time></button>
-        <form id="replay-time-picker" class="replay-time-picker" aria-label="Jump to UTC time" hidden>
-          <label for="replay-utc-input"><span class="field-label">UTC time</span><input id="replay-utc-input" type="datetime-local" min="0001-01-01T00:00:00" max="9999-12-31T23:59:59" step="1" required></label>
-          <button type="submit" class="time-jump-button">Go</button>
-        </form>
+        <time id="replay-time">— UTC</time>
       </div>
       <h1 class="visually-hidden">OrbitOps</h1>
       <span class="header-rule" aria-hidden="true"></span>
@@ -57,17 +53,12 @@
       <button id="workspace-summary" type="button" data-workspace-view="summary" aria-pressed="false" aria-controls="inspector">Results</button>
     </nav>
     <div class="workspace">
-      <aside id="experiment" class="config-panel" aria-label="Task list and algorithm comparison">
+      <aside id="experiment" class="config-panel" aria-label="Task list and satellite workload">
         <section class="target-catalog command-card console-panel" aria-labelledby="targets-title">
           <div class="section-heading"><h3 id="targets-title">Task List</h3><select id="target-filter" aria-label="Filter task status"><option value="all">All tasks</option><option value="planned">Planned</option><option value="unassigned">Unassigned</option><option value="active">Active now</option></select></div>
-          <div class="catalog-head"><span>TARGET / PRIORITY</span><span>STATE</span></div>
           <div id="target-list" class="target-list" aria-label="Mission tasks" tabindex="0"><p class="chart-empty">Awaiting mission data</p></div>
         </section>
-        <section class="comparison-card command-card console-panel" aria-labelledby="comparison-title">
-          <div class="section-heading"><h3 id="comparison-title">Comparison</h3></div>
-          <div class="comparison-plot"><div id="comparison-chart" class="radar-host" aria-label="Algorithm metric radar chart"></div><div id="comparison-legend" class="radar-legend" role="group" aria-label="Compare optimization algorithms"></div></div>
-          <dl id="comparison-values" class="radar-values" aria-label="Selected algorithm raw metrics"></dl>
-        </section>
+        <article class="resource-block visual-block command-card console-panel" aria-labelledby="resources-title"><div class="section-heading"><h3 id="resources-title">Satellite</h3></div><div id="resource-chart" class="chart-host" aria-label="Satellite observation workload" tabindex="0"><p class="chart-empty">Awaiting plan</p></div></article>
       </aside>
       <section id="results" class="center-workspace" aria-label="Mission workspace">
         <article class="globe-card command-card" aria-labelledby="globe-title">
@@ -104,12 +95,26 @@
             <div id="globe-hover" class="globe-hover" role="tooltip" hidden></div>
             <button id="north-view" class="viewport-compass" type="button" title="Face north" aria-label="Face north" disabled>
               <svg class="compass-dial" viewBox="0 0 48 48" aria-hidden="true">
-                <circle class="compass-bezel" cx="24" cy="24" r="23"/>
+                <defs>
+                  <linearGradient id="compass-face" x1="0" y1="0" x2="0.75" y2="1">
+                    <stop offset="0" stop-color="#182d3e"/><stop offset="1" stop-color="#07121d"/>
+                  </linearGradient>
+                  <linearGradient id="compass-rim" x1="0" y1="0" x2="0.5" y2="1">
+                    <stop offset="0" stop-color="#6b879b"/><stop offset="0.5" stop-color="#2b4558"/><stop offset="1" stop-color="#1b3041"/>
+                  </linearGradient>
+                  <linearGradient id="compass-needle" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="#b4f3ff"/><stop offset="1" stop-color="#6ad6ee"/>
+                  </linearGradient>
+                </defs>
+                <circle class="compass-bezel" cx="24" cy="24" r="22.5"/>
+                <circle class="compass-inner-ring" cx="24" cy="24" r="20.5"/>
                 <g class="compass-rose">
-                  <circle class="compass-ticks" cx="24" cy="24" r="20" pathLength="72"/>
-                  <path class="compass-cardinals" d="M24 4v3m20 17h-3M24 44v-3M4 24h3"/>
-                  <path class="compass-south" d="m24 34-3.5-10 3.5 2 3.5-2Z"/>
-                  <path class="compass-north" d="m24 15 4.5 11-4.5-2-4.5 2Z"/>
+                  <circle class="compass-ticks" cx="24" cy="24" r="18.5" pathLength="72"/>
+                  <path class="compass-cardinals" d="M42.5 24h-3M24 42.5v-3M5.5 24h3"/>
+                  <path class="compass-south" d="m24 35-3.5-11 3.5 1.5 3.5-1.5Z"/>
+                  <path class="compass-north" d="m24 14 5 13-5-2.5-5 2.5Z"/>
+                  <path class="compass-needle-facet" d="M24 14v10.5l5 2.5Z"/>
+                  <circle class="compass-pivot" cx="24" cy="24.5" r="1.5"/>
                   <g class="compass-north-label"><text x="24" y="11">N</text></g>
                 </g>
               </svg>
@@ -141,9 +146,14 @@
           </article>
         </section>
       </section>
-      <aside id="inspector" class="inspector-panel" aria-labelledby="results-title">
-        <div class="inspector-card command-card console-panel">
-        <div class="panel-heading inspector-heading"><h2 id="results-title">Plan summary</h2><div class="inspector-tabs" role="tablist" aria-label="Inspector views"><button id="tab-selection" type="button" role="tab" aria-selected="true" aria-controls="inspector-selection" data-inspector-tab="selection">Selection</button><button id="tab-evaluation" type="button" role="tab" aria-selected="false" aria-controls="inspector-evaluation" tabindex="-1" data-inspector-tab="evaluation">Metrics</button></div></div>
+      <aside id="inspector" class="inspector-panel" aria-label="Algorithm comparison and plan summary">
+        <section class="comparison-card command-card console-panel" aria-labelledby="comparison-title">
+          <div class="section-heading"><h3 id="comparison-title">Comparison</h3></div>
+          <div class="comparison-plot"><div id="comparison-chart" class="radar-host" aria-label="Algorithm metric radar chart"></div><div id="comparison-legend" class="radar-legend" role="group" aria-label="Compare optimization algorithms"></div></div>
+          <dl id="comparison-values" class="radar-values" aria-label="Selected algorithm raw metrics"></dl>
+        </section>
+        <div class="inspector-card command-card console-panel" aria-labelledby="results-title">
+        <div class="panel-heading inspector-heading"><h2 id="results-title">Task details</h2><div class="inspector-tabs" role="tablist" aria-label="Inspector views"><button id="tab-selection" type="button" role="tab" aria-selected="true" aria-controls="inspector-selection" data-inspector-tab="selection">Selection</button><button id="tab-evaluation" type="button" role="tab" aria-selected="false" aria-controls="inspector-evaluation" tabindex="-1" data-inspector-tab="evaluation">Metrics</button></div></div>
         <section id="inspector-selection" class="selection-panel" role="tabpanel" aria-labelledby="tab-selection"><div class="selection-heading"><svg><use href="#i-target"/></svg><div><h3 id="selected-id">No target selected</h3></div><span id="selected-state" class="target-state">—</span></div><dl class="selection-details"><div><dt>Coordinates</dt><dd id="selected-coordinates">—</dd></div><div><dt>Priority / duration</dt><dd id="selected-priority">—</dd></div><div><dt>Satellite</dt><dd id="selected-assignment">—</dd></div><div><dt>Observation · UTC</dt><dd id="selected-window">—</dd></div><div><dt id="selected-resource-label">Data / orbit</dt><dd id="selected-resources">—</dd></div></dl></section>
         <section id="inspector-evaluation" class="metrics-panel" role="tabpanel" aria-labelledby="tab-evaluation" hidden>
           <dl class="metric-details">
@@ -158,7 +168,6 @@
           </dl>
         </section>
         </div>
-        <article class="resource-block visual-block command-card console-panel" aria-labelledby="resources-title"><div class="section-heading"><h3 id="resources-title">Satellite workload</h3></div><div id="resource-chart" class="chart-host"><p class="chart-empty">Awaiting plan</p></div></article>
       </aside>
     </div>
     <footer class="status-bar"><span id="status-indicator" class="live-dot"></span><p id="status" class="status" aria-live="polite">Loading EOS-Bench…</p><span class="status-end">WGS84 · UTC</span></footer>
@@ -166,12 +175,12 @@
   <script src="./deployment-config.js?v=0.2.0"></script>
   <script src="./cesium-config.js?v=0.2.0"></script>
   <script id="cesium-engine" src="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Cesium.js" async></script>
-  <script src="./replay.js?v=0.27.0" defer></script>
-  <script src="./orbit-model.js?v=0.27.0" defer></script>
-  <script src="./orbit-ephemeris.js?v=0.27.0" defer></script>
-  <script src="./satellite-attitude.js?v=0.27.0" defer></script>
-  <script src="./sensor-fov.js?v=0.27.0" defer></script>
-  <script src="./mission.js?v=0.27.0" defer></script>
-  <script src="./app.js?v=0.27.0" defer></script>
+  <script src="./replay.js?v=0.41.0" defer></script>
+  <script src="./orbit-model.js?v=0.41.0" defer></script>
+  <script src="./orbit-ephemeris.js?v=0.41.0" defer></script>
+  <script src="./satellite-attitude.js?v=0.41.0" defer></script>
+  <script src="./sensor-fov.js?v=0.41.0" defer></script>
+  <script src="./mission.js?v=0.41.0" defer></script>
+  <script src="./app.js?v=0.41.0" defer></script>
 </body>
 </html>

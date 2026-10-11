@@ -46,7 +46,6 @@ function configureReplay(payload) {
   state.attitudeFrames.clear();
   state.ephemerisReady = ensureEphemeris();
   updateReplayDirection();
-  setReplayPickerOpen(false);
   const slider = document.getElementById("replay-scrub");
   slider.min = payload.scenario.horizon_start_s;
   slider.max = payload.scenario.horizon_end_s;
@@ -69,22 +68,13 @@ function configureReplay(payload) {
   setPlaybackControl(false);
 }
 
-function satelliteAssignment(id, time) {
-  const items = state.satelliteSchedules.get(id) || [];
-  let low = 0, high = items.length;
-  while (low < high) { const middle = (low + high) >>> 1; if (items[middle].start_s <= time) low = middle + 1; else high = middle; }
-  const assignment = items[low - 1];
-  return assignment && time < assignment.end_s ? assignment : null;
-}
-
 function satelliteFrame(id, time = state.replay.time) {
-  const assignment = satelliteAssignment(id, time);
   const cached = state.attitudeFrames.get(id), revision = state.ephemeris.revision;
-  if (cached && cached.time === time && cached.revision === revision && cached.assignment === assignment) return cached.frame;
+  if (cached && cached.time === time && cached.revision === revision) return cached.frame;
   const model = state.orbitModels.get(id);
   const frame = window.SatelliteAttitude.replay(state.satelliteSchedules.get(id) || [], time, model,
     state.currentPayload.replay.attitude?.sample_step_s ?? 1, revision);
-  state.attitudeFrames.set(id, {assignment, time, revision, frame});
+  state.attitudeFrames.set(id, {time, revision, frame});
   return frame;
 }
 
@@ -170,18 +160,6 @@ function updateReplayDirection() {
   button.title = reversed ? "Playing backwards" : "Playing forwards";
 }
 
-function setReplayPickerOpen(open) {
-  const picker = document.getElementById("replay-time-picker");
-  picker.hidden = !open;
-  document.getElementById("replay-time-button").setAttribute("aria-expanded", String(open));
-  if (open) {
-    pauseReplay();
-    const input = document.getElementById("replay-utc-input");
-    input.value = new Date(Date.parse(state.currentPayload.scenario.epoch_utc) + state.replay.time * 1000).toISOString().slice(0, 19);
-    input.focus();
-  }
-}
-
 function pauseReplay() {
   state.replay.playing = false;
   state.replay.lastFrame = 0;
@@ -204,11 +182,18 @@ function animateReplay(timestamp) {
   const next = state.replay.time + elapsed * state.replay.speed * state.replay.direction;
   if (!validReplayTime(next)) { setReplayTime(next, true); return; }
   state.replay.time = next;
-  const movingAttitude = state.globe && [...state.attitudeFrames.values()].some(
-    item => item.frame?.phase && item.frame.phase !== "idle");
-  // Keep the cone, spacecraft and current footprint on one clock. During a
-  // maneuver/observation use ~30 Hz, without rebuilding the offline SVG at that rate.
-  if (timestamp - state.replay.lastPaint > (movingAttitude ? 32 : 100)) {
+  if (state.globe) {
+    // Native EntityView and model callbacks must see every playback frame, not
+    // the 10 Hz UI clock. Otherwise idle and observing intervals have different
+    // camera cadences even when the renderer itself keeps running at 60 Hz.
+    updateCesiumClock();
+    // All cone apexes and ground rims share that exact frame, including nearby
+    // spacecraft visible in Follow. A second UI refresh reuses their geometry.
+    updateSensorFovs();
+    state.globe.scene.requestRender();
+  }
+  // Task states, telemetry and the offline SVG have their own bounded cadence.
+  if (timestamp - state.replay.lastPaint >= 100) {
     updateReplayVisuals();
     state.replay.lastPaint = timestamp;
   }
@@ -256,7 +241,7 @@ function updateReplayVisuals() {
   if (elements.globe.dataset.orbitBasis !== basis) elements.globe.dataset.orbitBasis = basis;
   textField("replay-time", window.OrbitReplay.utc(payload.scenario.epoch_utc, time, true));
   setAttributeIfChanged(document.getElementById("replay-time"), "datetime", new Date(Date.parse(payload.scenario.epoch_utc) + time * 1000).toISOString());
-  setAttributeIfChanged(document.getElementById("replay-time-button"), "title", extended ? "UTC · estimated two-body orbit · no task execution. Click to jump to a time." : precise ? "UTC · 1 s source ephemeris. Click to jump to a time." : "UTC · 30 s preview while source ephemeris loads. Click to jump to a time.");
+  setAttributeIfChanged(document.getElementById("replay-time"), "title", extended ? "UTC · estimated two-body orbit · no task execution" : precise ? "UTC · 1 s source ephemeris" : "UTC · 30 s preview while source ephemeris loads");
   updateReplayWindow();
   const timeline = elements.timeline.querySelector(".timeline-lanes");
   if (timeline && (Number(timeline.dataset.windowStart) !== state.replay.windowStart || Number(timeline.dataset.windowEnd) !== state.replay.windowEnd)) renderReferenceGantt();
@@ -552,23 +537,26 @@ function renderReferenceGantt() {
 function renderWorkloads() {
   const {reference_plan: plan, scenario} = state.currentPayload;
   const width = Math.max(180, elements.resources.clientWidth);
-  const height = Math.max(65, elements.resources.clientHeight);
   const rowHeight = layoutSize("workload-row-height");
-  const capacity = Math.max(1, Math.min(scenario.satellites.length, Math.floor(height / rowHeight)));
+  const height = Math.max(65, scenario.satellites.length * rowHeight + 4);
+  const scrollTop = elements.resources.scrollTop;
   const labelWidth = Math.min(108, width * .43);
   const barWidth = Math.max(12, width - labelWidth - 46);
   const focusedSatellite = elements.resources.contains(document.activeElement) ? document.activeElement.dataset.satelliteId : null;
   const selected = state.selectedSatelliteId;
-  const sorted = scenario.satellites.map((satellite) => ({id: satellite.satellite_id, load: plan.workloads[satellite.satellite_id]})).sort((a, b) => b.load - a.load || a.id.localeCompare(b.id));
-  const rows = sorted.slice(0, capacity);
-  if (selected && !rows.some((row) => row.id === selected)) rows[rows.length - 1] = sorted.find((row) => row.id === selected);
-  const maximum = Math.max(1, ...sorted.map((row) => row.load));
-  const root = chart(width, height, "Satellite observation workload", "Highest-workload satellites plus the selected satellite. All satellites are available in the timeline. Source observation durations in seconds, not battery or storage traces.");
+  const rows = scenario.satellites.map((satellite) => ({id: satellite.satellite_id, load: plan.workloads[satellite.satellite_id]})).sort((a, b) => b.load - a.load || a.id.localeCompare(b.id));
+  const maximum = Math.max(1, ...rows.map((row) => row.load));
+  const root = chart(width, height, "Satellite observation workload", "All satellites, including zero-workload satellites, are reachable through internal scrolling. Source observation durations in seconds, not battery or storage traces.");
+  root.setAttribute("preserveAspectRatio", "none");
+  root.style.height = `${height}px`;
   const defs = svgElement("defs");
   appendChartGradient(defs, "workload-fill", [["0%", "#38677f"], ["60%", "#639eb7"], ["100%", "#9acedd"]], false, true);
   appendChartGradient(defs, "workload-selected", [["0%", "#86714e"], ["60%", "#b29a72"], ["100%", "#e1c99f"]], false, true);
   appendChartGradient(defs, "workload-recess", [["0%", "#080f1a"], ["100%", "#142133"]]);
   appendChartDepth(defs, "workload-depth");
+  const labelClip = svgElement("clipPath", {id: "workload-label-clip"});
+  labelClip.append(svgElement("rect", {x: 6, y: 0, width: labelWidth - 12, height}));
+  defs.append(labelClip);
   root.append(defs);
   rows.forEach((row, index) => {
     const y = 7 + index * rowHeight;
@@ -576,7 +564,7 @@ function renderWorkloads() {
     group.append(svgElement("title", {}, `${row.id} · ${row.load} s`));
     group.append(svgElement("rect", {x: 0, y: y - 6, width, height: rowHeight, class: "workload-row-band"}));
     if (row.id === selected) group.append(svgElement("rect", {x: 0, y: y + 2, width: 2, height: 8, rx: 1, class: "workload-selection-marker", "aria-hidden": "true"}));
-    group.append(svgElement("text", {x: 6, y: y + 10, class: "chart-axis"}, satelliteName(row.id)));
+    group.append(svgElement("text", {x: 6, y: y + 10, class: "chart-axis workload-label", "clip-path": "url(#workload-label-clip)"}, satelliteName(row.id)));
     group.append(svgElement("rect", {x: labelWidth, y: y + 2, width: barWidth, height: 8, rx: 2, class: "workload-track"}));
     for (const tick of [.25, .5, .75]) {
       group.append(svgElement("line", {x1: labelWidth + tick * barWidth, x2: labelWidth + tick * barWidth, y1: y + 3, y2: y + 9, class: "workload-tick", "aria-hidden": "true"}));
@@ -587,11 +575,12 @@ function renderWorkloads() {
     const value = svgElement("text", {x: width - 1, y: y + 10, "text-anchor": "end", class: "chart-axis workload-value"});
     value.append(svgElement("tspan", {}, String(row.load)), svgElement("tspan", {class: "workload-unit"}, " s"));
     group.append(value);
-    group.addEventListener("click", () => selectSatellite(row.id));
-    group.addEventListener("keydown", (event) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); selectSatellite(row.id); } });
+    group.addEventListener("click", () => selectSatellite(row.id, true));
+    group.addEventListener("keydown", (event) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); selectSatellite(row.id, true); } });
     root.append(group);
   });
   elements.resources.replaceChildren(root);
+  elements.resources.scrollTop = scrollTop;
   if (focusedSatellite) elements.resources.querySelector(`[data-satellite-id="${CSS.escape(focusedSatellite)}"]`)?.focus({preventScroll: true});
 }
 
@@ -723,6 +712,7 @@ function updateSensorFovs() {
     }
     return;
   }
+  const seconds = Cesium.JulianDate.secondsDifference(viewer.clock.currentTime, viewer.clock.startTime);
   for (const [id, sensor] of state.sensorFovs) {
     if (sensor.time && sensor.revision === state.ephemeris.revision && Cesium.JulianDate.equals(sensor.time, viewer.clock.currentTime)) {
       updateSensorVolume(sensor, volumeVisible);
@@ -730,7 +720,7 @@ function updateSensorFovs() {
       continue;
     }
     const position = state.orbitPositions.get(id)?.getValue(viewer.clock.currentTime);
-    const attitude = satelliteFrame(id);
+    const attitude = satelliteFrame(id, seconds);
     const frame = position && window.SensorFov.frame([position.x, position.y, position.z], attitude?.direction, attitude?.x);
     sensor.revision = state.ephemeris.revision;
     sensor.time = Cesium.JulianDate.clone(viewer.clock.currentTime, sensor.time || new Cesium.JulianDate());
@@ -779,6 +769,9 @@ function setupReferenceGlobe(viewer, Cesium) {
         return attitude && Cesium.Quaternion.fromRotationMatrix(Cesium.Matrix3.fromArray(attitude.modelAxes), result);
       }, false),
       viewFrom: new Cesium.Cartesian3(-1800000, -1800000, 1600000),
+      // A fixed velocity frame follows the orbit, not the task's body attitude.
+      // Do not let AUTO choose a different frame when source precision changes.
+      trackingReferenceFrame: Cesium.TrackingReferenceFrame.VELOCITY,
       model: {uri: "./models/earth-observer.glb?v=0.15.0", scale: 1, minimumPixelSize: 28,
         maximumScale: 120000, runAnimations: false, shadows: Cesium.ShadowMode.DISABLED,
         silhouetteColor: color, silhouetteSize: 0, environmentMapOptions: {enabled: false}},
@@ -798,7 +791,7 @@ function setupReferenceGlobe(viewer, Cesium) {
         distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, task.task_id === state.selectedTaskId ? Infinity : 3500000)}});
   });
   const altitude = Math.max(...payload.replay.orbits.map((orbit) => Math.max(...orbit.samples.map((sample) => sample[3]))));
-  state.cameraHome = {missionCenter: new Cesium.BoundingSphere(Cesium.Cartesian3.ZERO, Cesium.Ellipsoid.WGS84.maximumRadius + altitude), global: true, longitudeCenter: 105, latitudeCenter: 20};
+  state.cameraHome = {missionCenter: new Cesium.BoundingSphere(Cesium.Cartesian3.ZERO, Cesium.Ellipsoid.WGS84.maximumRadius + altitude), longitudeCenter: 105, latitudeCenter: 20};
   fitMissionView();
   elements.globe.dataset.engine = "cesium";
   updateMapViewControls();
@@ -812,11 +805,20 @@ function windowForOrbit(orbit) {
   return {start: state.replay.time - half, end: state.replay.time + half, past: half, future: half};
 }
 
+function updateCesiumClock() {
+  const viewer = state.globe, Cesium = window.Cesium;
+  if (!viewer || !state.currentPayload?.scenario.epoch_utc) return;
+  // setupReferenceGlobe stores the source epoch once. Avoid reparsing UTC on
+  // each frame, and retain a distinct date for Cesium's change detection.
+  viewer.clock.currentTime = Cesium.JulianDate.addSeconds(viewer.clock.startTime,
+    state.replay.time, new Cesium.JulianDate());
+}
+
 function updateCesiumReplay() {
   const viewer = state.globe;
   const Cesium = window.Cesium;
   const payload = state.currentPayload;
-  if (payload.scenario.epoch_utc) viewer.clock.currentTime = Cesium.JulianDate.addSeconds(Cesium.JulianDate.fromIso8601(payload.scenario.epoch_utc), state.replay.time, new Cesium.JulianDate());
+  updateCesiumClock();
   payload.scenario.tasks.forEach((task) => {
     const entity = viewer.entities.getById(`target-${task.task_id}`);
     const current = taskState(task.task_id);
@@ -826,19 +828,17 @@ function updateCesiumReplay() {
     }
   });
   if (payload.replay) {
-    const selectionKey = `${state.selectedSatelliteId}:${state.selectedTaskId}:${state.layers.labels}:${state.layers.satelliteLabels}:${state.orbitEmphasis}`;
+    const selectionKey = `${state.selectedSatelliteId}:${state.selectedTaskId}:${state.layers.labels}:${state.layers.satelliteLabels}:${state.layers.track}:${state.orbitEmphasis}`;
     const changed = selectionKey !== state.geometrySelectionKey;
     payload.replay.orbits.forEach((orbit) => {
-      const bounds = windowForOrbit(orbit);
       const selected = orbit.satellite_id === state.selectedSatelliteId;
       const past = viewer.entities.getById(`orbit-${orbit.satellite_id}`)?.path;
       const future = viewer.entities.getById(`orbit-preview-${orbit.satellite_id}`)?.path;
       if (!past || !future) return;
-      past.trailTime = bounds.past;
-      future.leadTime = bounds.future;
-      past.show = state.layers.track && bounds.past > 0;
-      future.show = state.layers.track && bounds.future > 0;
       if (changed) {
+        // Lead/trail durations are fixed at setup. Replacing ConstantProperty
+        // values on every UI tick needlessly invalidates both path visualizers.
+        past.show = future.show = state.layers.track;
         const styles = state.orbitStyles.get(orbit.satellite_id)[selected ? "selected" : state.selectedSatelliteId && state.orbitEmphasis ? "dimmed" : "normal"];
         past.material = styles.past;
         future.material = styles.future;
@@ -866,7 +866,6 @@ function updateCesiumReplay() {
   }
   updateSensorFovs();
   updateSolarEnvironment();
-  updatePlanarFollow();
   viewer.scene.requestRender();
 }
 
@@ -958,23 +957,32 @@ function updateFallbackReplay() {
 }
 
 function releaseCameraTracking() {
+  cancelSelectionFlight();
   if (!state.globe || !window.Cesium) return;
   state.globe.trackedEntity = undefined;
-  if (!state.viewTransition) state.globe.camera.lookAtTransform(window.Cesium.Matrix4.IDENTITY);
+  if (!state.viewTransition && state.viewMode === "3d") state.globe.camera.lookAtTransform(window.Cesium.Matrix4.IDENTITY);
 }
 
-function selectSatellite(id) {
+function selectSatellite(id, reorient = false) {
   if (!state.currentPayload?.replay?.orbits.some((orbit) => orbit.satellite_id === id)) return;
+  cancelSelectionFlight();
+  if (reorient && state.globe && !state.viewTransition) {
+    state.globe.camera.cancelFlight();
+    releaseCameraTracking();
+    state.cameraMode = "manual";
+  }
   if (state.selectedSatelliteId !== id) delete document.getElementById("orbit-hud").dataset.anchorSide;
   state.selectedSatelliteId = id;
   state.satelliteDetailsOpen = true;
   state.orbitEmphasis = true;
   updateReplayVisuals();
   renderWorkloads();
+  revealWorkloadSatellite(id);
   if (!document.getElementById("pane-timeline").hidden) {
     renderReferenceGantt();
     revealTimelineSatellite(id);
   }
+  if (reorient) orientToMissionSelection("satellite", id);
 }
 
 function updateOrbitHud() {
@@ -982,7 +990,9 @@ function updateOrbitHud() {
   const orbit = state.currentPayload?.replay?.orbits.find((item) => item.satellite_id === state.selectedSatelliteId);
   const hud = document.getElementById("orbit-hud");
   if (!reference || !orbit || !state.satelliteDetailsOpen || state.viewTransition) hud.hidden = true;
-  const available = Boolean(!state.viewTransition && orbit && state.globe?.entities.getById(`satellite-${orbit.satellite_id}`));
+  const followId = followSatelliteId();
+  const available = Boolean(!state.viewTransition && reference && followId
+    && (!state.globe || state.globe.entities.getById(`satellite-${followId}`)));
   document.getElementById("camera-follow").disabled = !available;
   document.getElementById("north-view").disabled = !state.globe || state.viewTransition;
   updateCameraCompass();
@@ -992,7 +1002,7 @@ function updateOrbitHud() {
   document.getElementById("camera-follow").title = state.cameraMode === "follow" ? "Stop following satellite" : "Follow selected satellite";
   if (!reference) return;
   satelliteDetailField("satellite-name", orbit ? satelliteName(orbit.satellite_id) : "Select a satellite",
-    orbit?.satellite_id || "Pick a satellite symbol or select an assigned task");
+    orbit?.satellite_id || "Pick a satellite symbol or select a Satellite row");
   const swatch = document.getElementById("satellite-swatch"), color = orbit ? orbitColor(orbit.satellite_id) : "#596777";
   if (swatch.dataset.color !== color) {
     swatch.style.backgroundColor = color;
@@ -1073,10 +1083,83 @@ function cameraMotionDuration() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : .65;
 }
 
+function cancelSelectionFlight() {
+  if (!state.selectionFlight) return;
+  cancelAnimationFrame(state.selectionFlight.frame);
+  state.selectionFlight = null;
+}
+
+function orientToMissionSelection(kind, id) {
+  const viewer = state.globe, Cesium = window.Cesium;
+  // Unfolded maps retain the user's extent: selecting an object only highlights it.
+  if (!viewer || !Cesium || state.viewTransition || state.viewMode !== "3d") return;
+  const getPosition = () => kind === "satellite"
+    ? state.orbitPositions.get(id)?.getValue(viewer.clock.currentTime)
+    : viewer.entities.getById(`target-${id}`)?.position.getValue(viewer.clock.currentTime);
+  const target = getPosition();
+  if (!target) return;
+  viewer.camera.cancelFlight();
+  releaseCameraTracking();
+  state.cameraMode = "manual";
+  // Cesium 1.143 exposes no public stop-inertia method. Discard only its cached
+  // input samples so an earlier drag/zoom cannot pull the completed view away.
+  // A new map gesture produces fresh samples; normal inertia settings stay intact.
+  const aggregator = viewer.scene.screenSpaceCameraController._aggregator;
+  aggregator?.reset();
+  for (const movement of Object.values(aggregator?._lastMovement || {})) movement.valid = false;
+  const camera = viewer.camera, replay = window.OrbitReplay;
+  const start = Cesium.Cartesian3.clone(camera.positionWC);
+  const direction = Cesium.Cartesian3.clone(camera.directionWC), up = Cesium.Cartesian3.clone(camera.upWC);
+  const array = vector => [vector.x, vector.y, vector.z];
+  const cartesian = values => new Cesium.Cartesian3(...values);
+  const eye = array(start), initialDirection = array(direction), initialUp = array(up);
+  const radius = Math.hypot(...eye);
+  // Orbit on a shortest great-circle arc, not a longitude interpolation. This
+  // also avoids a long turn across the date line or a detour over the poles.
+  // Gently remove an existing off-centre tilt without resetting screen roll.
+  const align = replay.shortestArc(initialDirection, eye.map(value => -value), initialUp);
+  const pose = (fraction, position) => {
+    const arc = replay.shortestArc(eye, array(position), initialUp);
+    const distance = Math.max(radius, Cesium.Cartesian3.magnitude(position) + 100000);
+    const scale = 1 + (distance / radius - 1) * fraction;
+    return {
+      position: cartesian(replay.rotateVector(eye, arc, fraction).map(value => value * scale)),
+      direction: cartesian(replay.rotateVector(replay.rotateVector(initialDirection, align, fraction), arc, fraction)),
+      up: cartesian(replay.rotateVector(replay.rotateVector(initialUp, align, fraction), arc, fraction)),
+    };
+  };
+  const apply = fraction => {
+    const position = getPosition();
+    if (!position) return;
+    const next = pose(fraction, position);
+    camera.worldToCameraCoordinatesPoint(next.position, camera.position);
+    camera.worldToCameraCoordinatesVector(next.direction, camera.direction);
+    camera.worldToCameraCoordinatesVector(next.up, camera.up);
+    Cesium.Cartesian3.cross(camera.direction, camera.up, camera.right);
+    viewer.scene.requestRender();
+  };
+  const duration = cameraMotionDuration() * 1000;
+  if (duration === 0) apply(1);
+  else {
+    const flight = {frame: null, started: performance.now()};
+    const tick = now => {
+      if (state.selectionFlight !== flight) return;
+      if (viewer.isDestroyed() || state.viewTransition) { cancelSelectionFlight(); return; }
+      const fraction = Math.max(0, Math.min(1, (now - flight.started) / duration));
+      apply(fraction * fraction * (3 - 2 * fraction));
+      if (fraction < 1) flight.frame = requestAnimationFrame(tick);
+      else state.selectionFlight = null;
+    };
+    state.selectionFlight = flight;
+    flight.frame = requestAnimationFrame(tick);
+  }
+  updateOrbitHud();
+}
+
 function focusSelectedSatellite() {
   const viewer = state.globe;
   const Cesium = window.Cesium;
-  if (!viewer || !Cesium || state.viewTransition) return;
+  if (!viewer || !Cesium || state.viewTransition || state.viewMode !== "3d") return;
   const position = state.orbitPositions.get(state.selectedSatelliteId)?.getValue(viewer.clock.currentTime);
   if (!position) return;
   releaseCameraTracking();
@@ -1084,41 +1167,42 @@ function focusSelectedSatellite() {
   state.orbitEmphasis = true;
   const range = window.OrbitReplay.fitRange(1000000, viewer.camera.frustum.fovy || Cesium.Math.PI_OVER_THREE, elements.globe.clientWidth / Math.max(1, elements.globe.clientHeight), 1.1);
   viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(position, 1000000), {
-    duration: cameraMotionDuration(), offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(state.viewMode === "2d" ? -90 : -65), range),
+    duration: cameraMotionDuration(), offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-65), range),
   });
   viewer.scene.requestRender();
   updateOrbitHud();
   updateReplayVisuals();
 }
 
+function followSatelliteId() {
+  const orbits = state.currentPayload?.replay?.orbits || [];
+  const assignedId = state.assignments.get(state.selectedTaskId)?.satellite_id;
+  return orbits.find(orbit => orbit.satellite_id === state.selectedSatelliteId)?.satellite_id
+    || orbits.find(orbit => orbit.satellite_id === assignedId)?.satellite_id
+    || orbits[0]?.satellite_id || null;
+}
+
 function followSelectedSatellite() {
   if (state.viewTransition) return;
   const viewer = state.globe;
-  const entity = viewer?.entities.getById(`satellite-${state.selectedSatelliteId}`);
-  if (!entity || !entity.position.getValue(viewer.clock.currentTime)) return;
+  const id = followSatelliteId();
+  if (!id) return;
+  const entity = viewer?.entities.getById(`satellite-${id}`);
+  if (viewer && (!entity || !entity.position.getValue(viewer.clock.currentTime))) return;
+  // Follow can be started from a task selection or the initial overview. Only
+  // this explicit action resolves a satellite; picking a task still does not.
+  if (state.selectedSatelliteId !== id) selectSatellite(id);
   state.cameraMode = "follow";
   state.orbitEmphasis = true;
-  viewer.camera.cancelFlight();
-  if (state.viewMode === "2d") {
-    // In 2D, track the source sub-satellite position without an ENU camera transform.
-    // Native EntityView retains a 3D local offset that can move the whole map offscreen.
-    releaseCameraTracking();
-    updatePlanarFollow();
-  } else if (viewer.trackedEntity !== entity) viewer.trackedEntity = entity;
-  viewer.scene.requestRender();
+  cancelSelectionFlight();
+  viewer?.camera.cancelFlight();
+  // Keep Follow's selection/telemetry updates in unfolded views without moving
+  // the map, even across the date line. Native EntityView is enabled only in 3D.
+  if (viewer && state.viewMode === "3d") {
+    if (viewer.trackedEntity !== entity) viewer.trackedEntity = entity;
+  } else if (viewer?.trackedEntity) releaseCameraTracking();
+  viewer?.scene.requestRender();
   updateOrbitHud();
-}
-
-function updatePlanarFollow() {
-  const viewer = state.globe;
-  if (!viewer || state.viewTransition || state.viewMode !== "2d" || state.cameraMode !== "follow") return;
-  const Cesium = window.Cesium;
-  const position = state.orbitPositions.get(state.selectedSatelliteId)?.getValue(viewer.clock.currentTime);
-  if (!position) return;
-  const target = Cesium.Cartographic.fromCartesian(position);
-  const height = Math.max(15000, viewer.camera.positionCartographic.height);
-  viewer.camera.setView({destination: Cesium.Cartesian3.fromRadians(target.longitude, target.latitude, height),
-    orientation: {heading: 0, pitch: -Cesium.Math.PI_OVER_TWO, roll: 0}});
 }
 
 function pickedMissionObject(viewer, point) {
@@ -1138,6 +1222,10 @@ function pickedMissionObject(viewer, point) {
 }
 
 function bindGlobePicking(viewer, Cesium) {
+  // Manual map gestures take ownership immediately, rather than fighting the
+  // selection animation. Only 3D list and keyboard selections move the camera.
+  viewer.canvas.addEventListener("pointerdown", cancelSelectionFlight);
+  viewer.canvas.addEventListener("wheel", cancelSelectionFlight, {passive: true});
   const tooltip = document.getElementById("globe-hover");
   const inspect = (point, focus = false) => {
     if (state.viewTransition) return;
@@ -1177,7 +1265,6 @@ function bindGlobePicking(viewer, Cesium) {
   viewer.canvas.addEventListener("mouseleave", () => { clearTimeout(hoverTimer); tooltip.hidden = true; });
   viewer.camera.percentageChanged = .01;
   viewer.camera.changed.addEventListener(() => {
-    updateCameraCompass();
     clearTimeout(hoverTimer);
     tooltip.hidden = true;
   });
@@ -1223,7 +1310,7 @@ function updateCameraCompass() {
   compass.setAttribute("aria-label", `Face north, current heading ${display}`);
 }
 
-const MAP_VIEWS = {"3d": {label: "3D", method: "morphTo3D"}, "2.5d": {label: "2.5D", method: "morphToColumbusView"}, "2d": {label: "2D", method: "morphTo2D"}};
+const MAP_VIEWS = {"3d": "morphTo3D", "2.5d": "morphToColumbusView", "2d": "morphTo2D"};
 
 function updateMapViewControls() {
   const viewer = state.globe;
@@ -1246,6 +1333,7 @@ function updateMapViewControls() {
 
 function bindMapViewEvents(viewer) {
   viewer.scene.morphStart.addEventListener(() => {
+    cancelSelectionFlight();
     state.viewTransition = true;
     updateSensorFovs();
     updateSolarEnvironment();
@@ -1268,7 +1356,7 @@ function setMapViewMode(mode) {
   releaseCameraTracking();
   state.cameraMode = "overview";
   state.orbitEmphasis = false;
-  viewer.scene[MAP_VIEWS[mode].method](cameraMotionDuration());
+  viewer.scene[MAP_VIEWS[mode]](cameraMotionDuration());
   viewer.scene.requestRender();
 }
 
@@ -1340,27 +1428,6 @@ function bindMissionControls() {
   });
   document.getElementById("replay-window-prev").addEventListener("click", () => shiftReplayWindow(-1));
   document.getElementById("replay-window-next").addEventListener("click", () => shiftReplayWindow(1));
-  document.getElementById("replay-time-button").addEventListener("click", () => {
-    if (state.currentPayload) setReplayPickerOpen(document.getElementById("replay-time-picker").hidden);
-  });
-  document.getElementById("replay-time-picker").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const input = document.getElementById("replay-utc-input");
-    const time = (Date.parse(input.value + "Z") - Date.parse(state.currentPayload.scenario.epoch_utc)) / 1000;
-    if (input.reportValidity() && setReplayTime(time, true)) {
-      setReplayPickerOpen(false);
-      document.getElementById("replay-time-button").focus();
-    }
-  });
-  document.addEventListener("click", (event) => {
-    if (!document.getElementById("replay-time-picker").contains(event.target) && !document.getElementById("replay-time-button").contains(event.target)) setReplayPickerOpen(false);
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !document.getElementById("replay-time-picker").hidden) {
-      setReplayPickerOpen(false);
-      document.getElementById("replay-time-button").focus();
-    }
-  });
   document.getElementById("replay-scrub").addEventListener("input", (event) => setReplayTime(event.target.value, true));
   document.getElementById("replay-speed").addEventListener("change", (event) => { state.replay.speed = Number(event.target.value); });
   bindOrbitControls();

@@ -114,6 +114,37 @@ window.OrbitReplay = Object.freeze({
       halfHeight * sin / vertical + halfHeight * cos,
       (halfHeight * sin + altitude * cos) / vertical - halfHeight * cos + altitude * sin) * padding;
   },
+  shortestArc(from, to, preferredAxis = [0, 0, 1]) {
+    const fromLength = Math.hypot(...from), toLength = Math.hypot(...to);
+    if (!(fromLength > 0 && toLength > 0) || !Number.isFinite(fromLength + toLength)) return null;
+    const a = from.map(value => value / fromLength), b = to.map(value => value / toLength);
+    const dot = Math.max(-1, Math.min(1, a.reduce((sum, value, i) => sum + value * b[i], 0)));
+    const axis = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const sine = Math.hypot(...axis);
+    if (sine > 1e-12) return {axis: axis.map(value => value / sine), angle: Math.atan2(sine, dot)};
+    // An antipode has many equally short arcs. Keep the current camera up axis
+    // where possible; use the least parallel coordinate axis at either pole.
+    let seed = preferredAxis;
+    let projection = a.reduce((sum, value, i) => sum + value * seed[i], 0);
+    let tangent = seed.map((value, i) => value - projection * a[i]);
+    if (Math.hypot(...tangent) < 1e-12) {
+      seed = [0, 0, 0];
+      seed[a.map(Math.abs).indexOf(Math.min(...a.map(Math.abs)))] = 1;
+      projection = a.reduce((sum, value, i) => sum + value * seed[i], 0);
+      tangent = seed.map((value, i) => value - projection * a[i]);
+    }
+    const length = Math.hypot(...tangent);
+    return {axis: tangent.map(value => value / length), angle: dot < 0 ? Math.PI : 0};
+  },
+  rotateVector(vector, arc, fraction = 1) {
+    if (!arc || arc.angle === 0) return [...vector];
+    const [x, y, z] = vector, [ax, ay, az] = arc.axis;
+    const cos = Math.cos(arc.angle * fraction), sin = Math.sin(arc.angle * fraction);
+    const dot = ax * x + ay * y + az * z;
+    return [x * cos + (ay * z - az * y) * sin + ax * dot * (1 - cos),
+      y * cos + (az * x - ax * z) * sin + ay * dot * (1 - cos),
+      z * cos + (ax * y - ay * x) * sin + az * dot * (1 - cos)];
+  },
   referencePayload(archive, plan) {
     return {
       mode: "reference", scenario: archive.scenario, replay: archive.replay,

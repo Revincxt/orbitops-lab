@@ -35,6 +35,7 @@ const state = {
   cameraMode: "overview",
   viewMode: "3d",
   viewTransition: false,
+  selectionFlight: null,
   orbitEmphasis: false,
 };
 const deployment = window.ORBITOPS_DEPLOYMENT || { mode: "api" };
@@ -163,7 +164,7 @@ function renderTargetCatalog() {
     status.className = "target-state";
     status.textContent = currentState;
     row.append(dot, name, status);
-    row.addEventListener("click", () => selectTarget(task.task_id));
+    row.addEventListener("click", () => selectTarget(task.task_id, true, true, true));
     return row;
   });
   elements.targetList.replaceChildren(...rows);
@@ -181,19 +182,25 @@ function renderTargetCatalog() {
   }
 }
 
-function selectTarget(taskId, reveal = true, seek = reveal) {
+function selectTarget(taskId, reveal = true, seek = reveal, reorient = false) {
   const payload = state.currentPayload;
   if (!payload) return;
-  const task = payload.scenario.tasks.find((item) => item.task_id === taskId);
+  const task = state.taskById.get(taskId);
   if (!task) return;
   closeSatelliteDetails();
   state.selectedTaskId = taskId;
-  const assignment = payload.result.validation.simulation?.tasks.find((item) => item.task_id === taskId);
-  state.selectedSatelliteId = assignment?.satellite_id || null;
-  if (reveal) state.orbitEmphasis = true;
-  if (!assignment && state.cameraMode === "follow") {
-    releaseCameraTracking();
-    state.cameraMode = "manual";
+  const assignment = state.assignments.get(taskId);
+  // Task selection highlights the target and its timeline bar, not its assigned
+  // satellite. Silent detail refreshes preserve an explicit satellite selection.
+  if (reveal) {
+    cancelSelectionFlight();
+    state.globe?.camera.cancelFlight();
+    if (state.cameraMode === "follow") {
+      releaseCameraTracking();
+      state.cameraMode = "manual";
+    }
+    state.selectedSatelliteId = null;
+    state.orbitEmphasis = false;
   }
   if (seek && assignment) {
     state.replay.windowStart = payload.scenario.horizon_start_s;
@@ -212,21 +219,6 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
   textField("selected-resources", assignment ? `${(assignment.data_volume_gb * 1024).toFixed(2)} MB / #${assignment.orbit_number}` : "No source assignment");
   textField("selected-state", taskState(taskId));
   document.getElementById("selected-state").classList.toggle("scheduled", Boolean(assignment));
-  if (state.globe && window.Cesium) {
-    payload.scenario.tasks.forEach((candidate) => {
-      const entity = state.globe.entities.getById(`target-${candidate.task_id}`);
-      if (entity?.point) {
-        const selected = candidate.task_id === taskId;
-        entity.point.pixelSize = selected ? 10 : 4;
-        entity.point.outlineWidth = selected ? 2 : .5;
-        if (entity.label) {
-          entity.label.show = selected || state.layers.labels;
-          entity.label.distanceDisplayCondition = new window.Cesium.DistanceDisplayCondition(0, selected ? Infinity : 3500000);
-        }
-      }
-    });
-    state.globe.scene.requestRender();
-  }
   document.querySelectorAll(".map-marker").forEach((marker) => marker.classList.toggle("is-selected", marker.dataset.taskId === taskId));
   if (reveal) {
     activateTab(document.getElementById("tab-selection"));
@@ -246,6 +238,7 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
   }
   renderWorkloads();
   updateReplayVisuals();
+  if (reorient) orientToMissionSelection("task", taskId);
 }
 
 function revealSelectedTask() {
@@ -266,6 +259,15 @@ function revealTimelineSatellite(satelliteId) {
   const row = lane.getBoundingClientRect();
   if (row.top < top) elements.timeline.scrollTop += row.top - top;
   else if (row.bottom > bounds.bottom) elements.timeline.scrollTop += row.bottom - bounds.bottom;
+}
+
+function revealWorkloadSatellite(satelliteId) {
+  const row = elements.resources.querySelector(`[data-satellite-id="${CSS.escape(satelliteId)}"]`);
+  if (!row) return;
+  const bounds = elements.resources.getBoundingClientRect();
+  const box = row.getBoundingClientRect();
+  if (box.top < bounds.top) elements.resources.scrollTop += box.top - bounds.top;
+  else if (box.bottom > bounds.bottom) elements.resources.scrollTop += box.bottom - bounds.bottom;
 }
 
 function refreshPanels() {
@@ -421,28 +423,22 @@ function fitMissionView(duration = 0) {
   state.orbitEmphasis = false;
   viewer.resize();
   const aspect = elements.globe.clientWidth / Math.max(1, elements.globe.clientHeight);
-  if (home.global && state.viewMode === "2d") {
+  if (state.viewMode === "2d") {
     viewer.camera.flyTo({destination: Cesium.Rectangle.MAX_VALUE, duration,
       orientation: {heading: 0, pitch: -Cesium.Math.PI_OVER_TWO, roll: 0}});
-  } else if (home.global && state.viewMode === "2.5d") {
+  } else if (state.viewMode === "2.5d") {
     const edge = viewer.scene.mapProjection.project(Cesium.Cartographic.fromDegrees(180, 90));
     const altitude = home.missionCenter.radius - Cesium.Ellipsoid.WGS84.maximumRadius;
     const pitch = Cesium.Math.toRadians(55);
     const range = window.OrbitReplay.flatMapRange(edge.x, edge.y, altitude, pitch, viewer.camera.frustum.fovy, aspect);
     viewer.camera.flyTo({destination: new Cesium.Cartesian3(0, -range * Math.cos(pitch), range * Math.sin(pitch)),
       orientation: {heading: 0, pitch: -pitch, roll: 0}, convert: false, duration});
-  } else if (home.global) {
+  } else {
     const range = Math.max(1400000, window.OrbitReplay.fitRange(home.missionCenter.radius, viewer.camera.frustum.fovy, aspect, 1.035));
     viewer.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees(home.longitudeCenter, home.latitudeCenter, range - Cesium.Ellipsoid.WGS84.maximumRadius),
       orientation: { heading: 0, pitch: -Cesium.Math.PI_OVER_TWO, roll: 0 },
       duration,
-    });
-  } else {
-    const range = Math.max(1400000, window.OrbitReplay.fitRange(home.missionCenter.radius, viewer.camera.frustum.fovy || Cesium.Math.PI_OVER_THREE, aspect, 1.12));
-    viewer.camera.flyToBoundingSphere(home.missionCenter, {
-      duration,
-      offset: new Cesium.HeadingPitchRange(state.viewMode === "3d" ? Cesium.Math.toRadians(-18) : 0, Cesium.Math.toRadians(state.viewMode === "2d" ? -90 : -68), range),
     });
   }
   viewer.scene.requestRender();
@@ -658,23 +654,24 @@ async function initialize() {
 }
 
 elements.solver.addEventListener("change", loadReferencePlan);
-elements.timeline.addEventListener("keydown", (event) => {
-  if (event.target !== elements.timeline || event.altKey || event.ctrlKey || event.metaKey) return;
-  const node = elements.timeline;
-  const scaleHeight = node.querySelector(".timeline-scale")?.clientHeight || 0;
-  const pageHeight = Math.max(layoutSize("timeline-row-height"), node.clientHeight - scaleHeight);
-  const offsets = {
-    Home: -node.scrollTop,
-    End: node.scrollHeight - node.clientHeight - node.scrollTop,
-    PageUp: -pageHeight,
-    PageDown: pageHeight,
-    ArrowUp: -layoutSize("timeline-row-height"),
-    ArrowDown: layoutSize("timeline-row-height"),
-  };
-  if (!(event.key in offsets)) return;
-  event.preventDefault();
-  node.scrollTop += offsets[event.key];
-});
+for (const [node, rowHeightToken] of [[elements.timeline, "timeline-row-height"], [elements.resources, "workload-row-height"]]) {
+  node.addEventListener("keydown", (event) => {
+    if (event.target !== node || event.altKey || event.ctrlKey || event.metaKey) return;
+    const scaleHeight = node.querySelector(".timeline-scale")?.clientHeight || 0;
+    const pageHeight = Math.max(layoutSize(rowHeightToken), node.clientHeight - scaleHeight);
+    const offsets = {
+      Home: -node.scrollTop,
+      End: node.scrollHeight - node.clientHeight - node.scrollTop,
+      PageUp: -pageHeight,
+      PageDown: pageHeight,
+      ArrowUp: -layoutSize(rowHeightToken),
+      ArrowDown: layoutSize(rowHeightToken),
+    };
+    if (!(event.key in offsets)) return;
+    event.preventDefault();
+    node.scrollTop += offsets[event.key];
+  });
+}
 document.querySelectorAll(".workspace-nav button").forEach((button) => {
   button.addEventListener("click", () => setWorkspaceView(button.dataset.workspaceView));
 });
