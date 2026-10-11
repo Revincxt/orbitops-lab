@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://gibs.earthdata.nasa.gov">
   <link id="cesium-styles" rel="preload" as="style" href="https://cesium.com/downloads/cesiumjs/releases/1.143/Build/Cesium/Widgets/widgets.css">
   <link rel="preload" href="./fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="./app.css?v=0.39.0">
+  <link rel="stylesheet" href="./app.css?v=0.42.0">
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -96,18 +96,18 @@
             <button id="north-view" class="viewport-compass" type="button" title="Face north" aria-label="Face north" disabled>
               <svg class="compass-dial" viewBox="0 0 48 48" aria-hidden="true">
                 <defs>
-                  <linearGradient id="compass-face" x1="0" y1="0" x2="0.75" y2="1">
-                    <stop offset="0" stop-color="#182d3e"/><stop offset="1" stop-color="#07121d"/>
-                  </linearGradient>
+                  <radialGradient id="compass-face">
+                    <stop offset="0" stop-color="#050708" stop-opacity="0.45"/><stop offset="1" stop-color="#050708" stop-opacity="0.2"/>
+                  </radialGradient>
                   <linearGradient id="compass-rim" x1="0" y1="0" x2="0.5" y2="1">
-                    <stop offset="0" stop-color="#6b879b"/><stop offset="0.5" stop-color="#2b4558"/><stop offset="1" stop-color="#1b3041"/>
+                    <stop offset="0" stop-color="#9aafc4"/><stop offset="0.5" stop-color="#9aafc4" stop-opacity="0.82"/><stop offset="1" stop-color="#9aafc4" stop-opacity="0.92"/>
                   </linearGradient>
                   <linearGradient id="compass-needle" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0" stop-color="#b4f3ff"/><stop offset="1" stop-color="#6ad6ee"/>
                   </linearGradient>
                 </defs>
                 <circle class="compass-bezel" cx="24" cy="24" r="22.5"/>
-                <circle class="compass-inner-ring" cx="24" cy="24" r="20.5"/>
+                <circle class="compass-inner-ring" cx="24" cy="24" r="22" pathLength="100"/>
                 <g class="compass-rose">
                   <circle class="compass-ticks" cx="24" cy="24" r="18.5" pathLength="72"/>
                   <path class="compass-cardinals" d="M42.5 24h-3M24 42.5v-3M5.5 24h3"/>

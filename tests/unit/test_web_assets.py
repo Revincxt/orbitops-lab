@@ -89,7 +89,7 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
         "mission",
     ]:
         assert f'src="./{name}.js?v=0.41.0"' in html
-    assert 'href="./app.css?v=0.39.0"' in html
+    assert 'href="./app.css?v=0.42.0"' in html
     assert 'class="catalog-head"' not in html
     assert "TARGET / PRIORITY" not in html
     assert 'href="./favicon.svg?v=0.2.0"' in html

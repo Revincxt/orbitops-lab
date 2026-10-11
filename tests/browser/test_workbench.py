@@ -390,14 +390,21 @@ def test_decluttered_header_and_static_compass_work_without_the_globe_engine(
     assert page.locator("#camera-heading").count() == 0
     assert page.locator("#north-view").get_attribute("title") == "Face north"
     assert page.locator(".compass-dial").is_visible()
-    assert page.locator(".compass-dial defs linearGradient").count() == 3
+    assert page.locator(".compass-dial defs linearGradient").count() == 2
+    assert page.locator(".compass-dial defs radialGradient").count() == 1
     assert page.locator(".compass-north-label text").text_content() == "N"
     assert page.locator(".compass-inner-ring, .compass-needle-facet, .compass-pivot").count() == 3
     assert page.locator("#north-view").evaluate("""node => {
       const box=node.getBoundingClientRect();
       const dial=node.querySelector('.compass-dial').getBoundingClientRect();
+      const buttonStyle=getComputedStyle(node);
+      const ringStyle=getComputedStyle(node.querySelector('.compass-inner-ring'));
       return box.width>=44 && box.height>=44 && dial.width===48 && dial.height===48
+        && buttonStyle.backgroundImage === 'none'
+        && buttonStyle.borderTopWidth === '0px' && buttonStyle.borderRadius === '50%'
         && getComputedStyle(node.querySelector('.compass-bezel')).fill.includes('compass-face')
+        && getComputedStyle(node.querySelector('.compass-bezel')).stroke === 'none'
+        && ringStyle.strokeDasharray === '18px, 7px' && ringStyle.strokeWidth === '1px'
         && getComputedStyle(node.querySelector('.compass-north')).fill.includes('compass-needle');
     }""")
     assert page.get_by_text("Data attribution", exact=True).count() == 0
