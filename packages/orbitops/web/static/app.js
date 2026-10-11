@@ -13,6 +13,8 @@ const state = {
   targetRowsKey: null,
   assignments: new Map(),
   taskById: new Map(),
+  taskStates: null,
+  taskNodes: null,
   replay: { time: 0, playing: false, speed: 60, direction: 1, windowStart: 0, windowEnd: 43200, lastFrame: 0, lastPaint: 0 },
   orbitModels: new Map(),
   ephemeris: null,
@@ -25,6 +27,7 @@ const state = {
   sensorFovs: new Map(),
   fovPrimitives: null,
   footprintPrimitives: null,
+  fallbackSatellites: new Map(),
   entityTaskStates: new Map(),
   selectedSatelliteId: null,
   satelliteDetailsOpen: false,
@@ -59,8 +62,14 @@ const TASK_COLORS = Object.fromEntries(Object.entries({
 
 function textField(id, value) {
   const node = document.getElementById(id);
-  node.textContent = value;
-  node.title = String(value);
+  const text = String(value);
+  if (node.textContent !== text) node.textContent = text;
+  if (node.title !== text) node.title = text;
+}
+
+function setAttributeIfChanged(node, name, value) {
+  const text = String(value);
+  if (node.getAttribute(name) !== text) node.setAttribute(name, text);
 }
 
 function layoutSize(name) {
@@ -110,7 +119,7 @@ function bindTabs() {
 function renderTargetCatalog() {
   if (!state.currentPayload) return;
   const { scenario, result } = state.currentPayload;
-  const assignments = new Map((result.validation.simulation?.tasks || []).map((task) => [task.task_id, task]));
+  const assignments = state.assignments;
   const tasks = filteredTasks(scenario);
   // Reuse list nodes during selection, playback and resize: preserve focus and
   // scroll position even with all 500 tasks, including the live "Active now" filter.
@@ -118,10 +127,13 @@ function renderTargetCatalog() {
   if (state.targetRowsKey === key) {
     elements.targetList.querySelectorAll(".target-row").forEach((row) => {
       const selected = row.dataset.taskId === state.selectedTaskId;
-      row.classList.toggle("is-selected", selected);
-      row.setAttribute("aria-pressed", String(selected));
-      row.dataset.state = taskState(row.dataset.taskId);
-      row.querySelector(".target-state").textContent = row.dataset.state;
+      if (row.classList.contains("is-selected") !== selected) row.classList.toggle("is-selected", selected);
+      if (row.getAttribute("aria-pressed") !== String(selected)) row.setAttribute("aria-pressed", String(selected));
+      const current = taskState(row.dataset.taskId);
+      if (row.dataset.state !== current) {
+        row.dataset.state = current;
+        row.querySelector(".target-state").textContent = current;
+      }
     });
     return;
   }
@@ -155,6 +167,7 @@ function renderTargetCatalog() {
     return row;
   });
   elements.targetList.replaceChildren(...rows);
+  state.taskNodes = null;
   if (!rows.length) {
     const empty = document.createElement("p");
     empty.className = "chart-empty";
@@ -228,7 +241,7 @@ function selectTarget(taskId, reveal = true, seek = reveal) {
   renderTargetCatalog();
   if (reveal) revealSelectedTask();
   if (!document.getElementById("pane-timeline").hidden) {
-    renderGantt(payload.scenario, payload.result);
+    renderReferenceGantt();
     if (reveal && assignment) revealTimelineSatellite(assignment.satellite_id);
   }
   renderWorkloads();
@@ -259,9 +272,9 @@ function refreshPanels() {
   const payload = state.currentPayload;
   if (!payload) return;
   renderTargetCatalog();
-  if (!document.getElementById("pane-timeline").hidden) renderGantt(payload.scenario, payload.result);
-  renderComparison();
-  if (elements.resources.clientHeight > 0) renderResources(payload.scenario, payload.result);
+  if (!document.getElementById("pane-timeline").hidden) renderReferenceGantt();
+  renderReferenceComparison();
+  if (elements.resources.clientHeight > 0) renderWorkloads();
   state.globe?.resize();
 }
 
@@ -323,18 +336,6 @@ function setBusy(busy, message) {
   if (message) elements.status.textContent = message;
 }
 
-function renderComparison() {
-  renderReferenceComparison();
-}
-
-function renderGantt() {
-  renderReferenceGantt();
-}
-
-function renderResources() {
-  renderWorkloads();
-}
-
 function renderGlobeFallback(scenario, scheduledIds) {
   const project = (longitude, latitude) => [(longitude + 180) / 360 * 1000, (90 - latitude) / 180 * 500];
   const map = chart(1000, 500, "Mission coordinate map",
@@ -386,6 +387,7 @@ function renderGlobeFallback(scenario, scheduledIds) {
   map.append(svgElement("text", { x: 20, y: 485, class: "map-caption" }, "2D SCHEMATIC · WGS84"));
   if (state.currentPayload?.replay) addFallbackOrbits(map);
   elements.globe.replaceChildren(map);
+  state.taskNodes = null;
   map.addEventListener("click", (event) => {
     if (!event.target.closest(".map-satellite")) closeSatelliteDetails();
   });
@@ -600,6 +602,8 @@ function renderResult(payload) {
   state.currentPayload = payload;
   state.taskById = new Map(scenario.tasks.map((task) => [task.task_id, task]));
   state.assignments = new Map((result.validation.simulation?.tasks || []).map((task) => [task.task_id, task]));
+  state.taskStates = window.OrbitReplay.createTaskStates(scenario, state.assignments);
+  state.taskNodes = null;
   configureReplay(payload);
   if (previousScenarioId !== scenario.scenario_id) {
     elements.timeline.scrollTop = 0;

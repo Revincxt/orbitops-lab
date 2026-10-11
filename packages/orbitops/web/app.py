@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from orbitops.web.reference import ReferenceArchive
@@ -38,6 +39,8 @@ class LabApplication:
     ) -> None:
         self.static_dir = Path(static_dir)
         self.reference = ReferenceArchive(Path(reference_path))
+        self._reference_response: WebResponse | None = None
+        self._reference_lock = Lock()
 
     def _static(self, filename: str, content_type: str) -> WebResponse:
         path = self.static_dir / filename
@@ -62,10 +65,19 @@ class LabApplication:
                 },
             )
         if route == "/api/reference/data":
-            data = self.reference.export()
-            if data is None:
+            if self.reference.data is None:
                 return WebResponse.json(503, {"error": "EOS-Bench reference data is unavailable"})
-            return WebResponse.json(200, data)
+            # The validated startup snapshot is read-only. Serialize once,
+            # including under concurrent page loads, and share immutable bytes.
+            with self._reference_lock:
+                if self._reference_response is None:
+                    data = self.reference.export()
+                    if data is None:
+                        return WebResponse.json(
+                            503, {"error": "EOS-Bench reference data is unavailable"}
+                        )
+                    self._reference_response = WebResponse.json(200, data)
+                return self._reference_response
         if route.startswith("/orbit-data/"):
             try:
                 raw = self.reference.orbit_chunk(route.removeprefix("/orbit-data/"))

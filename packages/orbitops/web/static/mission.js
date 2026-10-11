@@ -5,12 +5,8 @@ function timeLabel(seconds) {
 }
 
 function taskState(taskId) {
-  const task = state.taskById.get(taskId);
-  const scenario = state.currentPayload?.scenario;
-  if (scenario && (state.replay.time < scenario.horizon_start_s || state.replay.time >= scenario.horizon_end_s)) {
-    return state.assignments.has(taskId) ? (state.replay.time < scenario.horizon_start_s ? "Planned" : "Completed") : "Unassigned";
-  }
-  return window.OrbitReplay.taskState(state.replay.time, state.assignments.get(taskId), task?.visibility_windows);
+  state.taskStates.update(state.replay.time);
+  return state.taskStates.get(taskId);
 }
 
 function filteredTasks(scenario) {
@@ -87,7 +83,7 @@ function satelliteFrame(id, time = state.replay.time) {
   if (cached && cached.time === time && cached.revision === revision && cached.assignment === assignment) return cached.frame;
   const model = state.orbitModels.get(id);
   const frame = window.SatelliteAttitude.replay(state.satelliteSchedules.get(id) || [], time, model,
-    state.currentPayload.replay.attitude?.sample_step_s ?? 1);
+    state.currentPayload.replay.attitude?.sample_step_s ?? 1, revision);
   state.attitudeFrames.set(id, {assignment, time, revision, frame});
   return frame;
 }
@@ -147,12 +143,13 @@ function updateReplayWindow() {
     replay.windowEnd = replay.windowStart + width;
   }
   const slider = document.getElementById("replay-scrub");
-  slider.min = replay.windowStart;
-  slider.max = replay.windowEnd;
+  setAttributeIfChanged(slider, "min", replay.windowStart);
+  setAttributeIfChanged(slider, "max", replay.windowEnd);
   slider.value = replay.time;
-  slider.parentElement.style.setProperty("--replay-progress", `${(replay.time - replay.windowStart) / width * 100}%`);
-  slider.setAttribute("aria-valuetext", window.OrbitReplay.utc(scenario.epoch_utc, replay.time, true));
-  slider.title = `${window.OrbitReplay.utc(scenario.epoch_utc, replay.windowStart, true)} → ${window.OrbitReplay.utc(scenario.epoch_utc, replay.windowEnd, true)}`;
+  const progress = `${(replay.time - replay.windowStart) / width * 100}%`;
+  if (slider.parentElement.style.getPropertyValue("--replay-progress") !== progress) slider.parentElement.style.setProperty("--replay-progress", progress);
+  setAttributeIfChanged(slider, "aria-valuetext", window.OrbitReplay.utc(scenario.epoch_utc, replay.time, true));
+  setAttributeIfChanged(slider, "title", `${window.OrbitReplay.utc(scenario.epoch_utc, replay.windowStart, true)} → ${window.OrbitReplay.utc(scenario.epoch_utc, replay.windowEnd, true)}`);
 }
 
 function shiftReplayWindow(direction) {
@@ -218,13 +215,34 @@ function animateReplay(timestamp) {
   requestAnimationFrame(animateReplay);
 }
 
+function updateTaskNodes(changed) {
+  if (!state.taskNodes) {
+    state.taskNodes = new Map();
+    document.querySelectorAll(".target-row, .map-marker, .task-bar[data-task-id]").forEach(node => {
+      const id = node.dataset.taskId;
+      if (!state.taskNodes.has(id)) state.taskNodes.set(id, []);
+      state.taskNodes.get(id).push({node, label: node.querySelector(".target-state")});
+    });
+    changed = state.taskById.keys();
+  }
+  for (const id of changed) {
+    const current = state.taskStates.get(id);
+    for (const {node, label} of state.taskNodes.get(id) || []) {
+      if (node.dataset.state !== current) node.dataset.state = current;
+      if (label && label.textContent !== current) label.textContent = current;
+    }
+  }
+}
+
 function updateReplayVisuals() {
   const payload = state.currentPayload;
   if (!payload) return;
   const time = state.replay.time;
+  const changedTasks = state.taskStates.update(time);
   const extended = time < payload.scenario.horizon_start_s || time > payload.scenario.horizon_end_s;
   const precise = Boolean(state.ephemeris?.samples(payload.replay.orbits[0].satellite_id, time));
-  elements.globe.dataset.orbitPrecision = extended ? "estimated" : precise ? "1s" : "preview-30s";
+  const precision = extended ? "estimated" : precise ? "1s" : "preview-30s";
+  if (elements.globe.dataset.orbitPrecision !== precision) elements.globe.dataset.orbitPrecision = precision;
   ensureEphemeris().catch(error => {
     if (error.name === "AbortError" || state.replay.ephemerisError) return;
     state.replay.ephemerisError = true;
@@ -234,35 +252,31 @@ function updateReplayVisuals() {
     elements.status.textContent = "Orbit data unavailable · 30 s preview";
   });
   document.getElementById("orbit-basis").hidden = !extended;
-  elements.globe.dataset.orbitBasis = extended ? "estimated" : "source";
+  const basis = extended ? "estimated" : "source";
+  if (elements.globe.dataset.orbitBasis !== basis) elements.globe.dataset.orbitBasis = basis;
   textField("replay-time", window.OrbitReplay.utc(payload.scenario.epoch_utc, time, true));
-  document.getElementById("replay-time").dateTime = new Date(Date.parse(payload.scenario.epoch_utc) + time * 1000).toISOString();
-  document.getElementById("replay-time-button").title = extended ? "UTC · estimated two-body orbit · no task execution. Click to jump to a time." : precise ? "UTC · 1 s source ephemeris. Click to jump to a time." : "UTC · 30 s preview while source ephemeris loads. Click to jump to a time.";
+  setAttributeIfChanged(document.getElementById("replay-time"), "datetime", new Date(Date.parse(payload.scenario.epoch_utc) + time * 1000).toISOString());
+  setAttributeIfChanged(document.getElementById("replay-time-button"), "title", extended ? "UTC · estimated two-body orbit · no task execution. Click to jump to a time." : precise ? "UTC · 1 s source ephemeris. Click to jump to a time." : "UTC · 30 s preview while source ephemeris loads. Click to jump to a time.");
   updateReplayWindow();
   const timeline = elements.timeline.querySelector(".timeline-lanes");
   if (timeline && (Number(timeline.dataset.windowStart) !== state.replay.windowStart || Number(timeline.dataset.windowEnd) !== state.replay.windowEnd)) renderReferenceGantt();
   if (state.selectedTaskId) {
     const selectedState = taskState(state.selectedTaskId);
     textField("selected-state", selectedState);
-    document.getElementById("selected-state").dataset.state = selectedState;
+    const node = document.getElementById("selected-state");
+    if (node.dataset.state !== selectedState) node.dataset.state = selectedState;
   }
-  document.querySelectorAll(".target-row, .map-marker").forEach((node) => {
-    const current = taskState(node.dataset.taskId);
-    node.dataset.state = current;
-    const label = node.querySelector(".target-state");
-    if (label) label.textContent = current;
-  });
-  document.querySelectorAll(".task-bar[data-task-id]").forEach((node) => { node.dataset.state = taskState(node.dataset.taskId); });
+  updateTaskNodes(changedTasks);
   const cursor = document.querySelector(".time-cursor");
   if (cursor) {
     cursor.toggleAttribute("hidden", extended);
     const x = Number(cursor.dataset.left) + (time - state.replay.windowStart) / (state.replay.windowEnd - state.replay.windowStart) * Number(cursor.dataset.width);
-    if (Number.isFinite(x)) { cursor.setAttribute("x1", x); cursor.setAttribute("x2", x); }
+    if (Number.isFinite(x)) { setAttributeIfChanged(cursor, "x1", x); setAttributeIfChanged(cursor, "x2", x); }
   }
   if (state.globe) updateCesiumReplay();
   else if (payload.replay) updateFallbackReplay();
   updateOrbitHud();
-  if (document.getElementById("target-filter").value === "active") renderTargetCatalog();
+  if (document.getElementById("target-filter").value === "active" && changedTasks.length) renderTargetCatalog();
 }
 
 function stateColor(taskId) {
@@ -530,6 +544,7 @@ function renderReferenceGantt() {
     elements.timeline.querySelector(".chart-empty")?.remove();
     elements.timeline.append(root);
   }
+  state.taskNodes = null;
   elements.timeline.scrollTop = scrollTop;
   if (focusedTaskId) root.querySelector(`[data-task-id="${CSS.escape(focusedTaskId)}"]`)?.focus({preventScroll: true});
 }
@@ -698,7 +713,8 @@ function updateSensorFovs() {
   const visible = state.layers.fov && !state.viewTransition;
   // A transformed local cone is meaningful only on the native 3D globe.
   // Unfolded views retain the current footprint instead of a distorted cone.
-  state.fovPrimitives.show = visible && viewer.scene.mode === Cesium.SceneMode.SCENE3D;
+  const volumeVisible = visible && viewer.scene.mode === Cesium.SceneMode.SCENE3D;
+  state.fovPrimitives.show = volumeVisible;
   state.footprintPrimitives.show = visible;
   if (!visible) {
     for (const sensor of state.sensorFovs.values()) {
@@ -709,7 +725,7 @@ function updateSensorFovs() {
   }
   for (const [id, sensor] of state.sensorFovs) {
     if (sensor.time && sensor.revision === state.ephemeris.revision && Cesium.JulianDate.equals(sensor.time, viewer.clock.currentTime)) {
-      updateSensorVolume(sensor, visible);
+      updateSensorVolume(sensor, volumeVisible);
       updateSensorFootprint(sensor, visible);
       continue;
     }
@@ -720,12 +736,14 @@ function updateSensorFovs() {
     sensor.time = Cesium.JulianDate.clone(viewer.clock.currentTime, sensor.time || new Cesium.JulianDate());
     sensor.frame = frame;
     sensor.attitude = attitude;
-    updateSensorVolume(sensor, visible);
+    updateSensorVolume(sensor, volumeVisible);
     updateSensorFootprint(sensor, visible);
   }
 }
 
 function setupReferenceGlobe(viewer, Cesium) {
+  state.fallbackSatellites.clear();
+  state.taskNodes = null;
   const payload = state.currentPayload;
   const epoch = Cesium.JulianDate.fromIso8601(payload.scenario.epoch_utc);
   viewer.clock.startTime = Cesium.JulianDate.clone(epoch);
@@ -855,18 +873,18 @@ function updateCesiumReplay() {
 function addFallbackOrbits(map) {
   const group = svgElement("g", {class: "fallback-orbits"});
   const footprints = svgElement("g", {class: "fallback-fovs"});
-  state.currentPayload.replay.orbits.forEach((orbit) => {
-    const footprint = svgElement("g", {class: "map-fov", "data-satellite-id": orbit.satellite_id});
-    footprint.style.stroke = orbitColor(orbit.satellite_id);
-    footprints.append(footprint);
-  });
+  state.fallbackSatellites.clear();
   map.append(footprints);
   state.currentPayload.replay.orbits.forEach((orbit) => {
+    const color = orbitColor(orbit.satellite_id);
+    const footprint = svgElement("g", {class: "map-fov", "data-satellite-id": orbit.satellite_id});
+    footprint.style.stroke = color;
+    footprints.append(footprint);
     const track = svgElement("g", {class: "map-orbit", "data-satellite-id": orbit.satellite_id});
-    track.style.stroke = orbitColor(orbit.satellite_id);
+    track.style.stroke = color;
     group.append(track);
     const marker = svgElement("g", {class: "map-satellite", "data-satellite-id": orbit.satellite_id, role: "button", tabindex: "0", "aria-label": `Inspect satellite ${orbit.satellite_id}`});
-    marker.style.color = orbitColor(orbit.satellite_id);
+    marker.style.color = color;
     // A shaded vector counterpart when the native 3D renderer is unavailable.
     marker.append(svgElement("path", {class: "satellite-panel", d: "M-16-3-6-6-6 4-16 7Z M6-6 16-3 16 7 6 4Z"}));
     marker.append(svgElement("path", {class: "satellite-cells", d: "M-13-4V6M-10-5V5M-16 2-6-1M10-5V5M13-4V6M6-1 16 2"}));
@@ -880,44 +898,62 @@ function addFallbackOrbits(map) {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectSatellite(orbit.satellite_id); }
     });
     group.append(marker);
+    state.fallbackSatellites.set(orbit.satellite_id, {footprint, track, marker});
   });
   map.append(group);
 }
 
 function updateFallbackReplay() {
   const payload = state.currentPayload;
+  const time = state.replay.time, revision = state.ephemeris.revision;
   const project = (lon, lat) => [(lon + 180) / 360 * 1000, (90 - lat) / 180 * 500];
   payload.replay.orbits.forEach((orbit) => {
     const model = state.orbitModels.get(orbit.satellite_id);
-    const point = model.point(state.replay.time);
-    const footprint = document.querySelector(`.map-fov[data-satellite-id="${CSS.escape(orbit.satellite_id)}"]`);
-    if (footprint) {
+    const cached = state.fallbackSatellites.get(orbit.satellite_id);
+    if (!cached) return;
+    const {footprint, track: group, marker} = cached;
+    if (state.layers.fov && (cached.footprintTime !== time || cached.footprintRevision !== revision)) {
       const attitude = satelliteFrame(orbit.satellite_id);
-      const frame = window.SensorFov.frame(model.cartesian(state.replay.time), attitude?.direction, attitude?.x);
-      const show = state.layers.fov && frame?.footprint.length;
-      footprint.style.display = show ? "" : "none";
+      const frame = window.SensorFov.frame(model.cartesian(time), attitude?.direction, attitude?.x);
+      const show = Boolean(frame?.footprint.length);
       const samples = show ? [...frame.footprint, frame.footprint[0]].map((sample, i) => [i, ...window.OrbitModel.toGeodetic(sample)]) : [];
       const paths = samples.length ? window.OrbitReplay.trackSegments(samples, 0, samples.length - 1).map((segment) =>
         svgElement("polyline", {points: segment.map((sample) => project(sample[1], sample[2]).join(",")).join(" ")})) : [];
       footprint.replaceChildren(...paths);
+      cached.footprintTime = time;
+      cached.footprintRevision = revision;
+      cached.footprintVisible = show;
     }
-    const [x, y] = project(point[0], point[1]);
-    const marker = document.querySelector(`.map-satellite[data-satellite-id="${CSS.escape(orbit.satellite_id)}"]`);
-    marker?.setAttribute("transform", `translate(${x},${y})`);
+    if (!state.layers.fov) {
+      if (footprint.childElementCount) footprint.replaceChildren();
+      cached.footprintTime = null;
+    }
+    const footprintDisplay = state.layers.fov && cached.footprintVisible ? "" : "none";
+    if (footprint.style.display !== footprintDisplay) footprint.style.display = footprintDisplay;
+    if (cached.positionTime !== time || cached.positionRevision !== revision) {
+      const point = model.point(time), [x, y] = project(point[0], point[1]);
+      setAttributeIfChanged(marker, "transform", `translate(${x},${y})`);
+      cached.positionTime = time;
+      cached.positionRevision = revision;
+    }
     const selected = orbit.satellite_id === state.selectedSatelliteId;
-    marker?.classList.toggle("is-selected", selected);
-    marker?.setAttribute("aria-pressed", String(selected));
-    if (marker) marker.querySelector("text").style.display = selected || state.layers.satelliteLabels ? "" : "none";
-    const group = document.querySelector(`.map-orbit[data-satellite-id="${CSS.escape(orbit.satellite_id)}"]`);
-    if (!group) return;
-    group.style.display = state.layers.track ? "" : "none";
-    group.classList.toggle("is-selected", selected);
-    group.classList.toggle("is-dimmed", Boolean(state.selectedSatelliteId && state.orbitEmphasis && !selected));
+    if (marker.classList.contains("is-selected") !== selected) marker.classList.toggle("is-selected", selected);
+    setAttributeIfChanged(marker, "aria-pressed", String(selected));
+    const label = marker.querySelector("text"), labelDisplay = selected || state.layers.satelliteLabels ? "" : "none";
+    if (label.style.display !== labelDisplay) label.style.display = labelDisplay;
+    const trackDisplay = state.layers.track ? "" : "none";
+    if (group.style.display !== trackDisplay) group.style.display = trackDisplay;
+    if (group.classList.contains("is-selected") !== selected) group.classList.toggle("is-selected", selected);
+    const dimmed = Boolean(state.selectedSatelliteId && state.orbitEmphasis && !selected);
+    if (group.classList.contains("is-dimmed") !== dimmed) group.classList.toggle("is-dimmed", dimmed);
+    if (cached.trackTime === time && cached.trackRevision === revision) return;
     const bounds = windowForOrbit(orbit);
     const samples = model.trackSamples(bounds.start, bounds.end);
     const paths = [["past", bounds.start, state.replay.time], ["future", state.replay.time, bounds.end]].flatMap(([kind, start, end]) =>
       window.OrbitReplay.trackSegments(samples, start, end).map((segment) => svgElement("polyline", {class: `map-track-${kind}`, points: segment.map((sample) => project(sample[1], sample[2]).join(",")).join(" ")})));
     group.replaceChildren(...paths);
+    cached.trackTime = time;
+    cached.trackRevision = revision;
   });
 }
 
@@ -936,7 +972,7 @@ function selectSatellite(id) {
   updateReplayVisuals();
   renderWorkloads();
   if (!document.getElementById("pane-timeline").hidden) {
-    renderGantt(state.currentPayload.scenario, state.currentPayload.result);
+    renderReferenceGantt();
     revealTimelineSatellite(id);
   }
 }

@@ -212,3 +212,26 @@ test("every published schedule is continuous at all entry and exit boundaries, i
   assert.ok(boundaries>6000 && shortGaps>0);
   assert.equal(JSON.stringify(archive),original);
 });
+
+test("cached transition boundaries match uncached frames and invalidate with source revision",()=>{
+  let calls=0;
+  const [id,originalModel]=models.entries().next().value;
+  const model={...originalModel,cartesian(time){calls++;return originalModel.cartesian(time);}};
+  const schedule=archive.plans[0].assignments.filter(a=>a.satellite_id===id).sort((a,b)=>a.start_s-b.start_s);
+  const times=[-1000,0,1200,43200,86400,...schedule.flatMap(a=>[a.start_s-10,a.start_s,a.end_s,a.end_s+10])];
+  for(const time of times) {
+    const uncached=A.replay(schedule,time,model,1);
+    const cached=A.replay(schedule,time,model,1,0);
+    assert.ok(distance(uncached.modelAxes,cached.modelAxes)<1e-12);
+    assert.equal(cached.phase,uncached.phase);
+  }
+  const time=schedule[0].start_s-1000;
+  A.replay(schedule,time,model,1,0);
+  calls=0;
+  A.replay(schedule,time+.001,model,1,0);
+  assert.equal(calls,3);
+  calls=0;
+  A.replay(schedule,time+.002,model,1,1);
+  assert.equal(calls,6);
+  assert.equal(JSON.stringify(archive),original);
+});

@@ -117,3 +117,29 @@ test("invalid source elements or non-finite time fail explicitly", () => {
   assert.throws(() => OrbitModel.create(orbit,params).cartesian(NaN), /finite/);
   assert.equal(JSON.stringify(archive), original);
 });
+
+test("source position cache refreshes changed provider coordinates and does not expose cached vectors",()=>{
+  const orbit=archive.replay.orbits[0],params=elements(orbit);
+  let longitude=10;
+  const model=OrbitModel.create(orbit,params,()=>[[10,longitude,20,500000],[11,longitude+1,20,500000]]);
+  const first=model.cartesian(10);
+  first[0]=0;
+  assert.deepEqual(Array.from(model.cartesian(10)),Array.from(OrbitModel.toCartesian([10,20,500000])));
+  longitude=30;
+  assert.deepEqual(Array.from(model.cartesian(10)),Array.from(OrbitModel.toCartesian([30,20,500000])));
+  assert.equal(JSON.stringify(archive),original);
+});
+
+test("source Cartesian cache remains bounded during arbitrary long-range source seeks",()=>{
+  const maps=[];
+  class TrackedMap extends Map {constructor(...args){super(...args);maps.push(this);}}
+  const isolated=vm.createContext({window:{OrbitReplay},Map:TrackedMap});
+  vm.runInContext(fs.readFileSync(path.join(root,"packages/orbitops/web/static/orbit-model.js"),"utf8"),isolated);
+  const orbit=archive.replay.orbits[0],model=isolated.window.OrbitModel.create(orbit,elements(orbit));
+  for(let time=0;time<=43200;time+=21) {
+    assert.ok(model.cartesian(time).every(Number.isFinite));
+    assert.ok(maps.every(cache=>cache.size<=512));
+  }
+  assert.equal(maps.length,1);
+  assert.equal(maps[0].size,512);
+});

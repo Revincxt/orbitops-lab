@@ -8,7 +8,7 @@
 [![CI](https://github.com/Revincxt/orbitops-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/Revincxt/orbitops-lab/actions/workflows/ci.yml)
 [![Code: MIT](https://img.shields.io/badge/Code-MIT-8fa5bc?style=flat-square)](LICENSE)
 
-[Live Demo](https://revincxt.github.io/orbitops-lab/) · [Quick Start](#quick-start) · [Web Lab Guide](docs/web-lab.md)
+[Live Demo](https://revincxt.github.io/orbitops-lab/) · [Quick Start](#quick-start)
 
 </div>
 
@@ -45,15 +45,11 @@ orbitops lab
 Open [localhost:8000](http://127.0.0.1:8000), or try the
 [hosted demo](https://revincxt.github.io/orbitops-lab/) without installation.
 
-## Documentation
-
-[Web Lab](docs/web-lab.md) · [Problem Model](docs/problem-formulation.md) ·
-[Simulation](docs/simulation-model.md) · [Benchmarking](docs/benchmarking.md)
-
 ## Credits & Scope
 
 Demo records come from [EOS-Bench](https://github.com/Ethan19YQ/EOS-Bench).
 Orbit extensions and sensor fields of view are illustrative, not operational
-telemetry. See [data provenance and validation scope](docs/web-lab.md#eos-bench-reference-data).
+telemetry. Source URLs, hashes and validation scope remain in the
+[reference archive](data/eos-bench/reference.json).
 
 [MIT](LICENSE) applies to OrbitOps-authored code; third-party data is separate.

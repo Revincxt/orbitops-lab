@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -134,3 +135,31 @@ def test_reference_startup_does_not_load_synthetic_scenarios(tmp_path: Path) -> 
 def test_missing_static_asset_is_not_an_internal_error(tmp_path: Path) -> None:
     app = LabApplication(REFERENCE_PATH, static_dir=tmp_path)
     assert app.dispatch("GET", "/").status == 404
+
+
+def test_reference_requests_serialize_once_even_under_concurrent_loads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = LabApplication(REFERENCE_PATH)
+    original_export = app.reference.export
+    exports: list[int] = []
+
+    def counted_export() -> dict[str, object] | None:
+        exports.append(1)
+        return original_export()
+
+    monkeypatch.setattr(app.reference, "export", counted_export)
+    with ThreadPoolExecutor(max_workers=8) as workers:
+        responses = list(
+            workers.map(lambda _: app.dispatch("GET", "/api/reference/data"), range(16))
+        )
+    assert exports == [1]
+    assert all(
+        response.status == 200 and response.body is responses[0].body for response in responses
+    )
+    assert json.loads(responses[0].body) == original_export()
+    assert app.reference.data is not None
+    assert (
+        app.reference.data["replay"]["attitude"]["rendering"]
+        != (json.loads(responses[0].body)["replay"]["attitude"]["rendering"])
+    )

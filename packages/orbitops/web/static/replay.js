@@ -10,6 +10,50 @@ window.OrbitReplay = Object.freeze({
     }
     return windows.some((window) => window.start_s <= time && time < window.end_s) ? "Available" : "Unassigned";
   },
+  createTaskStates(scenario, assignments) {
+    // Only tasks crossing a source boundary can change state. Keep the original
+    // resolver for exact half-open semantics, including reverse playback/seeks.
+    const byId = new Map(scenario.tasks.map(task => [task.task_id, task]));
+    const events = [];
+    for (const task of scenario.tasks) {
+      const assignment = assignments.get(task.task_id);
+      const intervals = assignment ? [assignment] : task.visibility_windows;
+      for (const interval of intervals) {
+        events.push([interval.start_s, task.task_id], [interval.end_s, task.task_id]);
+      }
+      events.push([scenario.horizon_start_s, task.task_id], [scenario.horizon_end_s, task.task_id]);
+    }
+    events.sort((a, b) => a[0] - b[0]);
+    const upperBound = time => {
+      let low = 0, high = events.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (events[middle][0] <= time) low = middle + 1; else high = middle;
+      }
+      return low;
+    };
+    const values = new Map();
+    let previousTime = null, position = 0, changed = [];
+    const resolve = this.taskState.bind(this);
+    function update(time) {
+      if (time === previousTime) return changed;
+      const nextPosition = upperBound(time);
+      const candidates = previousTime === null ? byId.keys() : new Set(
+        events.slice(Math.min(position, nextPosition), Math.max(position, nextPosition)).map(event => event[1]));
+      changed = [];
+      for (const id of candidates) {
+        const assignment = assignments.get(id);
+        const outside = time < scenario.horizon_start_s || time >= scenario.horizon_end_s;
+        const current = outside ? (assignment ? (time < scenario.horizon_start_s ? "Planned" : "Completed") : "Unassigned")
+          : resolve(time, assignment, byId.get(id).visibility_windows);
+        if (values.get(id) !== current) { values.set(id, current); changed.push(id); }
+      }
+      previousTime = time;
+      position = nextPosition;
+      return changed;
+    }
+    return Object.freeze({update, get: id => values.get(id)});
+  },
   utc(epoch, seconds, date = false) {
     if (!epoch) return `T+${Math.floor(seconds / 3600).toString().padStart(2, "0")}:${Math.floor(seconds % 3600 / 60).toString().padStart(2, "0")}:${Math.floor(seconds % 60).toString().padStart(2, "0")}`;
     const iso = new Date(Date.parse(epoch) + seconds * 1000).toISOString();
@@ -32,15 +76,6 @@ window.OrbitReplay = Object.freeze({
     const fraction = b[0] === a[0] ? 0 : Math.max(0, Math.min(1, (time - a[0]) / (b[0] - a[0])));
     const delta = ((b[1] - a[1] + 540) % 360) - 180;
     return [((a[1] + delta * fraction + 540) % 360) - 180, a[2] + (b[2] - a[2]) * fraction, a[3] + (b[3] - a[3]) * fraction];
-  },
-  orbitWindow(samples, time, period) {
-    const first = samples[0][0];
-    const last = samples.at(-1)[0];
-    const width = Math.min(last - first, Math.max(0, Number(period) || 0));
-    const cursor = Math.max(first, Math.min(last, time));
-    const start = Math.max(first, Math.min(last - width, cursor - width / 2));
-    const end = start + width;
-    return {start, end, past: cursor - start, future: end - cursor};
   },
   trackSegments(samples, start, end) {
     start = Math.max(samples[0][0], start);
@@ -89,8 +124,7 @@ window.OrbitReplay = Object.freeze({
         metrics: {total_value: plan.recomputed_metrics.TP, completed_tasks: plan.assignments.length, total_slew_time_s: null},
         runtime_s: plan.source_metrics.RT,
       },
-      evaluation: {...plan.recomputed_metrics, RT: plan.source_metrics.RT}, convergence: [],
-      run_metadata: {seed: "not recorded", evaluation_budget: "not recorded", evaluations: null, stop_reason: "imported_reference", source_revision: archive.provenance.revision, software_version: "EOS-Bench", budget_profile: "source not recorded"},
+      evaluation: {...plan.recomputed_metrics, RT: plan.source_metrics.RT},
     };
   },
 });

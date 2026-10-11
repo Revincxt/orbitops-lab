@@ -1799,3 +1799,65 @@ def test_small_text_has_readable_contrast_in_default_and_selected_states(
     }""")
     for sample in samples:
         assert sample["contrast"] >= 4.5, sample
+
+
+def test_paused_replay_reuses_fallback_geometry_and_does_not_rewrite_task_dom(
+    page: Any, lab_url: str
+) -> None:
+    reference_ready(page, lab_url)
+    page.evaluate("setReplayTime(1200,true)")
+    page.wait_for_function("state.ephemeris.pendingCount === 0")
+    result = page.evaluate("""() => {
+      updateReplayVisuals();
+      const source=JSON.stringify(state.referenceData), original=window.SensorFov;
+      let frames=0;
+      window.SensorFov={...original,frame(...args){frames++;return original.frame(...args);}};
+      const records=new MutationObserver(()=>{});
+      for(const id of ['target-list','mission-globe']) records.observe(document.getElementById(id),
+        {attributes:true,childList:true,subtree:true,characterData:true});
+      try {
+        for(let i=0;i<50;i++) updateReplayVisuals();
+        return {frames,mutations:records.takeRecords().length,
+          unchanged:source===JSON.stringify(state.referenceData)};
+      } finally {records.disconnect();window.SensorFov=original;}
+    }""")
+    assert result == {"frames": 0, "mutations": 0, "unchanged": True}
+
+
+def test_task_state_index_remains_linked_after_filters_plan_changes_and_reverse_seeks(
+    page: Any, lab_url: str
+) -> None:
+    reference_ready(page, lab_url)
+    for plan in ["eos-sa-profit", "eos-greedy-profit", "eos-sa-balanced"]:
+        page.select_option("#solver-select", plan)
+        page.wait_for_function(
+            "id => !state.busy && state.currentPayload.reference_plan.plan_id === id", arg=plan
+        )
+        for time in [0, 1200.25, 43199, 43200, -1, 3600, 1]:
+            result = page.evaluate(
+                """time => {
+                  setReplayTime(time,true);
+                  const scenario=state.currentPayload.scenario;
+                  const errors=[];
+                  for(const node of document.querySelectorAll(
+                    '.target-row,.map-marker,.task-bar[data-task-id]')) {
+                    const id=node.dataset.taskId, assignment=state.assignments.get(id);
+                    const outside=time<scenario.horizon_start_s||time>=scenario.horizon_end_s;
+                    const planned=time<scenario.horizon_start_s?'Planned':'Completed';
+                    const windows=state.taskById.get(id).visibility_windows;
+                    const expected=outside
+                      ? (assignment ? planned:'Unassigned')
+                      : OrbitReplay.taskState(time,assignment,windows);
+                    if(node.dataset.state!==expected) errors.push(id);
+                  }
+                  return errors;
+                }""",
+                time,
+            )
+            assert result == []
+        page.select_option("#target-filter", "active")
+        page.evaluate(
+            "setReplayTime(state.currentPayload.reference_plan.assignments[0].start_s,true)"
+        )
+        assert page.locator(".target-row").count() > 0
+        page.select_option("#target-filter", "all")

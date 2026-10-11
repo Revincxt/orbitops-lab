@@ -174,7 +174,25 @@
     return degrees < 1e-5 ? 0 : Math.max(MIN_SLEW_S, degrees / SLEW_DEG_PER_S);
   }
 
-  function replay(schedule, time, model, step = 1) {
+  const boundaryCaches = new WeakMap();
+  function cachedBoundary(assignment, endpoint, model, step, revision) {
+    // Opt-in revision token: uncached public replay remains safe for mutable
+    // callers; the workspace invalidates when precise source chunks change.
+    if (revision === null) return boundary(assignment, endpoint === "exit" ? assignment.end_s : assignment.start_s, model, step);
+    let cache = boundaryCaches.get(model);
+    if (!cache || cache.revision !== revision || cache.step !== step) {
+      cache = {revision, step, assignments: new WeakMap()};
+      boundaryCaches.set(model, cache);
+    }
+    let poses = cache.assignments.get(assignment);
+    if (!poses) { poses = {}; cache.assignments.set(assignment, poses); }
+    if (!(endpoint in poses)) {
+      poses[endpoint] = boundary(assignment, endpoint === "exit" ? assignment.end_s : assignment.start_s, model, step);
+    }
+    return poses[endpoint];
+  }
+
+  function replay(schedule, time, model, step = 1, revision = null) {
     let low = 0, high = schedule.length;
     while (low < high) {
       const middle = (low + high) >>> 1;
@@ -184,8 +202,8 @@
     if (previous && time < previous.end_s) return displayFrame(previous, time, model, step)
       || {...nadir(time, model), phase: "idle"};
     const idle = nadir(time, model);
-    const exit = previous && boundary(previous, previous.end_s, model, step);
-    const entry = next && boundary(next, next.start_s, model, step);
+    const exit = previous && cachedBoundary(previous, "exit", model, step, revision);
+    const entry = next && cachedBoundary(next, "entry", model, step, revision);
     const exitDuration = exit ? slewDuration(exit, idleLocal) : 0;
     const entryDuration = entry ? slewDuration(idleLocal, entry) : 0;
     const transition = (from, to, progress, phase, duration) => world(

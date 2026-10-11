@@ -88,7 +88,7 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
         "sensor-fov",
         "mission",
     ]:
-        assert f'src="./{name}.js?v=0.26.0"' in html
+        assert f'src="./{name}.js?v=0.27.0"' in html
     assert 'href="./app.css?v=0.21.0"' in html
     assert 'href="./favicon.svg?v=0.2.0"' in html
     assert 'id="sun-direction"' not in html
@@ -170,7 +170,7 @@ def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     assert 'fetch("http' not in script
     assert 'fetch("./pages-data.json")' in script
     assert 'deployment.mode === "static"' in script
-    assert "renderComparison" in script
+    assert "renderReferenceComparison" in script
     assert "renderConstraintAudit" not in script
     assert "setPanel(" not in script
     assert "setWorkspaceView" in script

@@ -1857,3 +1857,27 @@ def test_loading_another_plan_during_a_view_transition_keeps_the_scene_healthy(
     assert globe_page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 492
     assert globe_page.evaluate("state.orbitPositions.size") == 20
     assert_single_screen(globe_page)
+
+
+@pytest.mark.parametrize("mode", ["2d", "2.5d"])
+def test_flat_views_do_not_build_invisible_cone_meshes_and_restore_them_in_3d(
+    globe_page: Any, mode: str
+) -> None:
+    globe_page.evaluate("mode => setMapViewMode(mode)", mode)
+    globe_page.wait_for_function("!state.viewTransition")
+    result = globe_page.evaluate("""() => {
+      const original=window.SensorFov;
+      let meshes=0;
+      window.SensorFov={...original,mesh(...args){meshes++;return original.mesh(...args);}};
+      try {
+        for(const time of [1000,1000.5,1001]) setReplayTime(time,true);
+        return {meshes,volumes:state.fovPrimitives.length,
+          visible:state.footprintPrimitives.show,
+          frames:[...state.sensorFovs.values()].every(s=>s.frame && !s.solid)};
+      } finally {window.SensorFov=original;}
+    }""")
+    assert result == {"meshes": 0, "volumes": 0, "visible": True, "frames": True}
+    globe_page.evaluate("setMapViewMode('3d')")
+    globe_page.wait_for_function("!state.viewTransition")
+    assert globe_page.evaluate("state.fovPrimitives.length") == 20
+    assert globe_page.evaluate("state.replay.time") == 1001

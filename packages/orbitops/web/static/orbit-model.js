@@ -62,6 +62,19 @@
     const q = [-Math.cos(node) * Math.sin(argument) - Math.sin(node) * Math.cos(argument) * Math.cos(inclination), -Math.sin(node) * Math.sin(argument) + Math.cos(node) * Math.cos(argument) * Math.cos(inclination), Math.cos(argument) * Math.sin(inclination)];
     const normal = unit(cross(p, q));
     const sourceStart = orbit.samples[0][0], sourceEnd = orbit.samples.at(-1)[0];
+    const sourcePositions = new Map();
+    function sourceCartesian(sample) {
+      const cached = sourcePositions.get(sample[0]);
+      if (cached && cached.sample[1] === sample[1] && cached.sample[2] === sample[2] && cached.sample[3] === sample[3]) {
+        sourcePositions.delete(sample[0]);
+        sourcePositions.set(sample[0], cached);
+        return cached.position;
+      }
+      const position = toCartesian(sample.slice(1));
+      sourcePositions.set(sample[0], {sample: [...sample], position});
+      if (sourcePositions.size > 512) sourcePositions.delete(sourcePositions.keys().next().value);
+      return position;
+    }
 
     function inertial(time) {
       const m = ((mean + TAU * ((time + offset) % period) / period + Math.PI) % TAU + TAU) % TAU - Math.PI;
@@ -105,11 +118,11 @@
     function cartesian(time) {
       if (!Number.isFinite(time)) throw new RangeError("Orbit time must be finite.");
       if (sourceStart <= time && time <= sourceEnd) {
-        const index = window.OrbitReplay.sampleIndex(orbit.samples, time);
         const precise = preciseSamples?.(orbit.satellite_id, time);
+        const index = precise ? 0 : window.OrbitReplay.sampleIndex(orbit.samples, time);
         const [start, end] = precise || [orbit.samples[index], orbit.samples[Math.min(index + 1, orbit.samples.length - 1)]];
         const fraction = end[0] === start[0] ? 0 : (time - start[0]) / (end[0] - start[0]);
-        const x = toCartesian(start.slice(1)), y = toCartesian(end.slice(1));
+        const x = sourceCartesian(start), y = sourceCartesian(end);
         return x.map((value, i) => value + (y[i] - value) * fraction);
       }
       const frame = time < sourceStart ? before : after;
