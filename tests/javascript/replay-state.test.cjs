@@ -137,6 +137,56 @@ function playbackHarness(native, direction = 1, phase = "idle") {
   return {state, calls, animate: runner.animateReplay};
 }
 
+function timelineHarness(viewMode = "3d", cameraMode = "follow", viewTransition = false) {
+  const state = {viewMode, cameraMode, viewTransition, selectedSatelliteId: "old", replay: {time: 100}};
+  const calls = [];
+  const runner = vm.createContext({state, window: {},
+    document: {getElementById(id) {return id;}}});
+  vm.runInContext(fs.readFileSync(path.join(root, "packages/orbitops/web/static/mission.js"), "utf8"), runner);
+  Object.assign(runner, {
+    selectTarget(id, reveal, seek) {
+      calls.push(["task", id, reveal, seek]);
+      if (reveal) { state.selectedSatelliteId = null; if (state.cameraMode === "follow") state.cameraMode = "manual"; }
+      if (seek) state.replay.time = 200;
+    },
+    selectSatellite(id, reorient) {
+      assert.equal(reorient, undefined, "timeline selection must not start a selection flight");
+      state.selectedSatelliteId = id;
+      calls.push(["satellite", id]);
+    },
+    activateTab(id) {calls.push(["tab", id]);},
+    revealSelectedTask() {calls.push(["reveal"]);},
+  });
+  return {state, calls, select: runner.selectTimelineItem};
+}
+
+test("timeline tasks retain Follow only in 3D while keeping task seeks and details",()=>{
+  for (const view of ["3d", "2d", "2.5d"]) for (const mode of ["overview", "manual", "follow"]) {
+    const {state, calls, select} = timelineHarness(view, mode);
+    select("new", "task");
+    const follow = view === "3d" && mode === "follow";
+    assert.deepEqual(calls[0], ["task", "task", !follow, true]);
+    assert.equal(state.replay.time, 200);
+    assert.equal(state.selectedSatelliteId, follow ? "new" : null);
+    assert.equal(state.cameraMode, follow ? "follow" : mode === "follow" ? "manual" : mode);
+    assert.equal(calls.filter(call=>call[0]==="satellite").length, follow ? 1 : 0);
+    assert.equal(calls.filter(call=>call[0]==="tab").length, follow ? 1 : 0);
+  }
+});
+
+test("timeline satellite rows select once without seeking or changing camera mode",()=>{
+  for (const view of ["3d", "2d", "2.5d"]) for (const mode of ["overview", "follow"]) {
+    const {state, calls, select} = timelineHarness(view, mode);
+    select("new");
+    assert.deepEqual(calls, [["satellite", "new"]]);
+    assert.equal(state.replay.time, 100);
+    assert.equal(state.cameraMode, mode);
+  }
+  const {calls, select} = timelineHarness("3d", "follow", true);
+  select("new", "task");
+  assert.deepEqual(calls, [], "ignore timeline selection while the native view is morphing");
+});
+
 test("native camera and all coverage advance each frame regardless of task phase or direction",()=>{
   for (const direction of [1, -1]) for (const phase of ["idle", "observing", "slew-in", "slew-out"]) {
     const {state, calls, animate} = playbackHarness(true, direction, phase);

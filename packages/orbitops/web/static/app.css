@@ -358,6 +358,7 @@ input::placeholder { color: var(--subtle); opacity: 1; }
 .resource-block .chart-host::-webkit-scrollbar-thumb:hover { background: #4f8aa6; }
 .chart-grid { stroke: #3b536b; stroke-opacity: .42; stroke-width: .7; }
 .row-band { fill: url(#timeline-lane-surface); }
+.satellite-lane { cursor: pointer; }
 .satellite-lane.is-selected .row-band { fill: url(#timeline-lane-active); opacity: 1; }
 .satellite-lane:hover .row-band { fill: url(#timeline-lane-active); opacity: .7; }
 .chart-axis, .task-label, .task-sublabel { fill: var(--muted); font-family: var(--sans); font-size: var(--text-caption); font-weight: var(--weight-label); line-height: var(--text-line); font-variant-numeric: lining-nums tabular-nums; }

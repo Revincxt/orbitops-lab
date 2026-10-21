@@ -447,6 +447,20 @@ function renderReferenceComparison() {
   }));
 }
 
+function selectTimelineItem(satelliteId, taskId = null) {
+  if (state.viewTransition) return;
+  const keepFollowing = state.viewMode === "3d" && state.cameraMode === "follow";
+  if (taskId) {
+    // Timeline observations keep the active 3D tracking camera. Task List and
+    // map picks still use the independent task-selection behavior.
+    selectTarget(taskId, !keepFollowing, true);
+    if (!keepFollowing) return;
+    activateTab(document.getElementById("tab-selection"));
+    revealSelectedTask();
+  }
+  selectSatellite(satelliteId);
+}
+
 function renderReferenceGantt() {
   if (!elements.timeline.clientWidth || !elements.timeline.clientHeight) return;
   const {scenario, reference_plan: plan} = state.currentPayload;
@@ -464,7 +478,9 @@ function renderReferenceGantt() {
   const satellites = scenario.satellites.filter((satellite) => satelliteFilter === "all" || satellite.satellite_id === satelliteFilter);
   const height = top + satellites.length * rowHeight + bottom;
   const scrollTop = elements.timeline.scrollTop;
-  const focusedTaskId = elements.timeline.contains(document.activeElement) ? document.activeElement.dataset.taskId : null;
+  const focused = elements.timeline.contains(document.activeElement) ? document.activeElement : null;
+  const focusedTaskId = focused?.dataset.taskId;
+  const focusedSatelliteId = focused?.dataset.satelliteId;
   elements.timeline.style.setProperty("--timeline-label-width", `${left}px`);
   const axis = chart(width, 24, "Schedule time axis", `${window.OrbitReplay.utc(scenario.epoch_utc, windowStart, true)} → ${window.OrbitReplay.utc(scenario.epoch_utc, windowEnd, true)}`);
   axis.setAttribute("preserveAspectRatio", "none");
@@ -497,9 +513,20 @@ function renderReferenceGantt() {
     const row = svgElement("g", {class: `satellite-lane${satellite.satellite_id === state.selectedSatelliteId ? " is-selected" : ""}`, "data-satellite-id": satellite.satellite_id});
     row.append(svgElement("title", {}, satellite.satellite_id));
     row.append(svgElement("rect", {x: 0, y: rowY, width, height: rowHeight - 2, rx: 3, class: "row-band", opacity: index % 2 ? 0 : 1}));
-    row.append(svgElement("text", {x: 5, y: rowY + 13, class: "task-label"}, satelliteName(satellite.satellite_id)));
+    const label = svgElement("g", {class: "satellite-lane-label", role: "button", tabindex: 0,
+      "data-satellite-id": satellite.satellite_id, "aria-label": `Select satellite ${satelliteName(satellite.satellite_id)}`,
+      "aria-pressed": String(satellite.satellite_id === state.selectedSatelliteId)});
+    label.append(svgElement("text", {x: 5, y: rowY + 13, class: "task-label"}, satelliteName(satellite.satellite_id)));
     const assignments = plan.assignments.filter((assignment) => assignment.satellite_id === satellite.satellite_id);
-    row.append(svgElement("text", {x: 5, y: rowY + 27, class: "task-sublabel"}, `${assignments.length} tasks · ${plan.workloads[satellite.satellite_id]} s`));
+    label.append(svgElement("text", {x: 5, y: rowY + 27, class: "task-sublabel"}, `${assignments.length} tasks · ${plan.workloads[satellite.satellite_id]} s`));
+    label.addEventListener("keydown", (event) => {
+      if (["Enter", " "].includes(event.key)) {
+        event.preventDefault();
+        selectTimelineItem(satellite.satellite_id);
+      }
+    });
+    row.append(label);
+    row.addEventListener("click", () => selectTimelineItem(satellite.satellite_id));
     selectedTask?.visibility_windows.filter((window) => window.satellite_id === satellite.satellite_id && overlaps(window.start_s, window.end_s)).forEach((window) => {
       const bar = svgElement("rect", {x: x(window.start_s), y: rowY + 6, width: Math.max(1, x(window.end_s) - x(window.start_s)), height: 20, class: "window-bar", "clip-path": "url(#timeline-plot-clip)"});
       bar.append(svgElement("title", {}, `${selectedTask.task_id} · ${window.window_id} · ${timeLabel(window.start_s)}–${timeLabel(window.end_s)} UTC`));
@@ -514,8 +541,16 @@ function renderReferenceGantt() {
       bar.toggleAttribute("hidden", !inWindow);
       if (selected) { bar.setAttribute("stroke", "#fff"); bar.setAttribute("stroke-width", "1"); }
       bar.append(svgElement("title", {}, `${assignment.task_id} · ${satellite.satellite_id}\n${timeLabel(assignment.start_s)}–${timeLabel(assignment.end_s)} UTC\nActual duration: ${assignment.end_s - assignment.start_s}s. Display width may be enlarged.`));
-      bar.addEventListener("click", () => selectTarget(assignment.task_id));
-      bar.addEventListener("keydown", (event) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); selectTarget(assignment.task_id); } });
+      bar.addEventListener("click", (event) => {
+        event.stopPropagation();
+        selectTimelineItem(satellite.satellite_id, assignment.task_id);
+      });
+      bar.addEventListener("keydown", (event) => {
+        if (["Enter", " "].includes(event.key)) {
+          event.preventDefault();
+          selectTimelineItem(satellite.satellite_id, assignment.task_id);
+        }
+      });
       row.append(bar);
     });
     root.append(row);
@@ -532,6 +567,7 @@ function renderReferenceGantt() {
   state.taskNodes = null;
   elements.timeline.scrollTop = scrollTop;
   if (focusedTaskId) root.querySelector(`[data-task-id="${CSS.escape(focusedTaskId)}"]`)?.focus({preventScroll: true});
+  else if (focusedSatelliteId) root.querySelector(`.satellite-lane-label[data-satellite-id="${CSS.escape(focusedSatelliteId)}"]`)?.focus({preventScroll: true});
 }
 
 function renderWorkloads() {

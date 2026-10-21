@@ -93,9 +93,9 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
         assert f'src="./{name}.js?v=0.43.0"' in html
     for name in ["orbit-ephemeris", "orbit-codec"]:
         assert f'src="./{name}.js?v=0.44.0"' in html
-    for name in ["app", "mission"]:
-        assert f'src="./{name}.js?v=0.45.0"' in html
-    assert 'href="./app.css?v=0.45.0"' in html
+    assert 'src="./app.js?v=0.45.0"' in html
+    assert 'src="./mission.js?v=0.46.0"' in html
+    assert 'href="./app.css?v=0.46.0"' in html
     assert 'class="catalog-head"' not in html
     assert "TARGET / PRIORITY" not in html
     assert 'href="./favicon.svg?v=0.2.0"' in html
