@@ -5,6 +5,7 @@
   function create(manifest, epoch, satelliteIds, fetcher = window.fetch.bind(window), onLoad = () => {}) {
     const entries = manifest?.chunks || [];
     const ids = new Set(satelliteIds);
+    const store = window.MissionData.create({fetcher, persistent: true});
     const cache = new Map(), pending = new Map(), failures = new Map();
     let desired = new Set(), disposed = false, revision = 0;
     for (const [i, entry] of entries.entries()) {
@@ -23,13 +24,11 @@
     }
 
     async function read(entry, signal) {
-      const response = await fetcher(`./orbit-data/${entry.filename}`, {signal});
-      if (!response.ok) throw new Error(`Orbit data unavailable (${response.status}).`);
-      const raw = await response.arrayBuffer();
-      if (raw.byteLength !== entry.bytes) throw new Error("Orbit data size mismatch.");
-      const digest = await window.crypto.subtle.digest("SHA-256", raw);
-      const hash = Array.from(new Uint8Array(digest), v => v.toString(16).padStart(2, "0")).join("");
-      if (hash !== entry.sha256) throw new Error("Orbit data integrity check failed.");
+      return store.read(`./orbit-data/${entry.filename}?sha256=${entry.sha256}`, entry,
+        {signal, decode: raw => decode(entry, raw)});
+    }
+
+    function decode(entry, raw) {
       const data = JSON.parse(new TextDecoder().decode(raw));
       if (data.schema_version !== "eos-orbit-chunk-1" || data.epoch_utc !== epoch
           || data.frame !== "WGS84 geodetic" || data.step_s !== 1

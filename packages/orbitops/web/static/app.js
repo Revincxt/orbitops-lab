@@ -3,6 +3,7 @@
 const SVG_NS = "http://www.w3.org/2000/svg";
 const state = {
   referenceData: null,
+  referencePlans: null,
   globe: null,
   imageryFallbackActive: false,
   imageryController: null,
@@ -303,11 +304,11 @@ function chart(width, height, title, description) {
 
 async function loadStaticDataset() {
   if (!staticDatasetPromise) {
-    staticDatasetPromise = fetch("./pages-data.json").then(async (response) => {
+    staticDatasetPromise = fetch("./pages-data.json?v=0.4").then(async (response) => {
       if (!response.ok) throw new Error("EOS-Bench dataset is unavailable.");
       const dataset = await response.json();
       return dataset;
-    });
+    }).catch(error => { staticDatasetPromise = null; throw error; });
   }
   return staticDatasetPromise;
 }
@@ -605,17 +606,20 @@ function renderResult(payload) {
 async function loadReferencePlan() {
   if (state.busy || !state.referenceData || !elements.solver.reportValidity()) return;
   setBusy(true, "Loading plan…");
+  const previousPlan = state.currentPayload?.reference_plan;
+  let installed = false;
   try {
-    const plan = state.referenceData.plans.find((item) => item.plan_id === elements.solver.value);
-    if (!plan) throw new Error("Reference plan is unavailable.");
+    const plan = await state.referencePlans.load(elements.solver.value);
     renderResult(window.OrbitReplay.referencePayload(state.referenceData, plan));
+    installed = true;
     await state.ephemerisReady;
     elements.status.textContent = `${plan.label} · Ready`;
   } catch (error) {
     setBusy(false);
     elements.statusIndicator.classList.add("is-error");
     elements.status.classList.add("error");
-    elements.status.textContent = state.currentPayload ? "Orbit data unavailable · 30 s preview" : error instanceof Error ? error.message : "Plan could not be loaded.";
+    if (!installed && previousPlan) elements.solver.value = previousPlan.plan_id;
+    elements.status.textContent = installed ? "Orbit data unavailable · 30 s preview" : error instanceof Error ? error.message : "Plan could not be loaded.";
   } finally {
     if (state.busy) setBusy(false);
     refreshPanels();
@@ -631,6 +635,7 @@ async function initialize() {
     const [referenceData] = await Promise.all([loadReferenceArchive(), fontReady]);
     if (!referenceData?.scenario || !referenceData.plans?.length) throw new Error("EOS-Bench reference data is unavailable.");
     state.referenceData = referenceData;
+    state.referencePlans = window.ReferencePlans.create(referenceData.plans);
     populateSelect(elements.solver, referenceData.plans, "plan_id", (plan) => plan.label);
     elements.solver.value = referenceData.plans.some((plan) => plan.plan_id === "eos-sa-balanced") ? "eos-sa-balanced" : referenceData.plans[0].plan_id;
     setBusy(false);

@@ -8,10 +8,10 @@ const root = path.resolve(__dirname, "../..");
 const archive = JSON.parse(fs.readFileSync(path.join(root, "data/eos-bench/reference.json")));
 const original = JSON.stringify(archive);
 const context = vm.createContext({window:{crypto:webcrypto, fetch:()=>{}}, TextDecoder, Uint8Array, AbortController, setTimeout, clearTimeout});
-for (const name of ["replay.js", "orbit-model.js", "orbit-ephemeris.js"]) vm.runInContext(fs.readFileSync(path.join(root, "packages/orbitops/web/static", name), "utf8"),context);
+for (const name of ["replay.js", "orbit-model.js", "data-store.js", "orbit-ephemeris.js"]) vm.runInContext(fs.readFileSync(path.join(root, "packages/orbitops/web/static", name), "utf8"),context);
 const {OrbitEphemeris,OrbitModel} = context.window;
 const ids = archive.scenario.satellites.map(s=>s.satellite_id);
-const bytes = filename=>fs.readFileSync(path.join(root, "data/eos-bench/orbits",filename));
+const bytes = filename=>fs.readFileSync(path.join(root, "data/eos-bench/orbits",filename.split('?')[0]));
 const response = raw=>({ok:true,arrayBuffer:async()=>raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength)});
 const create = fetcher=>OrbitEphemeris.create(archive.replay.ephemeris,archive.scenario.epoch_utc,ids,fetcher);
 
@@ -92,7 +92,7 @@ test("manifest paths, finite time and oversized windows are rejected",async()=>{
 test("timeouts are explicit failures, not silently ignored seek cancellation",async()=>{
   const isolated=vm.createContext({window:{crypto:webcrypto,fetch:()=>{}},TextDecoder,Uint8Array,AbortController,
     setTimeout:(fn,ms)=>setTimeout(fn,ms===15000?1:ms),clearTimeout});
-  vm.runInContext(fs.readFileSync(path.join(root,"packages/orbitops/web/static/orbit-ephemeris.js"),"utf8"),isolated);
+  for (const file of ['data-store.js','orbit-ephemeris.js']) vm.runInContext(fs.readFileSync(path.join(root,"packages/orbitops/web/static",file),"utf8"),isolated);
   const loader=isolated.window.OrbitEphemeris.create(archive.replay.ephemeris,archive.scenario.epoch_utc,ids,
     (url,{signal})=>new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(new Error('aborted')))));
   await assert.rejects(loader.ensure(0),/timed out/);

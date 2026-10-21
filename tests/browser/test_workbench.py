@@ -18,7 +18,7 @@ import pytest
 from orbitops.web import LabApplication
 from orbitops.web.server import make_server
 
-from scripts.build_pages import build_dataset
+from scripts.build_pages import build_dataset, split_plan_data
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("ORBITOPS_BROWSER_TESTS") != "1",
@@ -1253,7 +1253,9 @@ def test_static_reference_mode_uses_the_same_archive_without_api_calls(
 ) -> None:
     from scripts.import_eos_reference import REVISION
 
-    dataset = build_dataset(LabApplication(ROOT / "data/eos-bench/reference.json"))
+    dataset, plans = split_plan_data(
+        build_dataset(LabApplication(ROOT / "data/eos-bench/reference.json"))
+    )
     assert set(dataset) == {"metadata", "reference"}
     requests: list[str] = []
     page.on(
@@ -1265,11 +1267,20 @@ def test_static_reference_mode_uses_the_same_archive_without_api_calls(
             content_type="text/javascript", body='window.ORBITOPS_DEPLOYMENT = {mode: "static"};'
         ),
     )
-    page.route("**/pages-data.json", lambda route: route.fulfill(json=dataset))
+    page.route("**/pages-data.json?*", lambda route: route.fulfill(json=dataset))
+    page.route(
+        "**/plan-data/**",
+        lambda route: route.fulfill(
+            content_type="application/json", body=plans[route.request.url.rsplit("/", 1)[-1]]
+        ),
+    )
     reference_ready(page, lab_url)
     assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 488
     assert page.evaluate("state.currentPayload.provenance.revision") == REVISION
     page.locator("#solver-select").select_option("eos-ppo-profit")
+    page.wait_for_function(
+        "!state.busy && state.currentPayload.reference_plan.plan_id === 'eos-ppo-profit'"
+    )
     assert page.evaluate("state.currentPayload.result.metrics.completed_tasks") == 492
     assert not requests
     assert_single_screen(page)

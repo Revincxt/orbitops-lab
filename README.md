@@ -51,6 +51,11 @@ Tiles are cached on demand in `runs/cache/nasa-blue-marble-v1` (100 MiB disk,
 8 MiB memory; up to four concurrent downloads). The static hosted demo accesses
 NASA directly; both modes retry transient failures and recover without resetting the view.
 
+The hosted demo loads full plans only when selected, while keeping all comparison
+metrics available. Verified orbit chunks are reused from a content-versioned browser
+cache (up to 64 MiB); storage failures fall back to normal downloads. Source samples
+and numerical precision are unchanged.
+
 ## Credits & Scope
 
 Demo records come from [EOS-Bench](https://github.com/Ethan19YQ/EOS-Bench).

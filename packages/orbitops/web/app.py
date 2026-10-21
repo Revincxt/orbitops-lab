@@ -110,6 +110,8 @@ class LabApplication:
             "/app.css": ("app.css", "text/css; charset=utf-8"),
             "/app.js": ("app.js", "text/javascript; charset=utf-8"),
             "/imagery.js": ("imagery.js", "text/javascript; charset=utf-8"),
+            "/data-store.js": ("data-store.js", "text/javascript; charset=utf-8"),
+            "/reference-plans.js": ("reference-plans.js", "text/javascript; charset=utf-8"),
             "/replay.js": ("replay.js", "text/javascript; charset=utf-8"),
             "/orbit-model.js": ("orbit-model.js", "text/javascript; charset=utf-8"),
             "/orbit-ephemeris.js": ("orbit-ephemeris.js", "text/javascript; charset=utf-8"),

@@ -30,6 +30,8 @@ def test_display_orbit_model_against_source_holdouts_and_physical_invariants() -
             str(root / "tests/javascript/satellite-attitude.test.cjs"),
             str(root / "tests/javascript/replay-state.test.cjs"),
             str(root / "tests/javascript/imagery.test.cjs"),
+            str(root / "tests/javascript/data-store.test.cjs"),
+            str(root / "tests/javascript/reference-plans.test.cjs"),
         ],
         cwd=root,
         capture_output=True,

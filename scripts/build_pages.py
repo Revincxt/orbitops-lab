@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -19,6 +21,7 @@ REFERENCE_PATH = PROJECT_ROOT / "data" / "eos-bench" / "reference.json"
 STATIC_DIR = PROJECT_ROOT / "packages" / "orbitops" / "web" / "static"
 ARTIFACT_MARKER = ".orbitops-pages-artifact"
 ARTIFACT_MARKER_CONTENT = "orbitops-pages-v0.2\n"
+PLAN_SUMMARY_FIELDS = ("plan_id", "label", "objective", "source_metrics", "recomputed_metrics")
 
 
 def _source_revision() -> str:
@@ -53,6 +56,34 @@ def build_dataset(application: LabApplication) -> dict[str, Any]:
     }
 
 
+def split_plan_data(dataset: dict[str, Any]) -> tuple[dict[str, Any], dict[str, bytes]]:
+    """Keep comparison summaries in the bootstrap; publish full plans by content hash."""
+    summaries = []
+    assets = {}
+    ids = set()
+    for plan in dataset["reference"]["plans"]:
+        plan_id = plan["plan_id"]
+        if not isinstance(plan_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,79}", plan_id):
+            raise ValueError("Invalid reference plan id")
+        if plan_id in ids:
+            raise ValueError("Duplicate reference plan id")
+        ids.add(plan_id)
+        raw = (json.dumps(plan, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+        digest = hashlib.sha256(raw).hexdigest()
+        filename = f"{plan_id}.{digest}.json"
+        assets[filename] = raw
+        summaries.append(
+            {
+                **{field: plan[field] for field in PLAN_SUMMARY_FIELDS},
+                "asset": {"filename": filename, "bytes": len(raw), "sha256": digest},
+            }
+        )
+    return {
+        "metadata": {**dataset["metadata"], "schema_version": "0.4"},
+        "reference": {**dataset["reference"], "plans": summaries},
+    }, assets
+
+
 def _validate_output_target(output: Path) -> None:
     protected = (
         PROJECT_ROOT.resolve(),
@@ -82,7 +113,7 @@ def build_pages(output_dir: Path) -> None:
     output = output_dir.resolve()
     _validate_output_target(output)
     application = LabApplication(REFERENCE_PATH)
-    dataset = build_dataset(application)
+    dataset, plans = split_plan_data(build_dataset(application))
     output.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix=f".{output.name}-", dir=output.parent) as temporary:
@@ -96,6 +127,10 @@ def build_pages(output_dir: Path) -> None:
             json.dumps(dataset, ensure_ascii=False, separators=(",", ":")) + "\n",
             encoding="utf-8",
         )
+        if plans:
+            (staging / "plan-data").mkdir()
+            for filename, raw in plans.items():
+                (staging / "plan-data" / filename).write_bytes(raw)
         chunks = (
             dataset.get("reference", {}).get("replay", {}).get("ephemeris", {}).get("chunks", [])
         )

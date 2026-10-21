@@ -80,16 +80,16 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     assert "OBSERVATION TIME" not in html
     assert 'src="./deployment-config.js?v=0.2.0"' in html
     for name in [
-        "app",
         "replay",
         "orbit-model",
-        "orbit-ephemeris",
         "satellite-attitude",
         "sensor-fov",
         "mission",
         "imagery",
     ]:
         assert f'src="./{name}.js?v=0.42.0"' in html
+    for name in ["app", "orbit-ephemeris", "data-store", "reference-plans"]:
+        assert f'src="./{name}.js?v=0.43.0"' in html
     assert 'href="./app.css?v=0.42.0"' in html
     assert 'class="catalog-head"' not in html
     assert "TARGET / PRIORITY" not in html
@@ -237,7 +237,7 @@ def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     assert "primaryImagery.show = false" not in script
     assert "state.imageryController?.dispose()" in script
     assert 'fetch("http' not in script
-    assert 'fetch("./pages-data.json")' in script
+    assert 'fetch("./pages-data.json?v=0.4")' in script
     assert 'deployment.mode === "static"' in script
     assert "renderReferenceComparison" in script
     assert "renderConstraintAudit" not in script

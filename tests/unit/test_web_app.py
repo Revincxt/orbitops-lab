@@ -71,6 +71,8 @@ def test_service_refuses_writes_without_entering_the_solver(
         ("/app.css", "text/css; charset=utf-8"),
         ("/app.js", "text/javascript; charset=utf-8"),
         ("/imagery.js", "text/javascript; charset=utf-8"),
+        ("/data-store.js", "text/javascript; charset=utf-8"),
+        ("/reference-plans.js", "text/javascript; charset=utf-8"),
         ("/replay.js", "text/javascript; charset=utf-8"),
         ("/orbit-model.js", "text/javascript; charset=utf-8"),
         ("/orbit-ephemeris.js", "text/javascript; charset=utf-8"),
