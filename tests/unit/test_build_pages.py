@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 from orbitops.web import LabApplication
+from orbitops.web.orbit_codec import ENCODING, encode_orbit_chunk
 
 from scripts import build_pages as pages
 
@@ -63,15 +64,23 @@ def test_pages_build_bundles_fonts_and_orbit_extension(tmp_path: Path) -> None:
         ).read_bytes()
         assert f"./{name}.js?v=0.43.0" in (output / "index.html").read_text()
     reference = LabApplication(pages.REFERENCE_PATH).reference
-    for entry in reference.data["replay"]["ephemeris"]["chunks"]:
-        assert (output / "orbit-data" / entry["filename"]).read_bytes() == reference.orbit_chunk(
-            entry["filename"]
-        )
+    bootstrap = json.loads((output / "pages-data.json").read_text())
+    for entry, original in zip(
+        bootstrap["reference"]["replay"]["ephemeris"]["chunks"],
+        reference.data["replay"]["ephemeris"]["chunks"],
+        strict=True,
+    ):
+        raw = (output / "orbit-data" / entry["filename"]).read_bytes()
+        assert raw == encode_orbit_chunk(reference.orbit_chunk(entry["filename"]))
+        assert entry["encoding"] == ENCODING
+        assert entry["source_sha256"] == original["sha256"]
+        assert entry["source_bytes"] == original["bytes"]
+        assert entry["sha256"] == hashlib.sha256(raw).hexdigest()
+        assert entry["bytes"] == len(raw)
     assert (output / "models/earth-observer.glb").read_bytes() == (
         pages.STATIC_DIR / "models/earth-observer.glb"
     ).read_bytes()
-    bootstrap = json.loads((output / "pages-data.json").read_text())
-    assert bootstrap["metadata"]["schema_version"] == "0.4"
+    assert bootstrap["metadata"]["schema_version"] == "0.5"
     for summary, original in zip(
         bootstrap["reference"]["plans"], reference.export()["plans"], strict=True
     ):
@@ -171,10 +180,10 @@ def test_pages_builder_replaces_only_marked_artifact(
 
     assert not (output / "stale.txt").exists()
     assert (output / "index.html").read_text(encoding="utf-8") == "<!doctype html>"
-    assert (
-        json.loads((output / "pages-data.json").read_text(encoding="utf-8"))
-        == (pages.split_plan_data(dataset)[0])
-    )
+    assert json.loads((output / "pages-data.json").read_text(encoding="utf-8")) == {
+        **dataset,
+        "metadata": {"schema_version": "0.5"},
+    }
     assert (output / pages.ARTIFACT_MARKER).read_text(encoding="utf-8") == (
         pages.ARTIFACT_MARKER_CONTENT
     )

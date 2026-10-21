@@ -14,6 +14,7 @@ from typing import Any
 
 from orbitops import __version__
 from orbitops.web import LabApplication
+from orbitops.web.orbit_codec import ENCODING, encode_orbit_chunk
 
 PROJECT_ROOT = Path(__file__).parents[1]
 SCENARIO_DIR = PROJECT_ROOT / "scenarios"
@@ -123,10 +124,6 @@ def build_pages(output_dir: Path) -> None:
             '"use strict";\n\nwindow.ORBITOPS_DEPLOYMENT = Object.freeze({ mode: "static" });\n'
         )
         (staging / "deployment-config.js").write_text(deployment_config, encoding="utf-8")
-        (staging / "pages-data.json").write_text(
-            json.dumps(dataset, ensure_ascii=False, separators=(",", ":")) + "\n",
-            encoding="utf-8",
-        )
         if plans:
             (staging / "plan-data").mkdir()
             for filename, raw in plans.items():
@@ -137,9 +134,21 @@ def build_pages(output_dir: Path) -> None:
         if chunks:
             (staging / "orbit-data").mkdir()
             for chunk in chunks:
-                (staging / "orbit-data" / chunk["filename"]).write_bytes(
-                    application.reference.orbit_chunk(chunk["filename"])
+                source = application.reference.orbit_chunk(chunk["filename"])
+                packed = encode_orbit_chunk(source)
+                chunk.update(
+                    source_sha256=chunk["sha256"],
+                    source_bytes=chunk["bytes"],
+                    encoding=ENCODING,
+                    bytes=len(packed),
+                    sha256=hashlib.sha256(packed).hexdigest(),
                 )
+                (staging / "orbit-data" / chunk["filename"]).write_bytes(packed)
+        dataset["metadata"]["schema_version"] = "0.5"
+        (staging / "pages-data.json").write_text(
+            json.dumps(dataset, ensure_ascii=False, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
         (staging / ARTIFACT_MARKER).write_text(ARTIFACT_MARKER_CONTENT, encoding="utf-8")
         (staging / ".nojekyll").touch()
 

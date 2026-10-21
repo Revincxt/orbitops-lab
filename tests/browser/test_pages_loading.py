@@ -256,12 +256,97 @@ def test_native_pages_keeps_all_plan_values_and_satellite_rendering(globe_page: 
             "id=>!state.busy && state.currentPayload.reference_plan.plan_id===id", arg=plan
         )
         assert globe_page.evaluate(
-            """archive => JSON.stringify(state.currentPayload) === JSON.stringify(
-              OrbitReplay.referencePayload(archive,archive.plans.find(
-                p=>p.plan_id===state.currentPayload.reference_plan.plan_id)))""",
+            """archive => {
+              const expected=OrbitReplay.referencePayload(archive,archive.plans.find(
+                p=>p.plan_id===state.currentPayload.reference_plan.plan_id));
+              const actual={...state.currentPayload,replay:{...state.currentPayload.replay,
+                ephemeris:expected.replay.ephemeris}};
+              return JSON.stringify(actual)===JSON.stringify(expected);
+            }""",
             reference,
         )
         assert globe_page.evaluate("state.orbitPositions.size") == 20
         assert globe_page.evaluate("state.sensorFovs.size") == 20
         assert globe_page.locator(".radar-series").count() == 7
         assert_single_screen(globe_page)
+
+
+@pytest.mark.skipif(os.environ.get("ORBITOPS_GLOBE_TESTS") != "1", reason="real WebGL is opt-in")
+def test_packed_and_source_data_produce_identical_native_geometry_in_every_view(
+    globe_page: Any,
+) -> None:
+    reference = LabApplication(ROOT / "data/eos-bench/reference.json").reference.export()
+
+    def source_chunk(route: Any) -> None:
+        filename = route.request.url.rsplit("/", 1)[-1].split("?", 1)[0]
+        raw = (ROOT / "data/eos-bench/orbits" / filename).read_bytes()
+        route.fulfill(content_type="application/json", body=raw)
+
+    globe_page.route("**/source-orbit-data/**", source_chunk)
+    globe_page.evaluate(
+        """manifest => {
+          window.packedEphemeris=state.ephemeris;
+          window.sourceEphemeris=OrbitEphemeris.create(manifest,
+            state.currentPayload.scenario.epoch_utc,
+            state.currentPayload.replay.orbits.map(o=>o.satellite_id),
+            (url,options)=>fetch(url.replace('./orbit-data/','./source-orbit-data/'),options));
+          selectSatellite('KENT_RIDGE_1_41167');
+        }""",
+        reference["replay"]["ephemeris"],
+    )
+    try:
+        for view in ["3d", "2.5d", "2d"]:
+            globe_page.evaluate("mode=>setMapViewMode(mode)", view)
+            globe_page.wait_for_function(
+                "mode=>state.viewMode===mode && !state.viewTransition", arg=view
+            )
+            for mode in ["overview", "follow"]:
+                globe_page.locator(f"#camera-{mode}").click()
+                globe_page.wait_for_function("mode=>state.cameraMode===mode", arg=mode)
+                for time in [0, 3599.5, 3600.5, 25253, 43200, 1, -1, 86400]:
+                    result = globe_page.evaluate(
+                        """async time => {
+                          state.ephemeris=packedEphemeris;
+                          // Match a real seek: advance the clock before loading its
+                          // window, so renderer callbacks request the same window.
+                          setReplayTime(time,true);
+                          await Promise.all([packedEphemeris.ensure(time,3064),
+                            sourceEphemeris.ensure(time,3064)]);
+                          const snapshot=loader=>{
+                            state.ephemeris=loader;
+                            state.ephemerisRevision=-1;
+                            state.attitudeFrames.clear();
+                            for(const sensor of state.sensorFovs.values()) sensor.revision=-1;
+                            setReplayTime(time,true);
+                            state.globe.scene.render();
+                            const clock=state.globe.clock.currentTime;
+                            const positions=[...state.orbitPositions].map(([id,p])=>
+                              [id,p.getValue(clock)]);
+                            const orientations=positions.map(([id])=>[id,
+                              state.globe.entities.getById('satellite-'+id).orientation.getValue(clock)]);
+                            const coverage=[...state.sensorFovs].map(([id,s])=>[id,s.frame,
+                              s.attitude.direction,s.attitude.modelAxes,
+                              s.footprint.polyline.positions.getValue(),s.footprint.show]);
+                            return {positions:JSON.stringify(positions),
+                              orientations:JSON.stringify(orientations),coverage:JSON.stringify(coverage),
+                              clock:document.getElementById('replay-time').textContent,
+                              tasks:JSON.stringify([...state.assignments.keys()].map(id=>taskState(id)))};
+                          };
+                          const packed=snapshot(packedEphemeris),source=snapshot(sourceEphemeris);
+                          state.ephemeris=packedEphemeris;
+                          updateReplayVisuals();
+                          return {positions:packed.positions===source.positions,
+                            orientations:packed.orientations===source.orientations,
+                            coverage:packed.coverage===source.coverage,
+                            clock:packed.clock===source.clock,tasks:packed.tasks===source.tasks,
+                            mode:state.cameraMode};
+                        }""",
+                        time,
+                    )
+                    assert result == dict.fromkeys(
+                        ["positions", "orientations", "coverage", "clock", "tasks"], True
+                    ) | {"mode": mode}, (view, mode, time, result)
+    finally:
+        globe_page.evaluate(
+            "state.ephemeris=packedEphemeris;sourceEphemeris.dispose();updateReplayVisuals();"
+        )

@@ -55,6 +55,8 @@ The hosted demo loads full plans only when selected, while keeping all compariso
 metrics available. Verified orbit chunks are reused from a content-versioned browser
 cache (up to 64 MiB); storage failures fall back to normal downloads. Source samples
 and numerical precision are unchanged.
+Pages packages the one-second orbit samples as lossless Float64 data in gzip-friendly
+JSON; decoding restores the original values before interpolation and rendering.
 
 ## Credits & Scope
 

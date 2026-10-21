@@ -11,6 +11,9 @@
     for (const [i, entry] of entries.entries()) {
       if (!/^\d{5}\.json$/.test(entry.filename) || !/^[a-f0-9]{64}$/.test(entry.sha256)
           || !Number.isInteger(entry.bytes) || entry.bytes <= 0 || entry.bytes > 10000000
+          || (entry.encoding !== undefined && (entry.encoding !== "f64le-column-byteplanes-base64"
+            || !/^[a-f0-9]{64}$/.test(entry.source_sha256)
+            || !Number.isSafeInteger(entry.source_bytes) || entry.source_bytes <= 0))
           || entry.start_s !== i * 3600 || entry.end_s !== entry.start_s + 3600) {
         throw new Error("Invalid source ephemeris manifest.");
       }
@@ -29,7 +32,7 @@
     }
 
     function decode(entry, raw) {
-      const data = JSON.parse(new TextDecoder().decode(raw));
+      const data = window.OrbitCodec.decode(JSON.parse(new TextDecoder().decode(raw)), entry, ids);
       if (data.schema_version !== "eos-orbit-chunk-1" || data.epoch_utc !== epoch
           || data.frame !== "WGS84 geodetic" || data.step_s !== 1
           || data.start_s !== entry.start_s || data.end_s !== entry.end_s

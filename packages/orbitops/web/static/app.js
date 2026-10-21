@@ -304,7 +304,7 @@ function chart(width, height, title, description) {
 
 async function loadStaticDataset() {
   if (!staticDatasetPromise) {
-    staticDatasetPromise = fetch("./pages-data.json?v=0.4").then(async (response) => {
+    staticDatasetPromise = fetch("./pages-data.json?v=0.5").then(async (response) => {
       if (!response.ok) throw new Error("EOS-Bench dataset is unavailable.");
       const dataset = await response.json();
       return dataset;

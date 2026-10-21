@@ -54,6 +54,7 @@ jobs:
               "orbitops/web/static/mission.js",
               "orbitops/web/static/orbit-model.js",
               "orbitops/web/static/orbit-ephemeris.js",
+              "orbitops/web/static/orbit-codec.js",
               "orbitops/web/static/data-store.js",
               "orbitops/web/static/reference-plans.js",
               "orbitops/web/static/satellite-attitude.js",
