@@ -17,17 +17,16 @@
 ## Overview
 
 A fixed-viewport engineering workspace for exploring satellite orbits, observation
-tasks and scheduling results. The demo replays one pinned **EOS-Bench** scenario:
-**20 satellites · 500 tasks · 12 hours · 7 source plans**.
+tasks and scheduling results.
 
 - **Orbit views** — 3D, 2.5D and 2D maps with satellite models, focus and follow.
 - **Mission replay** — forward/reverse playback, UTC navigation and a synchronized satellite timeline.
 - **Task inspection** — observation windows, task status, plan details and satellite workloads.
-- **Plan comparison** — switch between original source plans and compare five-axis radar metrics.
+- **Plan comparison** — switch between reference plans and compare performance with radar charts.
 
-The Python research core separately provides **11 solvers**, independent schedule
-validation and seeded benchmarks for synthetic single-satellite scenarios. The
-hosted demo replays reference results; it does not run those solvers.
+The Python research core separately supports scheduling algorithms, independent
+validation and reproducible benchmarks for synthetic single-satellite scenarios.
+The hosted demo replays reference results; it does not run those solvers.
 
 ## Quick Start
 
@@ -44,19 +43,6 @@ orbitops lab
 
 Open [localhost:8000](http://127.0.0.1:8000), or try the
 [hosted demo](https://revincxt.github.io/orbitops-lab/) without installation.
-
-The local server fetches NASA imagery through a fixed same-origin endpoint using
-verified HTTPS and direct upstream connections, without changing system proxy settings.
-Tiles are cached on demand in `runs/cache/nasa-blue-marble-v1` (100 MiB disk,
-8 MiB memory; up to four concurrent downloads). The static hosted demo accesses
-NASA directly; both modes retry transient failures and recover without resetting the view.
-
-The hosted demo loads full plans only when selected, while keeping all comparison
-metrics available. Verified orbit chunks are reused from a content-versioned browser
-cache (up to 64 MiB); storage failures fall back to normal downloads. Source samples
-and numerical precision are unchanged.
-Pages packages the one-second orbit samples as lossless Float64 data in gzip-friendly
-JSON; decoding restores the original values before interpolation and rendering.
 
 ## Credits & Scope
 
