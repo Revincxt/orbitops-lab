@@ -61,6 +61,22 @@ def test_handler_dispatches_get_and_refuses_post() -> None:
     assert handler.rfile.tell() == 0
 
 
+def test_imagery_cache_and_retry_headers_do_not_change_other_response_defaults() -> None:
+    handler = bare_handler(LabApplication(REFERENCE_PATH))
+    headers: dict[str, str] = {}
+    handler.send_response = lambda status: None
+    handler.send_header = headers.__setitem__
+    handler.end_headers = lambda: None
+    handler.wfile = BytesIO()
+    handler._send(WebResponse(200, "image/jpeg", b"jpeg", cache_control="public, max-age=86400"))
+    assert headers["Cache-Control"] == "public, max-age=86400"
+    assert "Retry-After" not in headers
+    headers.clear()
+    handler._send(WebResponse(503, "application/json", b"{}", retry_after=3))
+    assert headers["Cache-Control"] == "no-store"
+    assert headers["Retry-After"] == "3"
+
+
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
 def test_handler_refuses_writes_without_reading_any_body(method: str) -> None:
     handler = bare_handler(LabApplication(REFERENCE_PATH))

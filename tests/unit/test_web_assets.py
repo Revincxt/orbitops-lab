@@ -87,8 +87,9 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
         "satellite-attitude",
         "sensor-fov",
         "mission",
+        "imagery",
     ]:
-        assert f'src="./{name}.js?v=0.41.0"' in html
+        assert f'src="./{name}.js?v=0.42.0"' in html
     assert 'href="./app.css?v=0.42.0"' in html
     assert 'class="catalog-head"' not in html
     assert "TARGET / PRIORITY" not in html
@@ -203,6 +204,7 @@ def test_task_broadcast_markup_styles_and_playback_hooks_are_removed() -> None:
 
 def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    imagery = (STATIC_DIR / "imagery.js").read_text(encoding="utf-8")
 
     assert 'fetch("/api/reference/data")' in script
     assert 'fetch("/api/scenarios")' not in script
@@ -217,19 +219,23 @@ def test_web_lab_script_uses_safe_dom_and_real_api_endpoints() -> None:
     assert "state.globe.scene.skyBox.show = false" not in script
     assert "state.globe.scene.sun.show = true" in script
     assert "state.globe.scene.globe.enableLighting = true" in script
-    assert "BlueMarble_ShadedRelief/default" in script
+    assert "BlueMarble_ShadedRelief/default" in imagery
     assert "NaturalEarthII" in script
     assert "new Cesium.GridImageryProvider" in script
     assert "backgroundColor: Cesium.Color.TRANSPARENT" in script
-    assert "WebMercatorTilingScheme" in script
-    assert "GoogleMapsCompatible_Level8" in script
+    assert "WebMercatorTilingScheme" in imagery
+    assert "GoogleMapsCompatible_Level8" in imagery
     assert "visibility_windows" in script
     assert "innerHTML" not in script
     assert "elements.export" not in script
     assert "createObjectURL" not in script
     assert "link.download" not in script
-    assert script.count("https://") == 1
-    assert "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/" in script
+    assert script.count("https://") == 0
+    assert imagery.count("https://") == 1
+    assert "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/" in imagery
+    assert '"./imagery/nasa/{z}/{y}/{x}.jpeg"' in imagery
+    assert "primaryImagery.show = false" not in script
+    assert "state.imageryController?.dispose()" in script
     assert 'fetch("http' not in script
     assert 'fetch("./pages-data.json")' in script
     assert 'deployment.mode === "static"' in script

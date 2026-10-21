@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
+from orbitops.web.imagery import NasaTileCache, TileUnavailable
 from orbitops.web.reference import ReferenceArchive
 
 STATIC_DIR = Path(__file__).with_name("static")
@@ -19,6 +20,8 @@ class WebResponse:
     status: int
     content_type: str
     body: bytes
+    cache_control: str = "no-store"
+    retry_after: int | None = None
 
     @classmethod
     def json(cls, status: int, payload: Any) -> WebResponse:
@@ -41,6 +44,7 @@ class LabApplication:
         self.reference = ReferenceArchive(Path(reference_path))
         self._reference_response: WebResponse | None = None
         self._reference_lock = Lock()
+        self.imagery = NasaTileCache()
 
     def _static(self, filename: str, content_type: str) -> WebResponse:
         path = self.static_dir / filename
@@ -54,6 +58,21 @@ class LabApplication:
         if method != "GET":
             return WebResponse.json(405, {"error": "read-only replay service; use GET"})
         route = path.split("?", 1)[0]
+        if route.startswith("/imagery/nasa/"):
+            try:
+                return WebResponse(
+                    status=200,
+                    content_type="image/jpeg",
+                    body=self.imagery.get(route),
+                    cache_control="public, max-age=86400",
+                )
+            except TileUnavailable as error:
+                return WebResponse(
+                    status=error.status,
+                    content_type="application/json; charset=utf-8",
+                    body=b'{"error":"NASA imagery unavailable"}\n',
+                    retry_after=error.retry_after if error.status != 404 else None,
+                )
         if route == "/api/health":
             available = self.reference.data is not None
             return WebResponse.json(
@@ -90,6 +109,7 @@ class LabApplication:
             "/": ("index.html", "text/html; charset=utf-8"),
             "/app.css": ("app.css", "text/css; charset=utf-8"),
             "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+            "/imagery.js": ("imagery.js", "text/javascript; charset=utf-8"),
             "/replay.js": ("replay.js", "text/javascript; charset=utf-8"),
             "/orbit-model.js": ("orbit-model.js", "text/javascript; charset=utf-8"),
             "/orbit-ephemeris.js": ("orbit-ephemeris.js", "text/javascript; charset=utf-8"),

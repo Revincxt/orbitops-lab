@@ -5,6 +5,7 @@ const state = {
   referenceData: null,
   globe: null,
   imageryFallbackActive: false,
+  imageryController: null,
   currentPayload: null,
   selectedTaskId: null,
   busy: false,
@@ -478,16 +479,6 @@ function geographicGridLayer(Cesium) {
   return new Cesium.ImageryLayer(provider);
 }
 
-function nasaBlueMarbleLayer(Cesium) {
-  const provider = new Cesium.UrlTemplateImageryProvider({
-    url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg",
-    tilingScheme: new Cesium.WebMercatorTilingScheme(),
-    maximumLevel: 8,
-    credit: new Cesium.Credit("NASA Earth Observatory · GIBS"),
-  });
-  return commandImageryLayer(Cesium, provider);
-}
-
 function hideMapCreditToggle() {
   // Hide only the information control, not the logo or native credit content.
   const link = elements.globe.querySelector(".cesium-credit-expand-link");
@@ -510,7 +501,6 @@ function renderMissionGlobe(scenario, result) {
     if (!state.globe) {
       elements.globe.replaceChildren();
       document.getElementById("cesium-styles").rel = "stylesheet";
-      const primaryImagery = nasaBlueMarbleLayer(Cesium);
       state.globe = new Cesium.Viewer("mission-globe", {
         animation: false,
         baseLayer: naturalEarthLayer(Cesium),
@@ -530,18 +520,17 @@ function renderMissionGlobe(scenario, result) {
         maximumRenderTimeChange: Infinity,
       });
       hideMapCreditToggle();
-      state.globe.imageryLayers.add(primaryImagery);
+      state.imageryController = window.MissionImagery.create(Cesium, state.globe, {
+        local: !staticDeployment,
+        makeLayer: provider => commandImageryLayer(Cesium, provider),
+        onSource(source) {
+          elements.globe.dataset.imagerySource = source;
+          state.imageryFallbackActive = source === "natural-earth-fallback";
+        },
+      });
       state.globe.imageryLayers.add(geographicGridLayer(Cesium));
       bindGlobePicking(state.globe, Cesium);
       bindMapViewEvents(state.globe);
-      primaryImagery.imageryProvider.errorEvent.addEventListener(() => {
-        if (!state.imageryFallbackActive && state.globe) {
-          primaryImagery.show = false;
-          state.imageryFallbackActive = true;
-          elements.globe.dataset.imagerySource = "natural-earth-fallback";
-        }
-      });
-      elements.globe.dataset.imagerySource = "nasa-blue-marble";
       let imageryRequestsObserved = false;
       state.globe.scene.globe.tileLoadProgressEvent.addEventListener((pendingRequests) => {
         if (pendingRequests > 0) imageryRequestsObserved = true;
@@ -582,6 +571,8 @@ function renderMissionGlobe(scenario, result) {
     setupReferenceGlobe(viewer, Cesium);
   } catch (error) {
     console.warn("Cesium mission view unavailable", error);
+    state.imageryController?.dispose();
+    state.imageryController = null;
     if (state.globe && !state.globe.isDestroyed()) state.globe.destroy();
     state.globe = null;
     state.fovPrimitives = null;

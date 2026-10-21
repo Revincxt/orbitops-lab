@@ -85,6 +85,7 @@ def globe_page(
 ) -> Iterator[Any]:
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     context.route("https://gibs.earthdata.nasa.gov/**", lambda route: route.abort())
+    context.route("**/imagery/nasa/**", lambda route: route.abort())
 
     def official_asset(route: Any) -> None:
         url = route.request.url
@@ -253,6 +254,55 @@ def test_real_globe_has_startup_tracks_models_and_unmodified_source_positions(
       return (Cesium.Cartographic.fromCartesian(point).height / 1000).toFixed(1) + ' km';
     }""")
     assert globe_page.locator("#satellite-altitude").inner_text() == displayed_altitude
+    assert_single_screen(globe_page)
+
+
+@pytest.mark.parametrize("follow", [False, True])
+def test_imagery_recovers_without_resetting_the_camera_clock_or_reference_data(
+    globe_page: Any, cesium_assets: dict[str, tuple[int, dict[str, str], bytes]], follow: bool
+) -> None:
+    globe_page.wait_for_function(
+        "elements.globe.dataset.imagerySource === 'natural-earth-fallback'"
+    )
+    # Reuse an actual official JPEG as a controlled tile response, not a renderer mock.
+    sample = next(
+        body
+        for url, (_, _, body) in cesium_assets.items()
+        if "NaturalEarthII" in url and url.endswith(".jpg")
+    )
+    if follow:
+        globe_page.evaluate("selectSatellite('KENT_RIDGE_1_41167')")
+        globe_page.locator("#camera-follow").click()
+        globe_page.wait_for_function("state.cameraMode === 'follow'")
+        globe_page.wait_for_timeout(300)
+    globe_page.evaluate("""() => {
+      window.originalImageryLayer=state.globe.imageryLayers.get(1);
+      window.imageryBefore={viewer:state.globe,position:Cesium.Cartesian3.clone(state.globe.camera.positionWC),
+        time:state.replay.time,plan:JSON.stringify(state.currentPayload),task:state.selectedTaskId,
+        cameraMode:state.cameraMode,tracked:state.globe.trackedEntity};
+    }""")
+    globe_page.context.unroute("**/imagery/nasa/**")
+    globe_page.context.route(
+        "**/imagery/nasa/**",
+        lambda route: route.fulfill(status=200, content_type="image/jpeg", body=sample),
+    )
+    globe_page.evaluate("window.dispatchEvent(new Event('online'))")
+    globe_page.wait_for_function(
+        """() => state.globe.imageryLayers.length===3
+      && state.globe.imageryLayers.get(1)!==originalImageryLayer
+      && elements.globe.dataset.imagerySource==='nasa-blue-marble'
+      && state.globe.scene.globe.tilesLoaded""",
+        timeout=25000,
+    )
+    assert globe_page.evaluate("""() => state.globe===imageryBefore.viewer
+      && Cesium.Cartesian3.distance(state.globe.camera.positionWC,imageryBefore.position)<.001
+      && state.replay.time===imageryBefore.time && state.selectedTaskId===imageryBefore.task
+      && JSON.stringify(state.currentPayload)===imageryBefore.plan
+      && state.cameraMode===imageryBefore.cameraMode
+      && state.globe.trackedEntity===imageryBefore.tracked
+      && originalImageryLayer.isDestroyed()
+      && state.globe.imageryLayers.get(1).show
+      && state.globe.imageryLayers.get(1).alpha===1""")
     assert_single_screen(globe_page)
 
 

@@ -45,6 +45,12 @@ orbitops lab
 Open [localhost:8000](http://127.0.0.1:8000), or try the
 [hosted demo](https://revincxt.github.io/orbitops-lab/) without installation.
 
+The local server fetches NASA imagery through a fixed same-origin endpoint using
+verified HTTPS and direct upstream connections, without changing system proxy settings.
+Tiles are cached on demand in `runs/cache/nasa-blue-marble-v1` (100 MiB disk,
+8 MiB memory; up to four concurrent downloads). The static hosted demo accesses
+NASA directly; both modes retry transient failures and recover without resetting the view.
+
 ## Credits & Scope
 
 Demo records come from [EOS-Bench](https://github.com/Ethan19YQ/EOS-Bench).
