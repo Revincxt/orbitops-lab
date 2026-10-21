@@ -5,7 +5,6 @@ const state = {
   referenceData: null,
   referencePlans: null,
   globe: null,
-  imageryFallbackActive: false,
   imageryController: null,
   currentPayload: null,
   selectedTaskId: null,
@@ -63,11 +62,12 @@ const TASK_COLORS = Object.fromEntries(Object.entries({
   Planned: "accent", Observing: "peach", Completed: "sage", Available: "peach", Unassigned: "danger",
 }).map(([status, token]) => [status, getComputedStyle(elements.shell).getPropertyValue(`--${token}`).trim()]));
 
-function textField(id, value) {
+function textField(id, value, title = value) {
   const node = document.getElementById(id);
   const text = String(value);
+  const tooltip = String(title);
   if (node.textContent !== text) node.textContent = text;
-  if (node.title !== text) node.title = text;
+  if (node.title !== tooltip) node.title = tooltip;
 }
 
 function setAttributeIfChanged(node, name, value) {
@@ -526,7 +526,6 @@ function renderMissionGlobe(scenario, result) {
         makeLayer: provider => commandImageryLayer(Cesium, provider),
         onSource(source) {
           elements.globe.dataset.imagerySource = source;
-          state.imageryFallbackActive = source === "natural-earth-fallback";
         },
       });
       state.globe.imageryLayers.add(geographicGridLayer(Cesium));
@@ -579,7 +578,6 @@ function renderMissionGlobe(scenario, result) {
     state.fovPrimitives = null;
     state.footprintPrimitives = null;
     state.sensorFovs.clear();
-    state.imageryFallbackActive = false;
     renderGlobeFallback(scenario, scheduledIds);
   }
 }

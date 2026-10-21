@@ -83,7 +83,6 @@ button svg, .brand-mark, .selection-heading > svg { width: 16px; height: 16px; f
 .repository-link span { margin-left: 5px; }
 .icon-button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; background: transparent; border: 1px solid transparent; border-radius: 3px; color: var(--muted); flex-shrink: 0; }
 .icon-button:hover, .page-button:not(:disabled):hover { background: var(--surface-raised); border-color: var(--line-strong); color: var(--ink); }
-.icon-button[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); border-color: var(--line-strong); }
 .live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--sage); flex-shrink: 0; }
 .workspace { display: grid; grid-template-columns: var(--config-width) minmax(0, 1fr) var(--inspector-width); gap: 12px; padding: 12px; min-height: 0; position: relative; overflow: hidden; background: radial-gradient(ellipse at 50% 12%, #142b404d, transparent 72%); }
 /* Independent list/detail tracks preserve the mission geometry's original size. */
@@ -310,7 +309,6 @@ input::placeholder { color: var(--subtle); opacity: 1; }
 .swatch { display: inline-block; width: 10px; height: 4px; border-radius: 1px; margin-right: 5px; vertical-align: 2px; }
 .visibility { background: #12394b; border: 1px solid #4a839c; }
 .observation { background: var(--accent); }
-.slew { background: var(--peach); }
 .chart-host { min-width: 0; min-height: 0; flex: 1; overflow: hidden; }
 .chart-host svg { width: 100%; height: 100%; overflow: hidden; }
 .chart-empty { display: grid; width: 100%; height: 100%; min-height: 30px; place-items: center; padding: 12px; color: var(--muted); font-size: var(--text-value); text-align: center; }

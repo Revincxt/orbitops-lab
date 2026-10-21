@@ -72,6 +72,31 @@ def ready(page: Any, url: str) -> None:
     reference_ready(page, url)
 
 
+def test_shared_text_updates_preserve_tooltips_without_rewriting_unchanged_dom(
+    page: Any, lab_url: str
+) -> None:
+    ready(page, lab_url)
+    snapshot = page.evaluate("""() => {
+      const node = document.getElementById('satellite-name');
+      const observer = new MutationObserver(() => {});
+      observer.observe(node, {attributes:true, childList:true, subtree:true});
+      textField(node.id, 'Satellite display', 'Source satellite ID');
+      const initialWrites = observer.takeRecords().length;
+      textField(node.id, 'Satellite display', 'Source satellite ID');
+      const unchangedWrites = observer.takeRecords().length;
+      const tooltip = node.title;
+      textField(node.id, 42);
+      const numeric = {text:node.textContent, title:node.title};
+      observer.disconnect();
+      return {initialWrites, unchangedWrites, tooltip, numeric};
+    }""")
+
+    assert snapshot["initialWrites"] > 0
+    assert snapshot["unchangedWrites"] == 0
+    assert snapshot["tooltip"] == "Source satellite ID"
+    assert snapshot["numeric"] == {"text": "42", "title": "42"}
+
+
 def assert_single_screen(page: Any) -> None:
     dimensions = page.evaluate("""() => ({
       width: innerWidth, height: innerHeight,

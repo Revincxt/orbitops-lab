@@ -1001,7 +1001,7 @@ function updateOrbitHud() {
   for (const mode of ["overview", "follow"]) document.getElementById(`camera-${mode}`).setAttribute("aria-pressed", String(state.cameraMode === mode));
   document.getElementById("camera-follow").title = state.cameraMode === "follow" ? "Stop following satellite" : "Follow selected satellite";
   if (!reference) return;
-  satelliteDetailField("satellite-name", orbit ? satelliteName(orbit.satellite_id) : "Select a satellite",
+  textField("satellite-name", orbit ? satelliteName(orbit.satellite_id) : "Select a satellite",
     orbit?.satellite_id || "Pick a satellite symbol or select a Satellite row");
   const swatch = document.getElementById("satellite-swatch"), color = orbit ? orbitColor(orbit.satellite_id) : "#596777";
   if (swatch.dataset.color !== color) {
@@ -1015,26 +1015,20 @@ function updateOrbitHud() {
     const position = native ? [native.x, native.y, native.z] : state.orbitModels.get(orbit.satellite_id).cartesian(state.replay.time);
     const [longitude, latitude, altitude] = window.OrbitModel.toGeodetic(position);
     const fixed = value => { const text = value.toFixed(3); return text === "-0.000" ? "0.000" : text; };
-    satelliteDetailField("satellite-altitude", `${(altitude / 1000).toFixed(1)} km`);
-    satelliteDetailField("satellite-period", `${(orbit.period_s / 60).toFixed(1)} min`);
-    satelliteDetailField("satellite-latitude", `${fixed(latitude)}°`);
-    satelliteDetailField("satellite-longitude", `${fixed(longitude)}°`);
-    ["x", "y", "z"].forEach((axis, i) => satelliteDetailField(`satellite-position-${axis}`, fixed(position[i] / 1000)));
+    textField("satellite-altitude", `${(altitude / 1000).toFixed(1)} km`);
+    textField("satellite-period", `${(orbit.period_s / 60).toFixed(1)} min`);
+    textField("satellite-latitude", `${fixed(latitude)}°`);
+    textField("satellite-longitude", `${fixed(longitude)}°`);
+    ["x", "y", "z"].forEach((axis, i) => textField(`satellite-position-${axis}`, fixed(position[i] / 1000)));
   } else {
-    satelliteDetailField("satellite-altitude", "— km");
-    satelliteDetailField("satellite-period", "— min");
-    for (const field of ["latitude", "longitude"]) satelliteDetailField(`satellite-${field}`, "—°");
-    for (const axis of ["x", "y", "z"]) satelliteDetailField(`satellite-position-${axis}`, "—");
+    textField("satellite-altitude", "— km");
+    textField("satellite-period", "— min");
+    for (const field of ["latitude", "longitude"]) textField(`satellite-${field}`, "—°");
+    for (const axis of ["x", "y", "z"]) textField(`satellite-position-${axis}`, "—");
   }
   // Native EntityView has not yet moved its tracking camera to the new clock.
   // Reposition only after rendering; the offline SVG is already updated here.
   if (!state.globe) positionSatelliteDetails();
-}
-
-function satelliteDetailField(id, value, title = value) {
-  const node = document.getElementById(id);
-  if (node.textContent !== value) node.textContent = value;
-  if (node.title !== title) node.title = title;
 }
 
 function closeSatelliteDetails() {

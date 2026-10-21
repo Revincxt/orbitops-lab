@@ -8,7 +8,7 @@
 [![CI](https://github.com/Revincxt/orbitops-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/Revincxt/orbitops-lab/actions/workflows/ci.yml)
 [![Code: MIT](https://img.shields.io/badge/Code-MIT-8fa5bc?style=flat-square)](LICENSE)
 
-[Live Demo](https://revincxt.github.io/orbitops-lab/) · [Quick Start](#quick-start) · [Web Lab Guide](docs/web-lab.md)
+[Live Demo](https://revincxt.github.io/orbitops-lab/) · [Quick Start](#quick-start) · [Data & Scope](#credits--scope)
 
 </div>
 
@@ -60,8 +60,10 @@ JSON; decoding restores the original values before interpolation and rendering.
 
 ## Credits & Scope
 
-Demo records come from [EOS-Bench](https://github.com/Ethan19YQ/EOS-Bench).
-Orbit extensions and sensor fields of view are illustrative, not operational
-telemetry. See [data provenance and validation scope](docs/web-lab.md#eos-bench-reference-data).
+Demo records come from [EOS-Bench](https://github.com/Ethan19YQ/EOS-Bench), with
+source revision, file hashes and validation results retained in the
+[reference archive](data/eos-bench/reference.json). The checks cover source
+consistency and selected constraints, not full operational feasibility.
+Orbit extensions and sensor fields of view are illustrative, not operational telemetry.
 
 [MIT](LICENSE) applies to OrbitOps-authored code; third-party data is separate.

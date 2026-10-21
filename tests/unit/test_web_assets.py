@@ -1,4 +1,6 @@
+import re
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 STATIC_DIR = Path(__file__).parents[2] / "packages" / "orbitops" / "web" / "static"
 
@@ -84,15 +86,16 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
         "orbit-model",
         "satellite-attitude",
         "sensor-fov",
-        "mission",
         "imagery",
     ]:
         assert f'src="./{name}.js?v=0.42.0"' in html
     for name in ["data-store", "reference-plans"]:
         assert f'src="./{name}.js?v=0.43.0"' in html
-    for name in ["app", "orbit-ephemeris", "orbit-codec"]:
+    for name in ["orbit-ephemeris", "orbit-codec"]:
         assert f'src="./{name}.js?v=0.44.0"' in html
-    assert 'href="./app.css?v=0.42.0"' in html
+    for name in ["app", "mission"]:
+        assert f'src="./{name}.js?v=0.45.0"' in html
+    assert 'href="./app.css?v=0.45.0"' in html
     assert 'class="catalog-head"' not in html
     assert "TARGET / PRIORITY" not in html
     assert 'href="./favicon.svg?v=0.2.0"' in html
@@ -125,6 +128,33 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     assert "full cone angle 45°, half-angle 22.5°" in html
     assert 'id="toggle-rays"' not in html
     assert "Observation links" not in html
+
+
+def test_icon_library_contains_only_icons_used_by_the_current_interface() -> None:
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    scripts = "\n".join(path.read_text(encoding="utf-8") for path in STATIC_DIR.glob("*.js"))
+    defined = set(re.findall(r'<symbol id="(i-[\w-]+)"', html))
+    referenced = set(re.findall(r"[\"\']#(i-[\w-]+)[\"\']", html + scripts))
+
+    assert defined == referenced
+    assert "slew-legend" not in html
+
+
+def test_readme_local_links_and_section_anchors_resolve() -> None:
+    root = Path(__file__).parents[2]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    headings = {
+        re.sub(r"[^\w -]", "", heading.lower()).replace(" ", "-")
+        for heading in re.findall(r"^#+ (.+)$", readme, re.MULTILINE)
+    }
+    for target in re.findall(r"\]\(([^)]+)\)", readme):
+        link = urlsplit(target)
+        if link.scheme or link.netloc:
+            continue
+        if link.path:
+            assert (root / unquote(link.path)).exists(), target
+        elif link.fragment:
+            assert unquote(link.fragment) in headings, target
 
 
 def test_sidebar_panels_group_task_and_satellite_selection_apart_from_plan_results() -> None:
