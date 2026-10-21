@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="An engineering workspace for constrained Earth-observation scheduling.">
+  <meta name="description" content="An engineering workspace for Earth-observation mission replay, task inspection and scheduling research.">
   <meta property="og:type" content="website">
   <meta property="og:title" content="OrbitOps">
-  <meta property="og:description" content="Reproducible Earth-observation scheduling and independent feasibility analysis.">
+  <meta property="og:description" content="Explore satellite orbits, observation tasks and reference plans with synchronized playback and algorithm comparison.">
   <meta property="og:url" content="https://revincxt.github.io/orbitops-lab/">
   <meta name="twitter:card" content="summary">
   <title>OrbitOps</title>
@@ -68,7 +68,7 @@
                 <div id="layer-options" class="layer-options" role="group" aria-label="Visible map layers" hidden>
                   <button id="toggle-targets" class="tool-button" type="button" aria-pressed="true">Targets</button>
                   <button id="toggle-track" class="tool-button" type="button" aria-pressed="true" title="Source orbit samples: solid past, dashed future">Orbit paths</button>
-                  <button id="toggle-fov" class="tool-button" type="button" aria-pressed="true" title="Illustrative full cone angle 45°, half-angle 22.5°. Source pitch/yaw/roll replay during observations, nadir otherwise. Display transform is illustrative, not verified coverage.">Sensor FOV · 45°</button>
+                  <button id="toggle-fov" class="tool-button" type="button" aria-pressed="true" title="Illustrative full cone angle 45°, half-angle 22.5°. Source Euler replay with Earthward correction, a 29.5° off-nadir display limit and continuous idle-gap transitions. Not verified target coverage.">Sensor FOV · 45°</button>
                   <button id="toggle-illumination" class="tool-button" type="button" aria-pressed="true" title="3D only · Sun and natural day/night lighting follow replay UTC" disabled>Sun &amp; day/night</button>
                   <button id="toggle-labels" class="tool-button" type="button" aria-pressed="false" title="Target IDs appear when zoomed in; selected target stays labelled">Target IDs</button>
                   <button id="toggle-sat-labels" class="tool-button" type="button" aria-pressed="true">Satellite IDs</button>
@@ -138,12 +138,12 @@
                   <input id="replay-scrub" type="range" min="0" max="1" step="0.1" value="0" aria-label="Mission replay time">
                 </div>
               </div>
-              <p class="chart-empty">Evaluating observation windows…</p>
+              <p class="chart-empty">Loading observation windows…</p>
             </div>
           </article>
         </section>
       </section>
-      <aside id="inspector" class="inspector-panel" aria-label="Algorithm comparison and plan summary">
+      <aside id="inspector" class="inspector-panel" aria-label="Algorithm comparison and task details">
         <section class="comparison-card command-card console-panel" aria-labelledby="comparison-title">
           <div class="section-heading"><h3 id="comparison-title">Comparison</h3></div>
           <div class="comparison-plot"><div id="comparison-chart" class="radar-host" aria-label="Algorithm metric radar chart"></div><div id="comparison-legend" class="radar-legend" role="group" aria-label="Compare optimization algorithms"></div></div>

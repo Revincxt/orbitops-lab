@@ -1,4 +1,4 @@
-"""The single lexicographic objective used to compare every solver."""
+"""Lexicographic objective shared by the single-satellite research solvers."""
 
 from __future__ import annotations
 

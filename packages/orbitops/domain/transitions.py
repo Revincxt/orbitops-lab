@@ -1,4 +1,4 @@
-"""Pure transition calculations shared by simulation and future solvers."""
+"""Pure transition calculations shared by simulation and scheduling solvers."""
 
 from __future__ import annotations
 

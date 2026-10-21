@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from datetime import timedelta
 from itertools import pairwise
 from pathlib import Path
 
 import pytest
 from orbitops.web import LabApplication
-from orbitops.web.reference import ReferenceArchive
+from orbitops.web.reference import ATTITUDE_DISPLAY, ORBIT_INTERPOLATION, ReferenceArchive
 
 from scripts.import_eos_reference import REVISION, check_plan, read_source, utc
 
@@ -145,10 +146,27 @@ def test_reference_is_not_a_full_feasibility_certificate() -> None:
     assert "energy_after_wh" not in plan["assignments"][0]
 
 
-def test_api_and_static_exports_describe_source_attitude_replay_without_changing_archive() -> None:
-    reference = ReferenceArchive(ARCHIVE)
+def test_committed_display_notes_match_current_replay_metadata(archive: dict) -> None:
+    attitude = archive["replay"]["attitude"]
+    assert all(attitude[key] == value for key, value in ATTITUDE_DISPLAY.items())
+    assert archive["replay"]["interpolation"] == ORBIT_INTERPOLATION
+
+
+@pytest.mark.parametrize("legacy_notes", [False, True])
+def test_api_and_static_exports_describe_source_attitude_replay_without_changing_archive(
+    archive: dict, tmp_path: Path, legacy_notes: bool
+) -> None:
+    snapshot = deepcopy(archive)
+    if legacy_notes:
+        snapshot["replay"]["attitude"]["rendering"] = "Historical target-locked illustration"
+        snapshot["replay"]["interpolation"] = "Historical projection-specific interpolation"
+    path = tmp_path / "reference.json"
+    raw = json.dumps(snapshot).encode()
+    path.write_bytes(raw)
+    path.with_suffix(".sha256").write_text(hashlib.sha256(raw).hexdigest())
+    reference = ReferenceArchive(path)
     original = json.dumps(reference.data, sort_keys=True)
-    payload = json.loads(LabApplication(ARCHIVE).dispatch("GET", "/api/reference/data").body)
+    payload = json.loads(LabApplication(path).dispatch("GET", "/api/reference/data").body)
     exported = reference.export()
     assert exported is not None
     for replay in [payload["replay"], exported["replay"]]:
@@ -157,7 +175,9 @@ def test_api_and_static_exports_describe_source_attitude_replay_without_changing
         assert replay["attitude"]["max_display_off_nadir_deg"] == 29.5
         assert "preserve raw Euler arrays" in replay["attitude"]["display_correction"]
         assert replay["attitude"]["frame_verified"] is False
+        assert replay["interpolation"] == ORBIT_INTERPOLATION
     assert json.dumps(reference.data, sort_keys=True) == original
+    assert path.read_bytes() == raw
     assert payload["plans"][0]["assignments"] == exported["plans"][0]["assignments"]
 
 

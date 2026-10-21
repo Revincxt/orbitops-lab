@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "orbitops-lab"
 version = "0.2.0"
-description = "A reproducible scheduling laboratory for agile Earth-observation satellites."
+description = "Earth-observation mission replay and scheduling research."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 authors = [{ name = "Revincxt" }]
-keywords = ["satellite", "scheduling", "optimization", "simulation"]
+keywords = ["satellite", "replay", "visualization", "scheduling", "optimization", "simulation"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "License :: OSI Approved :: MIT License",

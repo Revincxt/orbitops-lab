@@ -21,6 +21,7 @@ SCENARIO_DIR = PROJECT_ROOT / "scenarios"
 REFERENCE_PATH = PROJECT_ROOT / "data" / "eos-bench" / "reference.json"
 STATIC_DIR = PROJECT_ROOT / "packages" / "orbitops" / "web" / "static"
 ARTIFACT_MARKER = ".orbitops-pages-artifact"
+# Replacement-safety marker format, independent of package and dataset versions.
 ARTIFACT_MARKER_CONTENT = "orbitops-pages-v0.2\n"
 PLAN_SUMMARY_FIELDS = ("plan_id", "label", "objective", "source_metrics", "recomputed_metrics")
 
@@ -42,7 +43,7 @@ def _source_revision() -> str:
 
 
 def build_dataset(application: LabApplication) -> dict[str, Any]:
-    """Publish only the pinned EOS-Bench archive; never solve synthetic showcases."""
+    """Export only the pinned EOS-Bench archive; never run the research solvers."""
     reference = application.reference.export()
     if not reference:
         raise RuntimeError("EOS-Bench reference data is unavailable")

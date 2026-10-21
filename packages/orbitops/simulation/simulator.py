@@ -1,4 +1,4 @@
-"""Deterministic discrete-event simulation for OrbitOps v0.1 schedules."""
+"""Deterministic simulation for the single-satellite research schedule contract."""
 
 from __future__ import annotations
 

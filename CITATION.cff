@@ -1,6 +1,7 @@
 cff-version: 1.2.0
 message: "If you use OrbitOps Lab, please cite this software."
 title: "OrbitOps Lab"
+abstract: "Earth-observation mission replay and scheduling research."
 type: software
 authors:
   - name: Revincxt

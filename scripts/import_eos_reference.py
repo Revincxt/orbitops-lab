@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from orbitops.web.reference import ATTITUDE_DISPLAY
+from orbitops.web.reference import ATTITUDE_DISPLAY, ORBIT_INTERPOLATION
 from orbitops.web.reference_checks import check_constraints, check_ellipsoid_visibility
 
 REVISION = "ee282656e8b2f6fd0d3cf84677b40966e2780ef3"
@@ -394,10 +394,7 @@ def build(source_dir: Path, stride: int = 30, chunk_dir: Path | None = None) -> 
                 "availability": "scheduled observation intervals only",
             },
             "ephemeris": {"step_s": 1, "chunk_duration_s": 3600, "chunks": chunks},
-            "interpolation": (
-                "3D: linear Cartesian; 2D: date-line-aware geodetic interpolation. "
-                "Retained source samples; visualization only."
-            ),
+            "interpolation": ORBIT_INTERPOLATION,
         },
         "provenance": {
             "repository": "https://github.com/Ethan19YQ/EOS-Bench",

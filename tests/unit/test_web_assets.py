@@ -128,6 +128,10 @@ def test_web_lab_has_accessible_product_specific_structure() -> None:
     assert "full cone angle 45°, half-angle 22.5°" in html
     assert 'id="toggle-rays"' not in html
     assert "Observation links" not in html
+    assert "mission replay, task inspection and scheduling research" in html
+    assert "continuous idle-gap transitions" in html
+    assert "29.5° off-nadir display limit" in html
+    assert "Evaluating observation windows" not in html
 
 
 def test_icon_library_contains_only_icons_used_by_the_current_interface() -> None:
@@ -171,7 +175,7 @@ def test_sidebar_panels_group_task_and_satellite_selection_apart_from_plan_resul
     assert 'id="resource-chart"' in left and 'id="comparison-chart"' not in left
     assert 'id="comparison-chart"' in right and 'id="resource-chart"' not in right
     assert 'aria-label="Task list and satellite workload"' in left
-    assert 'aria-label="Algorithm comparison and plan summary"' in right
+    assert 'aria-label="Algorithm comparison and task details"' in right
 
 
 def test_workload_lists_all_satellites_in_a_keyboard_accessible_scroll_region() -> None:

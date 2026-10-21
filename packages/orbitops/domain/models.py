@@ -1,4 +1,4 @@
-"""Versioned, immutable data contracts for OrbitOps Lab v0.1."""
+"""Immutable single-satellite research contracts; scenario schema version 0.1."""
 
 from __future__ import annotations
 

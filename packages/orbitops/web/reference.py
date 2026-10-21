@@ -8,6 +8,14 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+ORBIT_INTERPOLATION = (
+    "Native 3D, 2.5D and 2D: linear Earth-fixed Cartesian interpolation. "
+    "Offline SVG: source Cartesian interpolation when precise ephemeris is loaded; "
+    "otherwise date-line-aware geodetic preview interpolation. "
+    "Outside the source horizon: source-anchored two-body illustration, without tasks. "
+    "Source samples are retained; visualization only."
+)
+
 ATTITUDE_DISPLAY = {
     "rendering": (
         "Source Euler replay with display-only Earthward reversal and a 29.5-degree "
@@ -53,10 +61,11 @@ class ReferenceArchive:
             self.data = data
 
     def export(self) -> dict[str, Any] | None:
-        """Copy data for a static build; no run is recomputed or re-labelled."""
+        """Copy data for API/Pages with current display notes; never recompute a plan."""
         data = deepcopy(self.data)
         if data is not None:
             data["replay"]["attitude"].update(ATTITUDE_DISPLAY)
+            data["replay"]["interpolation"] = ORBIT_INTERPOLATION
         return data
 
     def orbit_chunk(self, filename: str) -> bytes:

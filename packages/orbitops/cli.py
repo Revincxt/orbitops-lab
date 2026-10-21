@@ -1,4 +1,4 @@
-"""Command-line interface for inspecting OrbitOps artifacts."""
+"""Mission replay, scheduling experiments, and artifact tools for OrbitOps Lab."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from orbitops.web import serve_lab
 
 app = typer.Typer(
     name="orbitops",
-    help="Reproducible satellite scheduling experiments.",
+    help="Earth-observation mission replay and scheduling research.",
     no_args_is_help=True,
 )
 

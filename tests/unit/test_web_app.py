@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from orbitops.web import LabApplication
+from orbitops.web.reference import ReferenceArchive
 
 PROJECT_ROOT = Path(__file__).parents[2]
 REFERENCE_PATH = PROJECT_ROOT / "data/eos-bench/reference.json"
@@ -163,7 +164,4 @@ def test_reference_requests_serialize_once_even_under_concurrent_loads(
     )
     assert json.loads(responses[0].body) == original_export()
     assert app.reference.data is not None
-    assert (
-        app.reference.data["replay"]["attitude"]["rendering"]
-        != (json.loads(responses[0].body)["replay"]["attitude"]["rendering"])
-    )
+    assert app.reference.data == ReferenceArchive(REFERENCE_PATH).data

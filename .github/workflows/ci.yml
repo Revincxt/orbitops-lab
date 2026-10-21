@@ -37,7 +37,7 @@ jobs:
       - run: node --check packages/orbitops/web/static/app.js
       - run: uv run python scripts/build_pages.py --output site
       - run: uv build
-      - name: Inspect packaged Web Lab assets
+      - name: Inspect packaged replay workspace assets
         run: |
           uv run python - <<'PY'
           from pathlib import Path
@@ -46,26 +46,13 @@ jobs:
           wheels = tuple(Path("dist").glob("*.whl"))
           if len(wheels) != 1:
               raise SystemExit(f"expected one wheel, found {len(wheels)}")
+          static = Path("packages/orbitops/web/static")
           required = {
-              "orbitops/web/static/index.html",
-              "orbitops/web/static/app.css",
-              "orbitops/web/static/app.js",
-              "orbitops/web/static/replay.js",
-              "orbitops/web/static/mission.js",
-              "orbitops/web/static/orbit-model.js",
-              "orbitops/web/static/orbit-ephemeris.js",
-              "orbitops/web/static/orbit-codec.js",
-              "orbitops/web/static/data-store.js",
-              "orbitops/web/static/reference-plans.js",
-              "orbitops/web/static/satellite-attitude.js",
-              "orbitops/web/static/sensor-fov.js",
-              "orbitops/web/static/models/earth-observer.glb",
-              "orbitops/web/static/fonts/InterVariable.woff2",
-              "orbitops/web/static/fonts/OFL.txt",
-              "orbitops/web/static/favicon.svg",
+              f"orbitops/web/static/{path.relative_to(static).as_posix()}"
+              for path in static.rglob("*") if path.is_file()
           }
           with ZipFile(wheels[0]) as archive:
               missing = required - set(archive.namelist())
           if missing:
-              raise SystemExit(f"wheel is missing Web Lab assets: {sorted(missing)}")
+              raise SystemExit(f"wheel is missing replay workspace assets: {sorted(missing)}")
           PY

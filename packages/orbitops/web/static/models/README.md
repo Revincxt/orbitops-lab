@@ -9,13 +9,18 @@ payload and communications hardware.
 
 The glTF coordinates are illustrative metres, with +Y outward and the optical
 payload towards -Y. Cesium converts glTF Y-up to its entity reference frame.
-The viewer replays declared source attitude samples during observations and
-uses an illustrative nadir orientation otherwise. The model's sensor axis and
-FOV share the same orientation, with a minimum screen size for legibility.
+The viewer derives observation attitudes from source Euler samples, reverses
+skyward boresights and limits display deflection to 29.5 degrees off nadir.
+Idle gaps include angle-timed preparation, recovery or direct retargeting;
+remaining idle time uses an illustrative nadir orientation. The model and the
+circular 45-degree full-angle FOV share the same displayed attitude. These
+display-only treatments do not rewrite source angles or certify target coverage.
+The model has a minimum screen size for legibility; its static GLB contains no
+source attitude animation, because the viewer supplies orientation at runtime.
 Neither the shape, dimensions, source-calibrated attitude transform,
 solar-array direction nor exaggerated screen size is spacecraft telemetry.
-Source positions, schedules and sensor FOV remain
-unchanged. The original satellites are not claimed to share this actual shape.
+Source positions, schedules and sensor specifications remain unchanged.
+The original satellites are not claimed to share this actual shape.
 
 Build with `.venv/bin/python scripts/build_satellite_model.py`. Unit tests check
 the deterministic binary, buffer bounds, winding, normals and self-contained
