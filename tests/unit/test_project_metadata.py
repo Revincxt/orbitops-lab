@@ -18,8 +18,12 @@ def test_project_description_and_release_metadata_are_consistent() -> None:
         )
     )
     readme = (ROOT / "README.md").read_text()
+    lock = tomllib.loads((ROOT / "uv.lock").read_text())
+    locked_project = next(
+        package for package in lock["package"] if package["name"] == project["name"]
+    )
 
-    assert project["version"] == __version__ == citation["version"]
+    assert project["version"] == __version__ == citation["version"] == locked_project["version"]
     assert project["description"] == citation["abstract"] == app.info.help
     assert project["description"] in readme
     assert f"# {citation['title']}" in readme

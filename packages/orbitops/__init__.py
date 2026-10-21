@@ -137,4 +137,4 @@ __all__ = [
     "write_benchmark_html_from_json",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

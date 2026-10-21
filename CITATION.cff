@@ -5,7 +5,7 @@ abstract: "Earth-observation mission replay and scheduling research."
 type: software
 authors:
   - name: Revincxt
-version: 0.2.0
-date-released: 2026-08-30
+version: 0.3.0
+date-released: 2026-10-21
 license: MIT
 repository-code: "https://github.com/Revincxt/orbitops-lab"
